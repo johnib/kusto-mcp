@@ -38,7 +38,7 @@ Tools:
 2. Database Exploration:
    - When user mentions data analysis needs, identify target database
    - Use show-tables to fetch tables information from the current database, and show-table to fetch table schema
-   - Use show-functions to fetch functions information from the current database, including their code in the Body column.
+   - Use show-functions to fetch functions information from the current database, and show-function to fetch function details (including code and parameters)
    - Present schema details in user-friendly format
 
 3. Query Execution:
@@ -170,12 +170,12 @@ export function createKustoServer(config: KustoConfig): Server {
         },
         {
           name: "show-functions",
-          description: "List functions in the current database, including their code",
+          description: "List functions in the current database",
           inputSchema: zodToJsonSchema(ShowFunctionsSchema),
         },
         {
           name: "show-function",
-          description: "Show details of a specific function",
+          description: "Show details of a specific function, including its code and parameters",
           inputSchema: zodToJsonSchema(ShowFunctionSchema),
         },
       ],
