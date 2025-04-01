@@ -91,3 +91,42 @@ export async function showTable(connection: KustoConnection, tableName: string):
     }
   });
 }
+
+/**
+ * List functions in the current database
+ * 
+ * @param connection The Kusto connection
+ * @returns A list of functions
+ */
+export async function showFunctions(connection: KustoConnection): Promise<any> {
+  return tracer.startActiveSpan("showFunctions", async (span) => {
+    try {
+      if (!connection.isInitialized()) {
+        throw new KustoQueryError("Connection not initialized");
+      }
+
+      const database = connection.getDatabase();
+      span.setAttribute("database", database);
+
+      safeLog(`Listing functions in database: ${database}`);
+
+      // Execute the query to list functions
+      const result = await connection.executeQuery(database, ".show functions");
+      span.setStatus({ code: SpanStatusCode.OK });
+
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      safeLog(`Failed to list functions: ${errorMessage}`);
+
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: errorMessage
+      });
+
+      throw new KustoQueryError(`Failed to list functions: ${errorMessage}`);
+    } finally {
+      span.end();
+    }
+  });
+}
