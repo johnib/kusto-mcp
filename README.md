@@ -54,6 +54,31 @@ KUSTO_QUERY_TIMEOUT=60000  # Timeout in milliseconds (default: 60000)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317/v1/traces
 ```
 
+### CLINE MCP configuration
+
+Add this JSON to the `cline_mcp_settings.json` file:
+
+```JSON
+{
+  "mcpServers": {
+    "kusto-mcp": {
+      "command": "node",
+      "args": [
+        "<path to repo>/kusto-mcp/dist/index.js"
+      ],
+      "env": {},
+      "disabled": false,
+      "autoApprove": [
+        "initialize-connection",
+        "show-tables",
+        "show-table",
+        "execute-query"
+      ]
+    }
+  }
+}
+```
+
 ## Usage
 
 ### Running the Server
