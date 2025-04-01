@@ -7,7 +7,7 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
 import * as dotenv from "dotenv";
 import { safeLog } from "./common/utils.js";
-import { createKustoServer, testConnection } from "./server.js";
+import { createKustoServer } from "./server.js";
 import { AuthenticationMethod, KustoConfig } from "./types/config.js";
 
 // Load environment variables
@@ -77,24 +77,6 @@ const server = createKustoServer(config);
 
 // Run the server
 async function runServer() {
-  // Test the connection to Kusto if a default database is provided
-  if (config.defaultDatabase) {
-    const connectionSuccessful = await testConnection(config);
-    
-    if (!connectionSuccessful) {
-      safeLog("Error: Failed to connect to Kusto cluster");
-      process.exit(1);
-    }
-    
-    safeLog("Successfully connected to Kusto cluster");
-    safeLog(`Cluster URL: ${config.clusterUrl}`);
-    safeLog(`Default Database: ${config.defaultDatabase}`);
-    safeLog(`Authentication Method: ${config.authMethod}`);
-  } else {
-    safeLog("No default database provided, skipping connection test");
-    safeLog("Connection will be initialized on first use");
-  }
-  
   // Connect the server to the stdio transport
   const transport = new StdioServerTransport();
   await server.connect(transport);

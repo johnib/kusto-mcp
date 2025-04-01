@@ -132,8 +132,8 @@ export function createKustoServer(config: KustoConfig): Server {
     }
   );
   
-  // Create a Kusto connection
-  const connection = new KustoConnection(validatedConfig);
+  // Declare a variable to store the connection when it's initialized
+  let connection: KustoConnection | null = null;
   
   // Register the ListTools request handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -176,6 +176,12 @@ export function createKustoServer(config: KustoConfig): Server {
       switch (request.params.name) {
         case "initialize-connection": {
           const args = InitializeConnectionSchema.parse(request.params.arguments);
+          
+          // Create a new connection each time initialize-connection is called
+          // This will override any existing connection
+          connection = new KustoConnection(validatedConfig);
+          
+          // Initialize the connection
           const result = await connection.initialize(args.cluster_url, args.database);
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -184,6 +190,15 @@ export function createKustoServer(config: KustoConfig): Server {
         
         case "show-tables": {
           ShowTablesSchema.parse(request.params.arguments);
+          
+          // Check if the connection is initialized
+          if (!connection) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              "Connection not initialized. Please call initialize-connection first."
+            );
+          }
+          
           const result = await showTables(connection);
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -192,6 +207,15 @@ export function createKustoServer(config: KustoConfig): Server {
         
         case "show-table": {
           const args = ShowTableSchema.parse(request.params.arguments);
+          
+          // Check if the connection is initialized
+          if (!connection) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              "Connection not initialized. Please call initialize-connection first."
+            );
+          }
+          
           const result = await showTable(connection, args.tableName);
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -200,6 +224,15 @@ export function createKustoServer(config: KustoConfig): Server {
         
         case "execute-query": {
           const args = ExecuteQuerySchema.parse(request.params.arguments);
+          
+          // Check if the connection is initialized
+          if (!connection) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              "Connection not initialized. Please call initialize-connection first."
+            );
+          }
+          
           const result = await executeQuery(connection, args.query);
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -234,27 +267,4 @@ export function createKustoServer(config: KustoConfig): Server {
   });
   
   return server;
-}
-
-/**
- * Test the connection to a Kusto cluster
- * 
- * @param config The Kusto configuration
- * @returns True if the connection is successful, false otherwise
- */
-export async function testConnection(config: KustoConfig): Promise<boolean> {
-  try {
-    safeLog(`Testing connection to ${config.clusterUrl}...`);
-    
-    const validatedConfig = validateConfig(config);
-    const connection = new KustoConnection(validatedConfig);
-    
-    await connection.initialize(validatedConfig.clusterUrl, validatedConfig.defaultDatabase || "");
-    
-    safeLog("Connection successful");
-    return true;
-  } catch (error) {
-    safeLog(`Connection test failed: ${error instanceof Error ? error.message : String(error)}`);
-    return false;
-  }
 }
