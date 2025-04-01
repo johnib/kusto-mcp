@@ -61,7 +61,6 @@ const config: KustoConfig = {
   clusterUrl: process.env.KUSTO_CLUSTER_URL || "",
   defaultDatabase: process.env.KUSTO_DEFAULT_DATABASE,
   authMethod: authMethod,
-  tokenEndpoint: process.env.KUSTO_TOKEN_ENDPOINT,
   queryTimeout: process.env.KUSTO_QUERY_TIMEOUT ? parseInt(process.env.KUSTO_QUERY_TIMEOUT) : undefined,
   enableSchemaCache: process.env.KUSTO_ENABLE_SCHEMA_CACHE !== "false",
   schemaCacheTtl: process.env.KUSTO_SCHEMA_CACHE_TTL ? parseInt(process.env.KUSTO_SCHEMA_CACHE_TTL) : undefined

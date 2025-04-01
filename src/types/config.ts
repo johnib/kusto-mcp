@@ -26,11 +26,6 @@ export interface KustoConfig {
   authMethod?: AuthenticationMethod;
   
   /**
-   * The endpoint to get tokens from
-   */
-  tokenEndpoint?: string;
-  
-  /**
    * The timeout for Kusto queries in milliseconds
    */
   queryTimeout?: number;
@@ -51,7 +46,6 @@ export interface KustoConfig {
  */
 export const DEFAULT_CONFIG: Partial<KustoConfig> = {
   authMethod: AuthenticationMethod.AzureIdentity,
-  tokenEndpoint: "http://localhost:5000/token",
   queryTimeout: 60000, // 1 minute
   enableSchemaCache: true,
   schemaCacheTtl: 1800000 // 30 minutes

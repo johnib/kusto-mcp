@@ -14,6 +14,7 @@ A TypeScript implementation of a Model Context Protocol (MCP) server for Azure D
 - **Telemetry**: OpenTelemetry integration for activity tracking
 - **Error Handling**: Comprehensive error handling with detailed exceptions
 - **Type Safety**: Full TypeScript type definitions
+- **AI Assistant Guidance**: Detailed description for AI assistants on how to effectively interact with users when working with Azure Data Explorer
 
 ## Prerequisites
 
@@ -46,9 +47,9 @@ Create a `.env` file based on the provided `.env.example`:
 
 ```bash
 # Kusto Configuration
-KUSTO_CLUSTER_URL=https://your-cluster.kusto.windows.net
-KUSTO_DEFAULT_DATABASE=your-database
-KUSTO_AUTH_METHOD=azure-identity  # Options: azure-identity, azure-cli
+KUSTO_CLUSTER_URL=https://example.kusto.windows.net
+KUSTO_DEFAULT_DATABASE=ExampleDB
+KUSTO_AUTH_METHOD=azure-cli  # Options: azure-identity, azure-cli
 KUSTO_TOKEN_ENDPOINT=http://localhost:5000/token
 KUSTO_QUERY_TIMEOUT=60000  # Timeout in milliseconds (default: 60000)
 KUSTO_ENABLE_SCHEMA_CACHE=true  # Enable schema caching (default: true)
@@ -98,6 +99,17 @@ The server provides the following MCP tools:
    - Runs KQL queries and returns results
    - Parameters:
      - `query`: The query to execute
+
+### AI Assistant Guidance
+
+This MCP server includes detailed guidance for AI assistants on how to effectively interact with users when working with Azure Data Explorer. The guidance includes:
+
+- **Workflow Guidance**: Step-by-step instructions for connection setup, database exploration, query execution, best practices, and query optimization
+- **Conversation Flow**: Suggestions for how to guide users through the interaction, from initial connection to executing analytical queries
+- **Error Handling**: Common error scenarios and how to address them
+- **ADX KQL Specifics**: Best practices for writing efficient KQL queries
+
+This guidance helps ensure that AI assistants can provide a consistent, helpful experience when helping users interact with Azure Data Explorer through this MCP server.
 
 ## Authentication
 
@@ -153,6 +165,17 @@ To add a new Kusto operation:
 2. Define the operation function
 3. Export the function from `src/operations/kusto/index.ts`
 4. Add the tool to the server in `src/server.ts`
+
+## Implementation Notes
+
+This TypeScript implementation mirrors the functionality of the C# version while using the appropriate Node.js libraries:
+
+- Uses `azure-kusto-data` and `azure-kusto-ingest` packages for Kusto operations
+- Implements Azure CLI authentication using `KustoConnectionStringBuilder.withAzLoginIdentity`
+- Provides comprehensive error handling with detailed exceptions
+- Includes OpenTelemetry integration for activity tracking
+- Implements schema caching to reduce redundant calls
+- Uses TypeScript for type safety and better developer experience
 
 ## License
 

@@ -27,35 +27,64 @@ export const schemaCache = new LRUCache<string, KustoTable>({
 /**
  * Convert Kusto query results to a JSON-friendly format
  * 
- * @param result The Kusto query result
+ * @param result The Kusto query result from azure-kusto-data
  * @returns A JSON-friendly representation of the result
  */
-export function kustoResultToJson(result: KustoQueryResult): any {
+export function kustoResultToJson(result: any): any {
   try {
-    if (!result || !result.tables || !Array.isArray(result.tables)) {
+    // Handle null or undefined result
+    if (!result) {
       return { tables: [] };
     }
 
+    // Check if the result has primaryResults property (azure-kusto-data format)
+    if (result.primaryResults && Array.isArray(result.primaryResults)) {
+      // Convert each primary result to a table
+      return {
+        tables: result.primaryResults.map((primaryResult: any, index: number) => {
+          // If the result has a toJSON method, use it
+          if (typeof primaryResult.toJSON === 'function') {
+            return primaryResult.toJSON();
+          }
+          
+          // Otherwise, try to extract the data from the result
+          const columns = primaryResult.columns || [];
+          const rows = primaryResult.rows || [];
+          
+          // Convert rows to objects with column names as keys
+          const formattedRows = Array.isArray(rows) 
+            ? rows.map((row: any[]) => {
+                const rowObject: Record<string, any> = {};
+                
+                columns.forEach((column: any, colIndex: number) => {
+                  const columnName = column.name || `column${colIndex}`;
+                  const columnType = column.type || 'string';
+                  rowObject[columnName] = convertKustoValue(row[colIndex], columnType);
+                });
+                
+                return rowObject;
+              })
+            : [];
+          
+          return {
+            name: `result${index}`,
+            rows: formattedRows
+          };
+        })
+      };
+    }
+    
+    // If the result already has the expected format, return it as is
+    if (result.tables && Array.isArray(result.tables)) {
+      return result;
+    }
+    
+    // If the result is something else, try to convert it to the expected format
     return {
-      tables: result.tables.map(table => {
-        const { name, columns, rows } = table;
-        
-        // Convert rows to objects with column names as keys
-        const formattedRows = rows.map(row => {
-          const rowObject: Record<string, any> = {};
-          
-          columns.forEach((column, index) => {
-            rowObject[column.name] = convertKustoValue(row[index], column.type);
-          });
-          
-          return rowObject;
-        });
-        
-        return {
-          name,
-          rows: formattedRows
-        };
-      })
+      tables: [{
+        name: 'result',
+        rows: Array.isArray(result) ? result : [result]
+      }]
     };
   } catch (error) {
     throw new KustoDataConversionError(`Failed to convert Kusto result to JSON: ${error instanceof Error ? error.message : String(error)}`);

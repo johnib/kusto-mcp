@@ -1,7 +1,7 @@
 // Add Node.js specific Error interface
 declare global {
   interface ErrorConstructor {
-    captureStackTrace?(targetObject: object, constructorOpt?: Function): void;
+    captureStackTrace(targetObject: object, constructorOpt?: Function): void;
   }
 }
 

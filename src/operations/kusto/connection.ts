@@ -1,9 +1,9 @@
-import { Client, KustoConnectionStringBuilder } from "@azure/data-explorer-js";
 import { TokenCredential } from "@azure/identity";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
+import { Client, KustoConnectionStringBuilder } from "azure-kusto-data";
 import { createTokenCredential } from "../../auth/token-credentials.js";
 import { KustoConnectionError, KustoQueryError } from "../../common/errors.js";
-import { kustoResultToJson, safeLog } from "../../common/utils.js";
+import { KustoQueryResult, kustoResultToJson, safeLog } from "../../common/utils.js";
 import { KustoConfig } from "../../types/config.js";
 
 // Create a tracer for this module
@@ -44,10 +44,9 @@ export class KustoConnection {
         
         safeLog(`Initializing connection to ${clusterUrl}, database: ${database}`);
         
-        const connectionString = KustoConnectionStringBuilder.withAadTokenCredentialAuthentication(
-          clusterUrl,
-          this.tokenCredential
-        );
+        // Create a connection string with Azure CLI authentication
+        // This will use the token from Azure CLI for authentication
+        const connectionString = KustoConnectionStringBuilder.withAzLoginIdentity(clusterUrl);
         
         this.client = new Client(connectionString);
         this.database = database;
@@ -106,7 +105,8 @@ export class KustoConnection {
         ]);
         
         // Convert the result to a JSON-friendly format
-        const formattedResult = kustoResultToJson(result);
+        // Cast the result to KustoQueryResult type
+        const formattedResult = kustoResultToJson(result as KustoQueryResult);
         
         safeLog("Query executed successfully");
         span.setStatus({ code: SpanStatusCode.OK });
