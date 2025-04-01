@@ -26,7 +26,6 @@ export class KustoConnection {
   constructor(config: KustoConfig) {
     this.config = config;
     this.tokenCredential = createTokenCredential(config.authMethod);
-    safeLog(`KustoConnection created with cluster URL: ${config.clusterUrl}`);
   }
   
   /**

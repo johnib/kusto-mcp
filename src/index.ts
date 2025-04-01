@@ -16,18 +16,20 @@ dotenv.config();
 // Configure OpenTelemetry
 const provider = new NodeTracerProvider({
   resource: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: "kusto-mcp"
-  })
+    [SemanticResourceAttributes.SERVICE_NAME]: "kusto-mcp",
+  }),
 });
 
 // Add OTLP exporter if configured
 if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
   const exporter = new OTLPTraceExporter({
-    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
   });
-  
+
   provider.addSpanProcessor(new BatchSpanProcessor(exporter));
-  safeLog(`OpenTelemetry exporter configured with endpoint: ${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}`);
+  safeLog(
+    `OpenTelemetry exporter configured with endpoint: ${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}`
+  );
 } else {
   safeLog("OpenTelemetry exporter not configured, skipping");
 }
@@ -44,7 +46,7 @@ safeLog("Using Azure Identity authentication by default");
 
 if (process.env.KUSTO_AUTH_METHOD) {
   const method = process.env.KUSTO_AUTH_METHOD.toLowerCase();
-  
+
   if (method === "azure-identity") {
     authMethod = AuthenticationMethod.AzureIdentity;
     safeLog("Using Azure Identity authentication");
@@ -52,23 +54,19 @@ if (process.env.KUSTO_AUTH_METHOD) {
     authMethod = AuthenticationMethod.AzureCli;
     safeLog("Using Azure CLI authentication");
   } else {
-    safeLog(`Unknown authentication method: ${method}, falling back to Azure Identity`);
+    safeLog(
+      `Unknown authentication method: ${method}, falling back to Azure Identity`
+    );
   }
 }
 
 // Create the server configuration from environment variables
 const config: KustoConfig = {
-  clusterUrl: process.env.KUSTO_CLUSTER_URL || "",
-  defaultDatabase: process.env.KUSTO_DEFAULT_DATABASE,
   authMethod: authMethod,
-  queryTimeout: process.env.KUSTO_QUERY_TIMEOUT ? parseInt(process.env.KUSTO_QUERY_TIMEOUT) : undefined,
+  queryTimeout: process.env.KUSTO_QUERY_TIMEOUT
+    ? parseInt(process.env.KUSTO_QUERY_TIMEOUT)
+    : undefined,
 };
-
-// Validate the required configuration
-if (!config.clusterUrl) {
-  safeLog("Error: KUSTO_CLUSTER_URL environment variable is required");
-  process.exit(1);
-}
 
 // Create the server
 const server = createKustoServer(config);
@@ -78,13 +76,17 @@ async function runServer() {
   // Connect the server to the stdio transport
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  
+
   safeLog("Kusto MCP Server running on stdio");
 }
 
 // Start the server
-runServer().catch(error => {
-  safeLog(`Fatal error in main(): ${error instanceof Error ? error.message : String(error)}`);
+runServer().catch((error) => {
+  safeLog(
+    `Fatal error in main(): ${
+      error instanceof Error ? error.message : String(error)
+    }`
+  );
   process.exit(1);
 });
 
@@ -108,6 +110,10 @@ process.on("uncaughtException", (error) => {
 
 // Handle unhandled promise rejections
 process.on("unhandledRejection", (reason) => {
-  safeLog(`Unhandled promise rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+  safeLog(
+    `Unhandled promise rejection: ${
+      reason instanceof Error ? reason.message : String(reason)
+    }`
+  );
   process.exit(1);
 });

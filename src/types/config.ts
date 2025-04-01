@@ -3,7 +3,7 @@
  */
 export enum AuthenticationMethod {
   AzureCli = "azure-cli",
-  AzureIdentity = "azure-identity"
+  AzureIdentity = "azure-identity",
 }
 
 /**
@@ -11,20 +11,10 @@ export enum AuthenticationMethod {
  */
 export interface KustoConfig {
   /**
-   * The URL of the Kusto cluster
-   */
-  clusterUrl: string;
-  
-  /**
-   * The default database to use
-   */
-  defaultDatabase?: string;
-  
-  /**
    * The authentication method to use
    */
   authMethod?: AuthenticationMethod;
-  
+
   /**
    * The timeout for Kusto queries in milliseconds
    */
@@ -41,18 +31,14 @@ export const DEFAULT_CONFIG: Partial<KustoConfig> = {
 
 /**
  * Validate the Kusto configuration
- * 
+ *
  * @param config The configuration to validate
  * @returns The validated configuration with defaults applied
  */
 export function validateConfig(config: Partial<KustoConfig>): KustoConfig {
-  if (!config.clusterUrl) {
-    throw new Error("Cluster URL is required");
-  }
-  
   // Apply defaults
   return {
     ...DEFAULT_CONFIG,
-    ...config
+    ...config,
   } as KustoConfig;
 }
