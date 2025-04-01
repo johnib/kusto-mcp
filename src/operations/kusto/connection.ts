@@ -3,7 +3,7 @@ import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { Client, KustoConnectionStringBuilder } from "azure-kusto-data";
 import { createTokenCredential } from "../../auth/token-credentials.js";
 import { KustoConnectionError, KustoQueryError } from "../../common/errors.js";
-import { KustoQueryResult, kustoResultToJson, safeLog } from "../../common/utils.js";
+import { KustoQueryResult, safeLog } from "../../common/utils.js";
 import { KustoConfig } from "../../types/config.js";
 
 // Create a tracer for this module
@@ -106,7 +106,7 @@ export class KustoConnection {
         
         // Convert the result to a JSON-friendly format
         // Cast the result to KustoQueryResult type
-        const formattedResult = kustoResultToJson(result as KustoQueryResult);
+        const formattedResult = result as KustoQueryResult
         
         safeLog("Query executed successfully");
         span.setStatus({ code: SpanStatusCode.OK });
