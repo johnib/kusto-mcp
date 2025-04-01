@@ -47,13 +47,8 @@ Create a `.env` file based on the provided `.env.example`:
 
 ```bash
 # Kusto Configuration
-KUSTO_CLUSTER_URL=https://example.kusto.windows.net
-KUSTO_DEFAULT_DATABASE=ExampleDB
 KUSTO_AUTH_METHOD=azure-cli  # Options: azure-identity, azure-cli
-KUSTO_TOKEN_ENDPOINT=http://localhost:5000/token
 KUSTO_QUERY_TIMEOUT=60000  # Timeout in milliseconds (default: 60000)
-KUSTO_ENABLE_SCHEMA_CACHE=true  # Enable schema caching (default: true)
-KUSTO_SCHEMA_CACHE_TTL=1800000  # Cache TTL in milliseconds (default: 1800000)
 
 # OpenTelemetry Configuration
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317/v1/traces
@@ -87,8 +82,6 @@ The server provides the following MCP tools:
 
 2. **show-tables**
    - Lists tables in the given database
-   - Parameters:
-     - `database`: The database to list tables from
 
 3. **show-table**
    - Shows the table schema columns
@@ -115,11 +108,7 @@ This guidance helps ensure that AI assistants can provide a consistent, helpful 
 
 ### Azure Identity Authentication
 
-The server uses Azure Identity authentication by default. This requires:
-
-1. A running token service at the configured endpoint (default: http://localhost:5000/token)
-2. The token service should accept a POST request with a JSON body containing a `value` property with the scope
-3. The token service should return a JSON response with `token` and `expiresOn` properties
+The server uses Azure Identity authentication by default.
 
 ### Azure CLI Authentication
 

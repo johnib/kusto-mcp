@@ -62,8 +62,6 @@ const config: KustoConfig = {
   defaultDatabase: process.env.KUSTO_DEFAULT_DATABASE,
   authMethod: authMethod,
   queryTimeout: process.env.KUSTO_QUERY_TIMEOUT ? parseInt(process.env.KUSTO_QUERY_TIMEOUT) : undefined,
-  enableSchemaCache: process.env.KUSTO_ENABLE_SCHEMA_CACHE !== "false",
-  schemaCacheTtl: process.env.KUSTO_SCHEMA_CACHE_TTL ? parseInt(process.env.KUSTO_SCHEMA_CACHE_TTL) : undefined
 };
 
 // Validate the required configuration

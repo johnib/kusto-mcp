@@ -29,16 +29,6 @@ export interface KustoConfig {
    * The timeout for Kusto queries in milliseconds
    */
   queryTimeout?: number;
-  
-  /**
-   * Whether to enable schema caching
-   */
-  enableSchemaCache?: boolean;
-  
-  /**
-   * The time to live for cached schema information in milliseconds
-   */
-  schemaCacheTtl?: number;
 }
 
 /**
@@ -47,8 +37,6 @@ export interface KustoConfig {
 export const DEFAULT_CONFIG: Partial<KustoConfig> = {
   authMethod: AuthenticationMethod.AzureIdentity,
   queryTimeout: 60000, // 1 minute
-  enableSchemaCache: true,
-  schemaCacheTtl: 1800000 // 30 minutes
 };
 
 /**
