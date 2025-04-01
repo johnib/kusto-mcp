@@ -8,22 +8,22 @@ import { KustoConnection } from "./connection.js";
 const tracer = trace.getTracer("kusto-tables");
 
 /**
- * List tables in a database
+ * List tables in the current database
  * 
  * @param connection The Kusto connection
- * @param database The database to list tables from
  * @returns A list of tables
  */
-export async function showTables(connection: KustoConnection, database: string): Promise<KustoTableListItem[]> {
+export async function showTables(connection: KustoConnection): Promise<KustoTableListItem[]> {
   return tracer.startActiveSpan("showTables", async (span) => {
     try {
-      span.setAttribute("database", database);
-      
-      safeLog(`Listing tables in database: ${database}`);
-      
       if (!connection.isInitialized()) {
         throw new KustoQueryError("Connection not initialized");
       }
+      
+      const database = connection.getDatabase();
+      span.setAttribute("database", database);
+      
+      safeLog(`Listing tables in database: ${database}`);
       
       // Execute the query to list tables
       const result = await connection.executeQuery(database, ".show tables");
