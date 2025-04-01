@@ -50,7 +50,7 @@ Create a `.env` file based on the provided `.env.example`:
 KUSTO_AUTH_METHOD=azure-cli  # Options: azure-identity, azure-cli
 KUSTO_QUERY_TIMEOUT=60000  # Timeout in milliseconds (default: 60000)
 
-# OpenTelemetry Configuration
+# OpenTelemetry Configuration (optional)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317/v1/traces
 ```
 
