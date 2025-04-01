@@ -110,8 +110,9 @@ export async function showFunctions(connection: KustoConnection): Promise<any> {
 
       safeLog(`Listing functions in database: ${database}`);
 
-      // Execute the query to list functions
-      const result = await connection.executeQuery(database, ".show functions");
+      // Execute the query to list functions.
+      // Get only the function name and docstring to reduce token consumption and focus the agent.
+      const result = await connection.executeQuery(database, ".show functions | project Name, DocString");
       span.setStatus({ code: SpanStatusCode.OK });
 
       return result;
