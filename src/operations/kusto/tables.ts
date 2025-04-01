@@ -1,7 +1,7 @@
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { KustoQueryError, KustoResourceNotFoundError } from "../../common/errors.js";
 import { safeLog } from "../../common/utils.js";
-import { KustoTableListItem, KustoTableSchema } from "../../types/kusto-interfaces.js";
+import { KustoTableListItem, KustoTableSchema, KustoFunctionSchema, KustoFunctionListItem } from "../../types/kusto-interfaces.js";
 import { KustoConnection } from "./connection.js";
 
 // Create a tracer for this module
@@ -98,7 +98,7 @@ export async function showTable(connection: KustoConnection, tableName: string):
  * @param connection The Kusto connection
  * @returns A list of functions
  */
-export async function showFunctions(connection: KustoConnection): Promise<any> {
+export async function showFunctions(connection: KustoConnection): Promise<KustoFunctionListItem[]> {
   return tracer.startActiveSpan("showFunctions", async (span) => {
     try {
       if (!connection.isInitialized()) {
@@ -126,6 +126,52 @@ export async function showFunctions(connection: KustoConnection): Promise<any> {
       });
 
       throw new KustoQueryError(`Failed to list functions: ${errorMessage}`);
+    } finally {
+      span.end();
+    }
+  });
+}
+
+/**
+ * Get the details of a specific function
+ * 
+ * @param connection The Kusto connection
+ * @param functionName The name of the function
+ * @returns The function details
+ */
+export async function showFunction(connection: KustoConnection, functionName: string): Promise<KustoFunctionSchema> {
+  return tracer.startActiveSpan("showFunction", async (span) => {
+    try {
+      span.setAttribute("functionName", functionName);
+      
+      const database = connection.getDatabase();
+      span.setAttribute("database", database);
+      
+      safeLog(`Getting details for function: ${functionName} in database: ${database}`);
+      
+      if (!connection.isInitialized()) {
+        throw new KustoQueryError("Connection not initialized");
+      }
+      
+      // Execute the query to get the function details
+      const result = await connection.executeQuery(database, `.show function ${functionName}`);
+      span.setStatus({ code: SpanStatusCode.OK });
+      
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      safeLog(`Failed to get function details: ${errorMessage}`);
+      
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: errorMessage
+      });
+      
+      if (error instanceof KustoResourceNotFoundError) {
+        throw error;
+      }
+      
+      throw new KustoQueryError(`Failed to get function details: ${errorMessage}`);
     } finally {
       span.end();
     }
