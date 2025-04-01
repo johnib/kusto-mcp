@@ -21,7 +21,7 @@ Start by establishing the connection and maintain a helpful, conversational tone
 <mcp>
 Tools:
 - "initialize-connection": Creates connection to an ADX cluster
-- "show-tables": list tables in the given database
+- "show-tables": list tables in the current database
 - "show-table": show the table schema columns
 - "execute-query": Runs KQL queries and returns results
 </mcp>
@@ -34,7 +34,7 @@ Tools:
 
 2. Database Exploration:
    - When user mentions data analysis needs, identify target database
-   - Use show-tables to fetch tables information, and show-table to fetch table schema
+   - Use show-tables to fetch tables information from the current database, and show-table to fetch table schema
    - Present schema details in user-friendly format
 
 3. Query Execution:
@@ -98,9 +98,7 @@ const InitializeConnectionSchema = z.object({
   database: z.string().describe("The database to connect to")
 });
 
-const ShowTablesSchema = z.object({
-  database: z.string().describe("The database to list tables from")
-});
+const ShowTablesSchema = z.object({});
 
 const ShowTableSchema = z.object({
   tableName: z.string().describe("The name of the table to get the schema for")
@@ -148,7 +146,7 @@ export function createKustoServer(config: KustoConfig): Server {
         },
         {
           name: "show-tables",
-          description: "List tables in the given database",
+          description: "List tables in the current database",
           inputSchema: zodToJsonSchema(ShowTablesSchema),
         },
         {
@@ -185,8 +183,8 @@ export function createKustoServer(config: KustoConfig): Server {
         }
         
         case "show-tables": {
-          const args = ShowTablesSchema.parse(request.params.arguments);
-          const result = await showTables(connection, args.database);
+          ShowTablesSchema.parse(request.params.arguments);
+          const result = await showTables(connection);
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           };
