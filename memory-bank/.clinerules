@@ -1,0 +1,147 @@
+# Kusto MCP Server Development Rules and Patterns
+
+## Project Patterns
+
+### Code Organization
+1. All source code lives in src/ directory
+2. Maintain clear separation of concerns:
+   - auth/ for authentication
+   - common/ for shared utilities
+   - operations/ for Kusto operations
+   - types/ for TypeScript interfaces
+
+### Naming Conventions
+1. Use PascalCase for:
+   - Class names
+   - Interface names
+   - Type aliases
+2. Use camelCase for:
+   - Variables
+   - Functions
+   - Method names
+3. Use UPPER_SNAKE_CASE for:
+   - Constants
+   - Environment variables
+
+### File Structure
+1. One class per file
+2. Group related functionality in directories
+3. Index.ts files for clean exports
+4. Separate interface definitions in types/
+
+## Implementation Guidelines
+
+### Authentication
+1. Always use Azure Identity or Azure CLI
+2. Handle token refresh automatically
+3. Implement proper error handling
+4. Cache authentication tokens appropriately
+
+### Error Handling
+1. Use custom error types from common/errors.ts
+2. Include context in error messages
+3. Properly categorize errors
+4. Implement graceful recovery where possible
+
+### Performance Patterns
+1. Use LRU cache for schemas
+2. Implement connection pooling
+3. Optimize query execution
+4. Monitor memory usage
+
+## Development Workflow
+
+### Code Changes
+1. Update types first
+2. Implement functionality
+3. Add error handling
+4. Write tests
+5. Update documentation
+
+### Testing Requirements
+1. Unit tests for all new functionality
+2. Integration tests for complex features
+3. Performance testing for critical paths
+4. Security testing for auth flows
+
+## Documentation Standards
+
+### Code Documentation
+1. Use JSDoc for all public APIs
+2. Include examples in documentation
+3. Document error scenarios
+4. Keep README up to date
+
+### Commit Messages
+1. Use conventional commit format
+2. Include context where needed
+3. Reference issues when applicable
+4. Keep commits focused
+
+## Tool Implementation
+
+### New Tools
+1. Define clear input schema
+2. Implement comprehensive validation
+3. Add detailed error handling
+4. Include usage documentation
+
+### Tool Updates
+1. Maintain backward compatibility
+2. Update documentation
+3. Add migration guides if needed
+4. Test thoroughly
+
+## Security Practices
+
+### Authentication
+1. Never log credentials
+2. Use environment variables
+3. Implement proper token handling
+4. Follow Azure security best practices
+
+### Error Messages
+1. Avoid exposing sensitive data
+2. Provide useful but safe information
+3. Log detailed errors internally
+4. Present sanitized messages externally
+
+## Performance Guidelines
+
+### Caching
+1. Use LRU cache for schemas
+2. Configure appropriate cache sizes
+3. Implement cache invalidation
+4. Monitor cache performance
+
+### Query Optimization
+1. Validate queries before execution
+2. Implement timeout handling
+3. Monitor query performance
+4. Cache frequent queries
+
+## Learning Notes
+
+### Key Insights
+1. MCP protocol standardizes AI assistant interaction
+2. Azure authentication requires careful error handling
+3. Schema caching significantly improves performance
+4. Clear error messages are critical for usability
+
+### Best Practices
+1. Follow TypeScript strict mode
+2. Implement comprehensive error handling
+3. Maintain clear documentation
+4. Focus on security and performance
+
+### Common Pitfalls
+1. Inadequate error handling
+2. Missing type definitions
+3. Poor cache management
+4. Insufficient documentation
+
+### Optimization Opportunities
+1. Query performance tuning
+2. Enhanced caching strategies
+3. Connection pooling
+4. Error recovery mechanisms
