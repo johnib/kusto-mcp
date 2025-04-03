@@ -162,3 +162,48 @@ export interface KustoTableListItem {
    */
   description?: string;
 }
+
+/**
+ * Interface for a Kusto function list item
+ */
+export interface KustoFunctionListItem {
+  /**
+   * The name of the function
+   */
+  Name: string;
+
+  /**
+   * The function's docstring
+   */
+  DocString?: string;
+}
+
+/**
+ * Interface for a Kusto function schema
+ */
+export interface KustoFunctionSchema {
+  /**
+   * The name of the function
+   */
+  Name: string;
+
+  /**
+   * The parameters of the function
+   */
+  Parameters: string;
+
+  /**
+   * The body of the function
+   */
+  Body: string;
+
+  /**
+   * The folder containing the function
+   */
+  Folder?: string;
+
+  /**
+   * The function's description
+   */
+  DocString?: string;
+}

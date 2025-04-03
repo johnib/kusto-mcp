@@ -9,8 +9,9 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { formatKustoMcpError, isKustoMcpError } from "./common/errors.js";
 import { safeLog } from "./common/utils.js";
-import { executeQuery, KustoConnection, showTable, showTables } from "./operations/kusto/index.js";
+import { executeQuery, KustoConnection, showFunction, showTable, showTables } from "./operations/kusto/index.js";
 import { KustoConfig, validateConfig } from "./types/config.js";
+import { showFunctions } from "./operations/kusto/tables.js";
 
 /**
  * Detailed description of the Kusto MCP server for AI assistants
@@ -23,6 +24,8 @@ Tools:
 - "initialize-connection": Creates connection to an ADX cluster
 - "show-tables": list tables in the current database
 - "show-table": show the table schema columns
+- "show-functions": list functions in the current database and their documentation
+- "show-function": show details of a specific function, including its code and parameters
 - "execute-query": Runs KQL queries and returns results
 </mcp>
 
@@ -35,6 +38,7 @@ Tools:
 2. Database Exploration:
    - When user mentions data analysis needs, identify target database
    - Use show-tables to fetch tables information from the current database, and show-table to fetch table schema
+   - Use show-functions to fetch functions information from the current database, and show-function to fetch function details (including code and parameters)
    - Present schema details in user-friendly format
 
 3. Query Execution:
@@ -99,6 +103,7 @@ const InitializeConnectionSchema = z.object({
 });
 
 const ShowTablesSchema = z.object({});
+const ShowFunctionsSchema = z.object({});
 
 const ShowTableSchema = z.object({
   tableName: z.string().describe("The name of the table to get the schema for")
@@ -106,6 +111,10 @@ const ShowTableSchema = z.object({
 
 const ExecuteQuerySchema = z.object({
   query: z.string().describe("The query to execute")
+});
+
+const ShowFunctionSchema = z.object({
+  functionName: z.string().describe("The name of the function to get details for")
 });
 
 /**
@@ -158,6 +167,16 @@ export function createKustoServer(config: KustoConfig): Server {
           name: "execute-query",
           description: "Runs KQL queries and returns results",
           inputSchema: zodToJsonSchema(ExecuteQuerySchema),
+        },
+        {
+          name: "show-functions",
+          description: "List functions in the current database",
+          inputSchema: zodToJsonSchema(ShowFunctionsSchema),
+        },
+        {
+          name: "show-function",
+          description: "Show details of a specific function, including its code and parameters",
+          inputSchema: zodToJsonSchema(ShowFunctionSchema),
         },
       ],
     };
@@ -221,6 +240,22 @@ export function createKustoServer(config: KustoConfig): Server {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           };
         }
+
+        case "show-functions": {
+          ShowFunctionsSchema.parse(request.params.arguments);
+          // Check if the connection is initialized
+          if (!connection) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              "Connection not initialized. Please call initialize-connection first."
+            );
+          }
+
+          const result = await showFunctions(connection);
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        }
         
         case "execute-query": {
           const args = ExecuteQuerySchema.parse(request.params.arguments);
@@ -234,6 +269,23 @@ export function createKustoServer(config: KustoConfig): Server {
           }
           
           const result = await executeQuery(connection, args.query);
+          return {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          };
+        }
+
+        case "show-function": {
+          const args = ShowFunctionSchema.parse(request.params.arguments);
+          
+          // Check if the connection is initialized
+          if (!connection) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              "Connection not initialized. Please call initialize-connection first."
+            );
+          }
+          
+          const result = await showFunction(connection, args.functionName);
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
           };
