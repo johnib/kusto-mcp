@@ -9,6 +9,8 @@ A TypeScript implementation of a Model Context Protocol (MCP) server for Azure D
   - Initialize connection to ADX clusters
   - List tables in databases
   - Show table schemas
+  - List functions in databases
+  - Get code for functions
   - Execute KQL queries
 - **Schema Caching**: Caches table schemas to reduce redundant calls
 - **Telemetry**: OpenTelemetry integration for activity tracking
@@ -79,6 +81,27 @@ Add this JSON to the `cline_mcp_settings.json` file:
 }
 ```
 
+### Visual Studio Code Insiders configuration
+
+Add this JSON stanza to the `settings.json` file:
+
+```JSON
+    "mcp": {
+        "servers": {
+            "kusto-mcp": {
+                "type": "stdio",
+                "command": "npm",
+                "args": [
+                    "--prefix",
+                    "<path to the kusto-mcp source directory>",
+                    "run",
+                    "start",
+                    "--silent"
+                ]
+            }
+        }
+    },
+
 ## Usage
 
 ### Running the Server
@@ -117,6 +140,14 @@ The server provides the following MCP tools:
    - Runs KQL queries and returns results
    - Parameters:
      - `query`: The query to execute
+
+5. **show-functions**
+   - Lists all functions in the given database
+
+6. **show-function**
+   - Provides detailed information on a given function, including its source code
+   - Parameters:
+     - `functionName`: The name of the function to get informationabout
 
 ### AI Assistant Guidance
 
