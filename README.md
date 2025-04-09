@@ -28,17 +28,20 @@ A TypeScript implementation of a Model Context Protocol (MCP) server for Azure D
 ## Installation
 
 1. Clone the repository:
+
    ```bash
-   git clone https://github.com/yourusername/kusto-mcp.git
+   git clone https://github.com/johnib/kusto-mcp
    cd kusto-mcp
    ```
 
 2. Install dependencies:
+
    ```bash
    npm install
    ```
 
 3. Build the project:
+
    ```bash
    npm run build
    ```
@@ -100,7 +103,8 @@ Add this JSON stanza to the `settings.json` file:
                 ]
             }
         }
-    },
+    }
+```
 
 ## Usage
 
