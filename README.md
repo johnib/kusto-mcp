@@ -66,11 +66,9 @@ Add this JSON to the `cline_mcp_settings.json` file:
 ```JSON
 {
   "mcpServers": {
-    "kusto-mcp": {
-      "command": "node",
-      "args": [
-        "<path to repo>/kusto-mcp/dist/index.js"
-      ],
+    "github.com/johnib/kusto-mcp": {
+      "command": "npx",
+      "args": ["-y", "kusto-mcp"],
       "env": {},
       "disabled": false,
       "autoApprove": [
@@ -82,6 +80,7 @@ Add this JSON to the `cline_mcp_settings.json` file:
     }
   }
 }
+
 ```
 
 ### Visual Studio Code Insiders configuration
@@ -92,16 +91,10 @@ Add this JSON stanza to the `settings.json` file:
 {
   "mcp": {
     "servers": {
-      "kusto-mcp": {
+      "github.com/johnib/kusto-mcp": {
         "type": "stdio",
-        "command": "npm",
-        "args": [
-          "--prefix",
-          "<path to the kusto-mcp source directory>",
-          "run",
-          "start",
-          "--silent"
-        ]
+        "command": "npx",
+        "args": ["-y", "kusto-mcp"]
       }
     }
   }
