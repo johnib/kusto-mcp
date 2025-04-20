@@ -89,21 +89,23 @@ Add this JSON to the `cline_mcp_settings.json` file:
 Add this JSON stanza to the `settings.json` file:
 
 ```JSON
-    "mcp": {
-        "servers": {
-            "kusto-mcp": {
-                "type": "stdio",
-                "command": "npm",
-                "args": [
-                    "--prefix",
-                    "<path to the kusto-mcp source directory>",
-                    "run",
-                    "start",
-                    "--silent"
-                ]
-            }
-        }
+{
+  "mcp": {
+    "servers": {
+      "kusto-mcp": {
+        "type": "stdio",
+        "command": "npm",
+        "args": [
+          "--prefix",
+          "<path to the kusto-mcp source directory>",
+          "run",
+          "start",
+          "--silent"
+        ]
+      }
     }
+  }
+}
 ```
 
 ## Usage
