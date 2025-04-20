@@ -3,6 +3,7 @@
 ## Current Development State
 
 ### Implemented Features
+
 1. MCP Server Implementation
    - Basic server setup and configuration
    - Tool registration system
@@ -36,6 +37,7 @@
 ## Active Development Areas
 
 ### Current Focus
+
 1. **Stability Improvements**
    - Error handling refinement
    - Connection stability
@@ -57,13 +59,19 @@
 ## Recent Changes
 
 ### Latest Updates
+
 1. Initial project setup
 2. Core MCP server implementation
 3. Azure authentication integration
 4. Basic tool implementations
 5. Schema caching system
+6. Refined execute-query response handling
+   - Simplified response to return only primary result data
+   - Updated KustoQueryResult interface to match API structure
+   - Improved error handling for missing primary results
 
 ### In Progress
+
 1. Documentation improvements
 2. Test coverage expansion
 3. Performance optimization
@@ -72,6 +80,7 @@
 ## Immediate Next Steps
 
 ### Priority Tasks
+
 1. Complete documentation
    - [ ] Update README
    - [ ] Add API documentation
@@ -99,11 +108,18 @@
 ## Active Decisions
 
 ### Current Considerations
+
 1. **Caching Strategy**
    - Optimization of cache size
    - Cache invalidation rules
    - Memory management
    - Performance impact
+
+2. **Query Response Format**
+   - Streamlined response structure
+   - Primary result data extraction
+   - Error handling strategy
+   - Type safety improvements
 
 2. **Error Handling**
    - Error classification
@@ -126,6 +142,7 @@
 ## Known Issues
 
 ### Active Problems
+
 1. **Documentation**
    - Need more usage examples
    - Configuration documentation incomplete
@@ -147,12 +164,14 @@
 ## Development Priorities
 
 ### Short-term Goals
+
 1. Complete core documentation
 2. Expand test coverage
 3. Optimize performance
 4. Enhance security
 
 ### Medium-term Goals
+
 1. Add advanced features
 2. Improve monitoring
 3. Enhance caching
@@ -161,12 +180,14 @@
 ## Active Discussions
 
 ### Current Topics
+
 1. Performance optimization strategies
 2. Security enhancement options
 3. Testing approach improvements
 4. Documentation structure
 
 ### Pending Decisions
+
 1. Cache configuration options
 2. Error handling strategies
 3. Monitoring enhancements
