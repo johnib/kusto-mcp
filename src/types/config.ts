@@ -2,8 +2,8 @@
  * Authentication methods supported by the Kusto MCP server
  */
 export enum AuthenticationMethod {
-  AzureCli = "azure-cli",
-  AzureIdentity = "azure-identity",
+  AzureCli = 'azure-cli',
+  AzureIdentity = 'azure-identity',
 }
 
 /**

@@ -6,7 +6,7 @@ export interface KustoConnectionParams {
    * The URL of the Kusto cluster
    */
   clusterUrl: string;
-  
+
   /**
    * The database to connect to
    */
@@ -51,22 +51,22 @@ export interface KustoColumnSchema {
    * The name of the column
    */
   name: string;
-  
+
   /**
    * The type of the column
    */
   type: string;
-  
+
   /**
    * Whether the column is nullable
    */
   isNullable?: boolean;
-  
+
   /**
    * The column's ordinal position
    */
   ordinal?: number;
-  
+
   /**
    * The column's description
    */
@@ -81,22 +81,22 @@ export interface KustoTableSchema {
    * The name of the table
    */
   tableName: string;
-  
+
   /**
    * The database containing the table
    */
   databaseName: string;
-  
+
   /**
    * The columns in the table
    */
   columns: KustoColumnSchema[];
-  
+
   /**
    * The folder containing the table
    */
   folder?: string;
-  
+
   /**
    * The table's description
    */
@@ -121,7 +121,7 @@ export interface KustoQueryResultTable {
    * The name of the table
    */
   name: string;
-  
+
   /**
    * The rows in the table
    */
@@ -146,17 +146,17 @@ export interface KustoTableListItem {
    * The name of the table
    */
   name: string;
-  
+
   /**
    * The database containing the table
    */
   database: string;
-  
+
   /**
    * The folder containing the table
    */
   folder?: string;
-  
+
   /**
    * The table's description
    */
