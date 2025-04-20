@@ -1,17 +1,23 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   CallToolRequestSchema,
   ErrorCode,
   ListToolsRequestSchema,
-  McpError
-} from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
-import { formatKustoMcpError, isKustoMcpError } from "./common/errors.js";
-import { safeLog } from "./common/utils.js";
-import { executeQuery, KustoConnection, showFunction, showTable, showTables } from "./operations/kusto/index.js";
-import { KustoConfig, validateConfig } from "./types/config.js";
-import { showFunctions } from "./operations/kusto/tables.js";
+  McpError,
+} from '@modelcontextprotocol/sdk/types.js';
+import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import { formatKustoMcpError, isKustoMcpError } from './common/errors.js';
+import { safeLog } from './common/utils.js';
+import {
+  executeQuery,
+  KustoConnection,
+  showFunction,
+  showTable,
+  showTables,
+} from './operations/kusto/index.js';
+import { showFunctions } from './operations/kusto/tables.js';
+import { KustoConfig, validateConfig } from './types/config.js';
 
 /**
  * Detailed description of the Kusto MCP server for AI assistants
@@ -98,225 +104,232 @@ Remember ADX KQL Specifics:
 
 // Define schemas for tool parameters
 const InitializeConnectionSchema = z.object({
-  cluster_url: z.string().describe("The URL of the Kusto cluster"),
-  database: z.string().describe("The database to connect to")
+  cluster_url: z.string().describe('The URL of the Kusto cluster'),
+  database: z.string().describe('The database to connect to'),
 });
 
 const ShowTablesSchema = z.object({});
 const ShowFunctionsSchema = z.object({});
 
 const ShowTableSchema = z.object({
-  tableName: z.string().describe("The name of the table to get the schema for")
+  tableName: z.string().describe('The name of the table to get the schema for'),
 });
 
 const ExecuteQuerySchema = z.object({
-  query: z.string().describe("The query to execute")
+  query: z.string().describe('The query to execute'),
 });
 
 const ShowFunctionSchema = z.object({
-  functionName: z.string().describe("The name of the function to get details for")
+  functionName: z
+    .string()
+    .describe('The name of the function to get details for'),
 });
 
 /**
  * Create a Kusto MCP server
- * 
+ *
  * @param config The Kusto configuration
  * @returns A configured MCP server instance
  */
 export function createKustoServer(config: KustoConfig): Server {
   // Validate the configuration
   const validatedConfig = validateConfig(config);
-  
+
   // Initialize the MCP server
   const server = new Server(
     {
-      name: "kusto-mcp",
-      version: "1.0.0",
+      name: 'kusto-mcp',
+      version: '1.0.0',
       description: KUSTO_TOOL_DESCRIPTION,
     },
     {
       capabilities: {
         tools: {},
       },
-    }
+    },
   );
-  
+
   // Declare a variable to store the connection when it's initialized
   let connection: KustoConnection | null = null;
-  
+
   // Register the ListTools request handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
       tools: [
         {
-          name: "initialize-connection",
-          description: "Creates connection to an ADX cluster",
+          name: 'initialize-connection',
+          description: 'Creates connection to an ADX cluster',
           inputSchema: zodToJsonSchema(InitializeConnectionSchema),
         },
         {
-          name: "show-tables",
-          description: "List tables in the current database",
+          name: 'show-tables',
+          description: 'List tables in the current database',
           inputSchema: zodToJsonSchema(ShowTablesSchema),
         },
         {
-          name: "show-table",
-          description: "Show the table schema columns",
+          name: 'show-table',
+          description: 'Show the table schema columns',
           inputSchema: zodToJsonSchema(ShowTableSchema),
         },
         {
-          name: "execute-query",
-          description: "Runs KQL queries and returns results",
+          name: 'execute-query',
+          description: 'Runs KQL queries and returns results',
           inputSchema: zodToJsonSchema(ExecuteQuerySchema),
         },
         {
-          name: "show-functions",
-          description: "List functions in the current database",
+          name: 'show-functions',
+          description: 'List functions in the current database',
           inputSchema: zodToJsonSchema(ShowFunctionsSchema),
         },
         {
-          name: "show-function",
-          description: "Show details of a specific function, including its code and parameters",
+          name: 'show-function',
+          description:
+            'Show details of a specific function, including its code and parameters',
           inputSchema: zodToJsonSchema(ShowFunctionSchema),
         },
       ],
     };
   });
-  
+
   // Register the CallTool request handler
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async request => {
     try {
       if (!request.params.arguments) {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          "Arguments are required"
-        );
+        throw new McpError(ErrorCode.InvalidParams, 'Arguments are required');
       }
-      
+
       switch (request.params.name) {
-        case "initialize-connection": {
-          const args = InitializeConnectionSchema.parse(request.params.arguments);
-          
+        case 'initialize-connection': {
+          const args = InitializeConnectionSchema.parse(
+            request.params.arguments,
+          );
+
           // Create a new connection each time initialize-connection is called
           // This will override any existing connection
           connection = new KustoConnection(validatedConfig);
-          
+
           // Initialize the connection
-          const result = await connection.initialize(args.cluster_url, args.database);
+          const result = await connection.initialize(
+            args.cluster_url,
+            args.database,
+          );
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-          };
-        }
-        
-        case "show-tables": {
-          ShowTablesSchema.parse(request.params.arguments);
-          
-          // Check if the connection is initialized
-          if (!connection) {
-            throw new McpError(
-              ErrorCode.InvalidRequest,
-              "Connection not initialized. Please call initialize-connection first."
-            );
-          }
-          
-          const result = await showTables(connection);
-          return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-          };
-        }
-        
-        case "show-table": {
-          const args = ShowTableSchema.parse(request.params.arguments);
-          
-          // Check if the connection is initialized
-          if (!connection) {
-            throw new McpError(
-              ErrorCode.InvalidRequest,
-              "Connection not initialized. Please call initialize-connection first."
-            );
-          }
-          
-          const result = await showTable(connection, args.tableName);
-          return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
           };
         }
 
-        case "show-functions": {
+        case 'show-tables': {
+          ShowTablesSchema.parse(request.params.arguments);
+
+          // Check if the connection is initialized
+          if (!connection) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              'Connection not initialized. Please call initialize-connection first.',
+            );
+          }
+
+          const result = await showTables(connection);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        }
+
+        case 'show-table': {
+          const args = ShowTableSchema.parse(request.params.arguments);
+
+          // Check if the connection is initialized
+          if (!connection) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              'Connection not initialized. Please call initialize-connection first.',
+            );
+          }
+
+          const result = await showTable(connection, args.tableName);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        }
+
+        case 'show-functions': {
           ShowFunctionsSchema.parse(request.params.arguments);
           // Check if the connection is initialized
           if (!connection) {
             throw new McpError(
               ErrorCode.InvalidRequest,
-              "Connection not initialized. Please call initialize-connection first."
+              'Connection not initialized. Please call initialize-connection first.',
             );
           }
 
           const result = await showFunctions(connection);
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-          };
-        }
-        
-        case "execute-query": {
-          const args = ExecuteQuerySchema.parse(request.params.arguments);
-          
-          // Check if the connection is initialized
-          if (!connection) {
-            throw new McpError(
-              ErrorCode.InvalidRequest,
-              "Connection not initialized. Please call initialize-connection first."
-            );
-          }
-          
-          const result = await executeQuery(connection, args.query);
-          return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
           };
         }
 
-        case "show-function": {
-          const args = ShowFunctionSchema.parse(request.params.arguments);
-          
+        case 'execute-query': {
+          const args = ExecuteQuerySchema.parse(request.params.arguments);
+
           // Check if the connection is initialized
           if (!connection) {
             throw new McpError(
               ErrorCode.InvalidRequest,
-              "Connection not initialized. Please call initialize-connection first."
+              'Connection not initialized. Please call initialize-connection first.',
             );
           }
-          
-          const result = await showFunction(connection, args.functionName);
+
+          const result = await executeQuery(connection, args.query);
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
           };
         }
-        
+
+        case 'show-function': {
+          const args = ShowFunctionSchema.parse(request.params.arguments);
+
+          // Check if the connection is initialized
+          if (!connection) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              'Connection not initialized. Please call initialize-connection first.',
+            );
+          }
+
+          const result = await showFunction(connection, args.functionName);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        }
+
         default:
           throw new McpError(
             ErrorCode.MethodNotFound,
-            `Unknown tool: ${request.params.name}`
+            `Unknown tool: ${request.params.name}`,
           );
       }
     } catch (error) {
       safeLog(`Error handling tool call: ${error}`);
-      
+
       // Format the error message
       let errorMessage: string;
-      
+
       if (error instanceof McpError) {
         errorMessage = `MCP Error: ${error.message}`;
       } else if (isKustoMcpError(error)) {
         errorMessage = formatKustoMcpError(error);
       } else {
-        errorMessage = `Error: ${error instanceof Error ? error.message : String(error)}`;
+        errorMessage = `Error: ${
+          error instanceof Error ? error.message : String(error)
+        }`;
       }
-      
+
       return {
-        content: [{ type: "text", text: errorMessage }],
+        content: [{ type: 'text', text: errorMessage }],
         isError: true,
       };
     }
   });
-  
+
   return server;
 }
