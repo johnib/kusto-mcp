@@ -280,8 +280,23 @@ export function createKustoServer(config: KustoConfig): Server {
           }
 
           const result = await executeQuery(connection, args.query);
+
+          if (!result.primaryResults || result.primaryResults.length === 0) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              'No primary result found in query response',
+            );
+          }
+
+          const primaryResult = result.primaryResults[0];
+
           return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(primaryResult, null, 2),
+              },
+            ],
           };
         }
 

@@ -3,8 +3,9 @@ import { SpanStatusCode, trace } from '@opentelemetry/api';
 import { Client, KustoConnectionStringBuilder } from 'azure-kusto-data';
 import { createTokenCredential } from '../../auth/token-credentials.js';
 import { KustoConnectionError, KustoQueryError } from '../../common/errors.js';
-import { KustoQueryResult, safeLog } from '../../common/utils.js';
+import { safeLog } from '../../common/utils.js';
 import { KustoConfig } from '../../types/config.js';
+import { KustoQueryResult } from '../../types/kusto-interfaces.js';
 
 // Create a tracer for this module
 const tracer = trace.getTracer('kusto-connection');
@@ -102,7 +103,7 @@ export class KustoConnection {
         const timeout = this.config.queryTimeout || 60000;
 
         // Execute the query with timeout
-        const result = await Promise.race([
+        const rawResult = await Promise.race([
           this.client.execute(database, query),
           new Promise((_, reject) =>
             setTimeout(
@@ -115,9 +116,11 @@ export class KustoConnection {
           ),
         ]);
 
+        safeLog(`Raw Kusto Response: ${JSON.stringify(rawResult, null, 2)}`);
+
         // Convert the result to a JSON-friendly format
         // Cast the result to KustoQueryResult type
-        const formattedResult = result as KustoQueryResult;
+        const formattedResult = rawResult as KustoQueryResult;
 
         safeLog('Query executed successfully');
         span.setStatus({ code: SpanStatusCode.OK });

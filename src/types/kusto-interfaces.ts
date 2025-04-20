@@ -123,9 +123,9 @@ export interface KustoQueryResultTable {
   name: string;
 
   /**
-   * The rows in the table
+   * The data in the table
    */
-  rows: KustoQueryResultRow[];
+  data: KustoQueryResultRow[];
 }
 
 /**
@@ -136,6 +136,14 @@ export interface KustoQueryResult {
    * The tables in the result
    */
   tables: KustoQueryResultTable[];
+
+  /**
+   * The primary results
+   */
+  primaryResults: {
+    name: string;
+    data: KustoQueryResultRow[];
+  }[];
 }
 
 /**
