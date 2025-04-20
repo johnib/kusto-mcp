@@ -80,7 +80,6 @@ Add this JSON to the `cline_mcp_settings.json` file:
     }
   }
 }
-
 ```
 
 ### Visual Studio Code Insiders configuration
