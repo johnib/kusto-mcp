@@ -1,6 +1,6 @@
 {
   "name": "kusto-mcp",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "MCP Server for interacting with Kusto (Azure Data Explorer)",
   "main": "dist/index.js",
   "type": "module",
