@@ -135,9 +135,15 @@ The server provides the following MCP tools:
      - `tableName`: The name of the table to get the schema for
 
 4. **execute-query**
-   - Runs KQL queries and returns results
+   - Runs KQL queries and returns results with automatic result limiting
    - Parameters:
      - `query`: The query to execute
+     - `limit` (optional): Maximum number of rows to return (default: 20)
+   - Features:
+     - Automatically limits results to prevent context window overflow
+     - Detects when results are partial and provides guidance
+     - Returns metadata indicating if more results are available
+     - Suggests using aggregations or filters for large datasets
 
 5. **show-functions**
    - Lists all functions in the given database

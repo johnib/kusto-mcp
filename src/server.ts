@@ -117,6 +117,7 @@ const ShowTableSchema = z.object({
 
 const ExecuteQuerySchema = z.object({
   query: z.string().describe('The query to execute'),
+  limit: z.number().optional().default(20).describe('Maximum number of rows to return (default: 20)'),
 });
 
 const ShowFunctionSchema = z.object({
@@ -173,7 +174,7 @@ export function createKustoServer(config: KustoConfig): Server {
         },
         {
           name: 'execute-query',
-          description: 'Runs KQL queries and returns results',
+          description: 'Runs KQL queries and returns results. By default, limits results to 20 rows to prevent context overflow. Use the "limit" parameter to specify a different maximum. If results are marked as partial, consider revising your query to use aggregations, filters, or summarizations.',
           inputSchema: zodToJsonSchema(ExecuteQuerySchema),
         },
         {
@@ -279,7 +280,11 @@ export function createKustoServer(config: KustoConfig): Server {
             );
           }
 
-          const result = await executeQuery(connection, args.query);
+          // Apply limit using N+1 approach for truncation detection
+          const limit = args.limit || 20;
+          const modifiedQuery = `${args.query} | take ${limit + 1}`;
+
+          const result = await executeQuery(connection, modifiedQuery);
 
           if (!result.primaryResults || result.primaryResults.length === 0) {
             throw new McpError(
@@ -289,12 +294,32 @@ export function createKustoServer(config: KustoConfig): Server {
           }
 
           const primaryResult = result.primaryResults[0];
+          const rows = primaryResult.data || [];
+
+          // Detect if results are partial using N+1 approach
+          const isPartial = rows.length > limit;
+          const returnedRows = isPartial ? rows.slice(0, limit) : rows;
+
+          // Create enhanced response with metadata
+          const enhancedResponse = {
+            name: primaryResult.name,
+            data: returnedRows,
+            metadata: {
+              rowCount: returnedRows.length,
+              isPartial,
+              requestedLimit: limit,
+              hasMoreResults: isPartial,
+            },
+            message: isPartial
+              ? 'Results are partial. Consider using aggregations, filters, or more specific conditions to reduce the dataset.'
+              : undefined,
+          };
 
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify(primaryResult, null, 2),
+                text: JSON.stringify(enhancedResponse, null, 2),
               },
             ],
           };
