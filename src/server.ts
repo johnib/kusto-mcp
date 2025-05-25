@@ -117,7 +117,11 @@ const ShowTableSchema = z.object({
 
 const ExecuteQuerySchema = z.object({
   query: z.string().describe('The query to execute'),
-  limit: z.number().optional().default(20).describe('Maximum number of rows to return (default: 20)'),
+  limit: z
+    .number()
+    .optional()
+    .default(20)
+    .describe('Maximum number of rows to return (default: 20)'),
 });
 
 const ShowFunctionSchema = z.object({
@@ -174,7 +178,8 @@ export function createKustoServer(config: KustoConfig): Server {
         },
         {
           name: 'execute-query',
-          description: 'Runs KQL queries and returns results. By default, limits results to 20 rows to prevent context overflow. Use the "limit" parameter to specify a different maximum. If results are marked as partial, consider revising your query to use aggregations, filters, or summarizations.',
+          description:
+            'Runs KQL queries and returns results. By default, limits results to 20 rows to prevent context overflow. Use the "limit" parameter to specify a different maximum. If results are marked as partial, consider revising your query to use aggregations, filters, or summarizations.',
           inputSchema: zodToJsonSchema(ExecuteQuerySchema),
         },
         {
@@ -294,7 +299,7 @@ export function createKustoServer(config: KustoConfig): Server {
           }
 
           const primaryResult = result.primaryResults[0];
-          const rows = primaryResult.data || [];
+          const rows = (primaryResult as any)._rows || [];
 
           // Detect if results are partial using N+1 approach
           const isPartial = rows.length > limit;
