@@ -176,6 +176,60 @@ To use Azure CLI authentication:
 
 1. Set `KUSTO_AUTH_METHOD=azure-cli` in your `.env` file
 2. Ensure you're logged in with Azure CLI (`az login`)
+## CI/CD
+
+This project uses GitHub Actions for automated testing, building, and publishing to NPM.
+
+### Automated Publishing
+
+The project is configured with semantic release for automated versioning and publishing:
+
+- **On push to main**: Automatically runs tests, builds, and publishes to NPM based on conventional commit messages
+- **Version bumping**: Uses semantic versioning based on commit message types:
+  - `fix:` → Patch version (1.1.1 → 1.1.2)
+  - `feat:` → Minor version (1.1.1 → 1.2.0)
+  - `BREAKING CHANGE:` → Major version (1.1.1 → 2.0.0)
+- **Skip publishing**: Add `[skip ci]` to commit message to skip publishing (useful for docs/config changes)
+- **Automatic changelog**: Generates release notes from commit messages
+
+### Required Secrets
+
+For the GitHub Actions to work, the following secrets must be configured in your GitHub repository:
+
+- `NPM_TOKEN`: Your NPM authentication token for publishing packages
+
+### Workflows
+
+1. **Release Workflow** (`.github/workflows/release.yml`):
+   - Triggers on pushes to main branch
+   - Runs tests and builds the project
+   - Uses semantic-release for versioning and publishing
+   - Creates GitHub releases with auto-generated notes
+
+2. **CI Workflow** (`.github/workflows/ci.yml`):
+   - Triggers on pull requests
+   - Runs linting, tests, and builds
+   - Ensures code quality before merging
+
+### Conventional Commits
+
+To ensure proper versioning, use conventional commit messages:
+
+```bash
+# For bug fixes (patch version)
+git commit -m "fix: resolve connection timeout issue"
+
+# For new features (minor version)  
+git commit -m "feat: add new query optimization tool"
+
+# For breaking changes (major version)
+git commit -m "feat: redesign authentication system
+
+BREAKING CHANGE: authentication configuration format has changed"
+
+# For documentation (no version bump)
+git commit -m "docs: update installation instructions"
+```
 
 ## Development
 
