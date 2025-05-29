@@ -1,5 +1,11 @@
 # Kusto MCP Server
 
+[![CI](https://github.com/johnib/kusto-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/johnib/kusto-mcp/actions/workflows/ci.yml)
+[![npm version](https://badge.fury.io/js/kusto-mcp.svg)](https://badge.fury.io/js/kusto-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/kusto-mcp.svg)](https://www.npmjs.com/package/kusto-mcp)
+[![node version](https://img.shields.io/node/v/kusto-mcp.svg)](https://www.npmjs.com/package/kusto-mcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A TypeScript implementation of a Model Context Protocol (MCP) server for Azure Data Explorer (Kusto), enabling AI assistants to interact with Kusto databases through a standardized protocol.
 
 ## Features
