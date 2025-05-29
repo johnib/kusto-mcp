@@ -16,7 +16,7 @@ export const E2E_TEST_CONFIG = {
   connectionTimeout: 10000,
 
   // Authentication
-  authMethod: 'azure-cli', // Require Azure CLI setup for tests
+  // authMethod: 'azure-cli', // Require Azure CLI setup for tests
 
   // Server configuration
   serverBinary: 'dist/index.js', // Built server binary
