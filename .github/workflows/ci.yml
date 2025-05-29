@@ -6,7 +6,7 @@ on:
       - main
       - master
   push:
-    branches-ignore:
+    branches:
       - main
       - master
 
