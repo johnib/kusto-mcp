@@ -8,7 +8,7 @@ import {
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { formatKustoMcpError, isKustoMcpError } from './common/errors.js';
-import { safeLog } from './common/utils.js';
+import { criticalLog, debugLog } from './common/utils.js';
 import {
   executeQuery,
   KustoConnection,
@@ -299,11 +299,87 @@ export function createKustoServer(config: KustoConfig): Server {
           }
 
           const primaryResult = result.primaryResults[0];
-          const rows = (primaryResult as any)._rows || [];
+          const rawRows = (primaryResult as any)._rows || [];
+          const columns = (primaryResult as any).columns || [];
+
+          // DEBUG: Add detailed logging using debugLog
+          debugLog('DEBUG execute-query: STARTED');
+          debugLog(`DEBUG execute-query: Query = ${args.query}`);
+          debugLog(
+            `DEBUG execute-query: Raw rows = ${JSON.stringify(rawRows)}`,
+          );
+          debugLog(`DEBUG execute-query: Columns = ${JSON.stringify(columns)}`);
+          debugLog(
+            `DEBUG execute-query: First row = ${JSON.stringify(rawRows[0])}`,
+          );
+
+          // Transform raw array data to objects using column information
+          const transformedRows = rawRows.map((row: any[]) => {
+            debugLog(
+              `DEBUG execute-query: Processing row = ${JSON.stringify(row)}`,
+            );
+            const obj: any = {};
+
+            if (columns && columns.length > 0) {
+              // Use column metadata if available
+              debugLog('DEBUG execute-query: Using column metadata');
+              columns.forEach((column: any, index: number) => {
+                const columnName =
+                  column.ColumnName || column.name || `Column${index}`;
+                obj[columnName] = row[index];
+                debugLog(
+                  `DEBUG execute-query: Set ${columnName} = ${row[index]}`,
+                );
+              });
+            } else {
+              debugLog('DEBUG execute-query: Using fallback logic');
+              // Fallback: Try to infer column names based on query type
+              if (args.query.toLowerCase().includes('count')) {
+                obj.Count = row[0];
+                debugLog(`DEBUG execute-query: Set Count = ${row[0]}`);
+              } else if (args.query.toLowerCase().includes('.show tables')) {
+                obj.TableName = row[0];
+                obj.DatabaseName = row[1];
+                obj.Folder = row[2];
+                obj.DocString = row[3];
+              } else if (args.query.toLowerCase().includes('getschema')) {
+                obj.ColumnName = row[0];
+                obj.ColumnOrdinal = row[1];
+                obj.DataType = row[2];
+                obj.ColumnType = row[3];
+              } else {
+                // Generic fallback - use Column0, Column1, etc.
+                row.forEach((value: any, index: number) => {
+                  obj[`Column${index}`] = value;
+                });
+              }
+            }
+
+            debugLog(
+              `DEBUG execute-query: Transformed object = ${JSON.stringify(
+                obj,
+              )}`,
+            );
+            return obj;
+          });
+
+          debugLog(
+            `DEBUG execute-query: All transformed rows = ${JSON.stringify(
+              transformedRows,
+            )}`,
+          );
 
           // Detect if results are partial using N+1 approach
-          const isPartial = rows.length > limit;
-          const returnedRows = isPartial ? rows.slice(0, limit) : rows;
+          const isPartial = transformedRows.length > limit;
+          const returnedRows = isPartial
+            ? transformedRows.slice(0, limit)
+            : transformedRows;
+
+          debugLog(
+            `DEBUG execute-query: Final returned rows = ${JSON.stringify(
+              returnedRows,
+            )}`,
+          );
 
           // Create enhanced response with metadata
           const enhancedResponse = {
@@ -319,6 +395,14 @@ export function createKustoServer(config: KustoConfig): Server {
               ? 'Results are partial. Consider using aggregations, filters, or more specific conditions to reduce the dataset.'
               : undefined,
           };
+
+          debugLog(
+            `DEBUG execute-query: Enhanced response = ${JSON.stringify(
+              enhancedResponse,
+              null,
+              2,
+            )}`,
+          );
 
           return {
             content: [
@@ -354,7 +438,7 @@ export function createKustoServer(config: KustoConfig): Server {
           );
       }
     } catch (error) {
-      safeLog(`Error handling tool call: ${error}`);
+      criticalLog(`Error handling tool call: ${error}`);
 
       // Format the error message
       let errorMessage: string;

@@ -110,7 +110,7 @@ export interface KustoQueryResultRow {
   /**
    * The row data as a key-value map
    */
-  [key: string]: any;
+  [key: string]: string | number | boolean | null | undefined | Date;
 }
 
 /**
@@ -153,22 +153,22 @@ export interface KustoTableListItem {
   /**
    * The name of the table
    */
-  name: string;
+  TableName: string;
 
   /**
    * The database containing the table
    */
-  database: string;
+  DatabaseName: string;
 
   /**
    * The folder containing the table
    */
-  folder?: string;
+  Folder?: string | null;
 
   /**
    * The table's description
    */
-  description?: string;
+  DocString?: string | null;
 }
 
 /**

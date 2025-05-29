@@ -1,0 +1,27 @@
+-- Basic table listing query
+.show tables
+
+-- Count query - should return a single row with count
+SalesOrders | count
+
+-- Simple data retrieval - limit to 5 rows
+SalesOrders | take 5
+
+-- Schema exploration
+SalesOrders | getschema
+
+-- Aggregation with grouping
+SalesOrders | summarize TotalRevenue = sum(Revenue) by Product | take 10
+
+-- Time-based filtering (assuming OrderDate column exists)
+SalesOrders | where OrderDate > ago(30d) | take 10
+
+-- Function listing
+.show functions
+
+-- Management command for table details
+.show table SalesOrders
+
+-- Error scenarios for testing
+-- NonExistentTable | take 1  -- This should fail
+-- SalesOrders | invalid_function()  -- This should fail with syntax error

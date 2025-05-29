@@ -11,7 +11,6 @@ flowchart TB
         MCP --> Tools[Tool Handlers]
         Tools --> Operations[Kusto Operations]
         Operations --> Connection[Connection Management]
-        Connection --> Cache[Schema Cache]
         Connection --> Kusto[Kusto Client]
     end
     
@@ -22,18 +21,21 @@ flowchart TB
 ## Core Components
 
 ### 1. MCP Server Interface
+
 - Implements Model Context Protocol standards
 - Handles client requests and responses
 - Manages tool registration and execution
 - Provides structured error responses
 
 ### 2. Authentication Layer
+
 - Supports Azure CLI and Azure Identity methods
 - Manages token acquisition and renewal
 - Handles authentication state
 - Provides secure credential management
 
 ### 3. Tool Handlers
+
 - initialize-connection: Cluster connection setup
 - show-tables: Database table listing
 - show-table: Schema retrieval
@@ -42,30 +44,54 @@ flowchart TB
 - Returns structured responses
 
 ### 4. Kusto Operations
+
 - Connection management
 - Query execution
 - Schema retrieval
 - Error handling
 - Performance optimization
 
-### 5. Caching Layer
-- Schema caching with LRU strategy
-- Cache invalidation management
-- Performance optimization
-- Memory usage control
-
 ## Design Patterns
 
 ### 1. Server Pattern
+
 ```mermaid
 flowchart LR
     Request[Client Request] --> Validate[Validate Input]
     Validate --> Execute[Execute Operation]
-    Execute --> Format[Format Response]
+    Execute --> Transform[Transform Data]
+    Transform --> Format[Format Response]
     Format --> Response[Send Response]
 ```
 
+### 2. Data Transformation Pattern
+
+```mermaid
+flowchart TB
+    Raw[Raw Kusto Response] --> Extract[Extract Columns/Data]
+    Extract --> Check{Column Metadata?}
+    Check -->|Yes| Map[Map to Named Properties]
+    Check -->|No| Fallback[Apply Fallback Logic]
+    Map --> Structured[Structured Object]
+    Fallback --> Structured
+    Structured --> Return[Return to Client]
+```
+
+### 3. Test Debugging Pattern
+
+```mermaid
+flowchart TB
+    Test[Test Failure] --> Debug[Enable DEBUG_SERVER=1]
+    Debug --> Logs[Examine safeLog Output]
+    Logs --> Identify[Identify Data Structure]
+    Identify --> Compare[Compare Expected vs Actual]
+    Compare --> Fix[Apply Transformation Fix]
+    Fix --> Verify[Re-run Test]
+    Verify --> Success[Test Passes]
+```
+
 ### 2. Authentication Pattern
+
 ```mermaid
 flowchart TB
     Auth[Auth Request] --> Method{Auth Method}
@@ -73,11 +99,11 @@ flowchart TB
     Method -->|Identity| Identity[Azure Identity]
     CLI --> Token[Get Token]
     Identity --> Token
-    Token --> Cache[Cache Token]
-    Cache --> Use[Use Token]
+    Token --> Use[Use Token]
 ```
 
 ### 3. Error Handling Pattern
+
 ```mermaid
 flowchart TB
     Error[Error Occurs] --> Capture[Capture Context]
@@ -90,19 +116,21 @@ flowchart TB
 ## Technical Decisions
 
 ### 1. TypeScript Usage
+
 - Strong type checking
 - Interface definitions
 - Code organization
 - Development efficiency
 
 ### 2. Dependency Choices
+
 - @azure/identity: Azure authentication
 - azure-kusto-data: Kusto operations
 - @opentelemetry: Monitoring
 - zod: Schema validation
-- lru-cache: Caching implementation
 
 ### 3. Project Structure
+
 ```mermaid
 flowchart TD
     Root[src/] --> Index[index.ts]
@@ -123,6 +151,7 @@ flowchart TD
 ## Communication Patterns
 
 ### 1. Request Flow
+
 ```mermaid
 sequenceDiagram
     Client->>+Server: Tool Request
@@ -134,6 +163,7 @@ sequenceDiagram
 ```
 
 ### 2. Error Flow
+
 ```mermaid
 sequenceDiagram
     Client->>+Server: Invalid Request
@@ -144,13 +174,8 @@ sequenceDiagram
 
 ## Performance Patterns
 
-### 1. Caching Strategy
-- LRU cache for schemas
-- Configurable cache size
-- Cache invalidation rules
-- Hit/miss monitoring
-
 ### 2. Query Optimization
+
 - Parameter validation
 - Query structure validation
 - Result size management
@@ -159,12 +184,14 @@ sequenceDiagram
 ## Security Patterns
 
 ### 1. Authentication Flow
+
 - Token-based authentication
 - Secure credential handling
 - Token refresh management
 - Error isolation
 
 ### 2. Authorization
+
 - Azure role validation
 - Operation-level checks
 - Resource access control

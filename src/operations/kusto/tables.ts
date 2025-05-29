@@ -3,7 +3,7 @@ import {
   KustoQueryError,
   KustoResourceNotFoundError,
 } from '../../common/errors.js';
-import { safeLog } from '../../common/utils.js';
+import { criticalLog, debugLog } from '../../common/utils.js';
 import {
   KustoFunctionListItem,
   KustoFunctionSchema,
@@ -33,17 +33,55 @@ export async function showTables(
       const database = connection.getDatabase();
       span.setAttribute('database', database);
 
-      safeLog(`Listing tables in database: ${database}`);
+      debugLog(`Listing tables in database: ${database}`);
 
       // Execute the query to list tables
       const result = await connection.executeQuery(database, '.show tables');
+
+      // Extract the tables data from the Kusto response
+      if (!result.primaryResults || result.primaryResults.length === 0) {
+        throw new KustoQueryError(
+          'No primary result found in show tables response',
+        );
+      }
+
+      // For .show tables, the first (and typically only) primary result contains the data
+      const primaryResult = result.primaryResults[0];
+
+      if (!primaryResult) {
+        throw new KustoQueryError(
+          'No primary result found in show tables response',
+        );
+      }
+
+      // The Kusto client library uses '_rows' for the actual row data
+      const rowsData = (primaryResult as any)._rows || primaryResult.data;
+
+      if (!rowsData || !Array.isArray(rowsData)) {
+        throw new KustoQueryError(
+          'No valid primary result with data found in show tables response',
+        );
+      }
+
+      // Convert array rows to objects with proper column names
+      // Based on .show tables schema: TableName, DatabaseName, Folder, DocString
+      const tablesData = rowsData.map((row: any[]) => ({
+        TableName: row[0],
+        DatabaseName: row[1],
+        Folder: row[2],
+        DocString: row[3],
+      }));
+      debugLog(
+        `Successfully retrieved ${tablesData.length} tables from database ${database}`,
+      );
+
       span.setStatus({ code: SpanStatusCode.OK });
 
-      return result;
+      return tablesData;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      safeLog(`Failed to list tables: ${errorMessage}`);
+      criticalLog(`Failed to list tables: ${errorMessage}`);
 
       span.setStatus({
         code: SpanStatusCode.ERROR,
@@ -75,7 +113,7 @@ export async function showTable(
       const database = connection.getDatabase();
       span.setAttribute('database', database);
 
-      safeLog(
+      debugLog(
         `Getting schema for table: ${tableName} in database: ${database}`,
       );
 
@@ -83,18 +121,67 @@ export async function showTable(
         throw new KustoQueryError('Connection not initialized');
       }
 
-      // Execute the query to get the table schema
+      // Execute the query to get the table schema using getschema
       const result = await connection.executeQuery(
         database,
-        `.show table ${tableName}`,
+        `${tableName} | getschema`,
       );
+
+      // Extract the table schema data from the Kusto response
+      if (!result.primaryResults || result.primaryResults.length === 0) {
+        throw new KustoQueryError(
+          'No primary result found in show table response',
+        );
+      }
+
+      // Find the primary result that contains actual data (not metadata)
+      const primaryResult =
+        result.primaryResults.find(
+          (pr: any) =>
+            ((pr.data && pr.data.length > 0) ||
+              ((pr as any)._rows && (pr as any)._rows.length > 0)) &&
+            pr.name !== 'QueryStatus' &&
+            !pr.name.startsWith('@'),
+        ) || result.primaryResults[0];
+
+      if (!primaryResult) {
+        throw new KustoQueryError(
+          'No primary result found in show table response',
+        );
+      }
+
+      // The Kusto client library uses '_rows' for the actual row data
+      const rowsData = (primaryResult as any)._rows || primaryResult.data;
+
+      if (!rowsData || !Array.isArray(rowsData)) {
+        throw new KustoQueryError(
+          'No primary result with data found in show table response',
+        );
+      }
+
+      // Convert array rows to objects with proper column names
+      // For TableName | getschema, the structure is: ColumnName, ColumnOrdinal, DataType, CslType
+      const columns = rowsData.map((row: any[], index: number) => ({
+        name: row[0], // Column name
+        type: row[3], // Use CSL type (row[3]) as it's more appropriate for Kusto
+        ordinal: index,
+        isNullable: true, // Default assumption
+      }));
+
+      // Create the complete table schema object
+      const tableSchema: KustoTableSchema = {
+        tableName: tableName,
+        databaseName: database,
+        columns: columns,
+      };
+
       span.setStatus({ code: SpanStatusCode.OK });
 
-      return result;
+      return tableSchema;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      safeLog(`Failed to get table schema: ${errorMessage}`);
+      criticalLog(`Failed to get table schema: ${errorMessage}`);
 
       span.setStatus({
         code: SpanStatusCode.ERROR,
@@ -130,7 +217,7 @@ export async function showFunctions(
       const database = connection.getDatabase();
       span.setAttribute('database', database);
 
-      safeLog(`Listing functions in database: ${database}`);
+      debugLog(`Listing functions in database: ${database}`);
 
       // Execute the query to list functions.
       // Get only the function name and docstring to reduce token consumption and focus the agent.
@@ -138,13 +225,57 @@ export async function showFunctions(
         database,
         '.show functions | project Name, DocString',
       );
+
+      // Extract the functions data from the Kusto response
+      if (!result.primaryResults || result.primaryResults.length === 0) {
+        throw new KustoQueryError(
+          'No primary result found in show functions response',
+        );
+      }
+
+      // Find the primary result that contains actual data (not metadata)
+      const primaryResult =
+        result.primaryResults.find(
+          (pr: any) =>
+            ((pr.data && pr.data.length > 0) ||
+              ((pr as any)._rows && (pr as any)._rows.length > 0)) &&
+            pr.name !== 'QueryStatus' &&
+            !pr.name.startsWith('@'),
+        ) || result.primaryResults[0];
+
+      if (!primaryResult) {
+        throw new KustoQueryError(
+          'No primary result found in show functions response',
+        );
+      }
+
+      // The Kusto client library uses '_rows' for the actual row data
+      const rowsData = (primaryResult as any)._rows || primaryResult.data;
+
+      if (!rowsData || !Array.isArray(rowsData)) {
+        throw new KustoQueryError(
+          'No primary result with data found in show functions response',
+        );
+      }
+
+      // Convert array rows to objects with proper column names
+      // Based on .show functions | project Name, DocString schema: Name, DocString
+      const functionsData = rowsData.map((row: any[]) => ({
+        Name: row[0], // Function name
+        DocString: row[1], // Function docstring
+      }));
+
+      debugLog(
+        `Successfully retrieved ${functionsData.length} functions from database ${database}`,
+      );
+
       span.setStatus({ code: SpanStatusCode.OK });
 
-      return result;
+      return functionsData;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      safeLog(`Failed to list functions: ${errorMessage}`);
+      criticalLog(`Failed to list functions: ${errorMessage}`);
 
       span.setStatus({
         code: SpanStatusCode.ERROR,
@@ -176,7 +307,7 @@ export async function showFunction(
       const database = connection.getDatabase();
       span.setAttribute('database', database);
 
-      safeLog(
+      debugLog(
         `Getting details for function: ${functionName} in database: ${database}`,
       );
 
@@ -189,13 +320,67 @@ export async function showFunction(
         database,
         `.show function ${functionName}`,
       );
+
+      // Extract the function details data from the Kusto response
+      if (!result.primaryResults || result.primaryResults.length === 0) {
+        throw new KustoQueryError(
+          'No primary result found in show function response',
+        );
+      }
+
+      // Find the primary result that contains actual data (not metadata)
+      const primaryResult =
+        result.primaryResults.find(
+          (pr: any) =>
+            ((pr.data && pr.data.length > 0) ||
+              ((pr as any)._rows && (pr as any)._rows.length > 0)) &&
+            pr.name !== 'QueryStatus' &&
+            !pr.name.startsWith('@'),
+        ) || result.primaryResults[0];
+
+      if (!primaryResult) {
+        throw new KustoQueryError(
+          'No primary result found in show function response',
+        );
+      }
+
+      // The Kusto client library uses '_rows' for the actual row data
+      const rowsData = (primaryResult as any)._rows || primaryResult.data;
+
+      if (!rowsData || !Array.isArray(rowsData)) {
+        throw new KustoQueryError(
+          'No primary result with data found in show function response',
+        );
+      }
+
+      if (rowsData.length === 0) {
+        throw new KustoResourceNotFoundError(
+          `Function '${functionName}' not found`,
+        );
+      }
+
+      // Convert the first row (function details) to a proper function schema object
+      // Based on .show function schema: Name, Parameters, Body, Folder, DocString
+      const functionRow = rowsData[0];
+      const functionSchema: KustoFunctionSchema = {
+        Name: functionRow[0], // Function name
+        Parameters: functionRow[1] || '', // Function parameters
+        Body: functionRow[2] || '', // Function body
+        Folder: functionRow[3] || '', // Folder (optional)
+        DocString: functionRow[4] || '', // DocString (optional)
+      };
+
+      debugLog(
+        `Successfully retrieved function details for ${functionName} from database ${database}`,
+      );
+
       span.setStatus({ code: SpanStatusCode.OK });
 
-      return result;
+      return functionSchema;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      safeLog(`Failed to get function details: ${errorMessage}`);
+      criticalLog(`Failed to get function details: ${errorMessage}`);
 
       span.setStatus({
         code: SpanStatusCode.ERROR,
