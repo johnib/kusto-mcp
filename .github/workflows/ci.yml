@@ -14,6 +14,9 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write # Required for OIDC authentication
+      contents: read # Required for checkout
 
     steps:
       - name: Checkout
