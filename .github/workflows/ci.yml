@@ -44,5 +44,13 @@ jobs:
       - name: Build project
         run: npm run build
 
+      - name: Refresh Azure CLI for Node.js
+        run: |
+          az account show
+          az account get-access-token
+
+      - name: Run tests
+        run: npm test
+
       - name: Run tests
         run: npm run test:debug
