@@ -26,7 +26,7 @@ module.exports = {
   coverageReporters: ['text', 'lcov', 'html'],
   setupFilesAfterEnv: ['<rootDir>/tests/e2e/setup.ts'],
   testTimeout: 120000, // 2 minutes for E2E tests
-  maxWorkers: 1, // Run tests sequentially to avoid conflicts
+  maxWorkers: '100%', // Run tests sequentially to avoid conflicts
   verbose: true,
   transformIgnorePatterns: ['node_modules/(?!(@azure|azure-))'],
 };
