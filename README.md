@@ -176,6 +176,42 @@ To use Azure CLI authentication:
 
 1. Set `KUSTO_AUTH_METHOD=azure-cli` in your `.env` file
 2. Ensure you're logged in with Azure CLI (`az login`)
+
+## Testing
+
+### End-to-End Tests
+
+The project includes comprehensive E2E tests that run against a real Kusto cluster:
+
+```bash
+# Run all E2E tests
+npm run test:e2e
+
+# Run with debug output
+npm run test:e2e:debug
+
+# Run in watch mode
+npm run test:e2e:watch
+```
+
+The E2E tests:
+
+- Test against `https://help.kusto.windows.net/ContosoSales`
+- Run the MCP server as a subprocess
+- Verify MCP protocol compliance
+- Test all tool operations with real data
+- Validate error handling scenarios
+
+For detailed testing documentation, see [tests/e2e/README.md](tests/e2e/README.md).
+
+### Unit Tests
+
+Run unit tests:
+
+```bash
+npm test
+```
+
 ## CI/CD
 
 This project uses GitHub Actions for automated testing, building, and publishing to NPM.
@@ -254,6 +290,12 @@ kusto-mcp/
 │   └── types/             # TypeScript type definitions
 │       ├── config.ts
 │       └── kusto-interfaces.ts
+├── tests/                 # Test files
+│   └── e2e/              # End-to-end tests
+│       ├── config.ts     # Test configuration
+│       ├── helpers/      # Test utilities
+│       ├── fixtures/     # Test data
+│       └── suites/       # Test suites
 ├── dist/                  # Compiled JavaScript
 ├── .env.example           # Example environment variables
 ├── package.json           # Project manifest

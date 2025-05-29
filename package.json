@@ -17,7 +17,12 @@
     "start": "node dist/index.js",
     "dev": "ts-node --esm src/index.ts",
     "inspector": "npm run build && npx @modelcontextprotocol/inspector node dist/index.js",
-    "test": "jest",
+    "test": "jest --config jest.config.cjs",
+    "test:debug": "DEBUG_SERVER=1 npm run test",
+    "test:e2e": "npm run build && node --experimental-vm-modules node_modules/.bin/jest tests/e2e --testTimeout=120000 --config jest.config.cjs",
+    "test:e2e:watch": "npm run build && jest tests/e2e --watch --testTimeout=120000 --config jest.config.cjs",
+    "test:e2e:coverage": "npm run build && jest tests/e2e --coverage --testTimeout=120000 --config jest.config.cjs",
+    "test:e2e:debug": "DEBUG_SERVER=1 npm run test:e2e",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --config .prettierrc.json --write 'src/**/*.ts'"
   },

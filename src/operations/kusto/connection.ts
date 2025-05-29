@@ -34,9 +34,12 @@ export class KustoConnection {
    *
    * @param clusterUrl The URL of the Kusto cluster
    * @param database The database to connect to
-   * @returns The result of the connection test
+   * @returns A structured connection result
    */
-  async initialize(clusterUrl: string, database: string): Promise<any> {
+  async initialize(
+    clusterUrl: string,
+    database: string,
+  ): Promise<{ success: boolean; cluster: string; database: string }> {
     return tracer.startActiveSpan('initialize', async span => {
       try {
         span.setAttribute('clusterUrl', clusterUrl);
@@ -54,13 +57,40 @@ export class KustoConnection {
         this.client = new Client(connectionString);
         this.database = database;
 
-        // Test the connection by executing a simple query
-        const result = await this.executeQuery(database, '.show version');
+        // Test the connection with cluster-level query first
+        await this.executeQuery(database, '.show version');
+
+        // Validate that the database exists by checking the databases list
+        const databaseCheckResult = await this.executeQuery(
+          database,
+          `.show databases | where DatabaseName == '${database}'`,
+        );
+
+        // Check if the database was found
+        // The query returns results in primaryResults[0]._rows (Kusto client library structure)
+        const primaryResult = databaseCheckResult.primaryResults?.[0];
+        const rows = (primaryResult as any)?._rows || [];
+
+        if (
+          !databaseCheckResult.primaryResults ||
+          databaseCheckResult.primaryResults.length === 0 ||
+          !primaryResult ||
+          !rows ||
+          rows.length === 0
+        ) {
+          throw new KustoConnectionError(
+            `Database '${database}' not found in the cluster`,
+          );
+        }
 
         safeLog('Connection initialized successfully');
         span.setStatus({ code: SpanStatusCode.OK });
 
-        return result;
+        return {
+          success: true,
+          cluster: clusterUrl,
+          database: database,
+        };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -71,9 +101,7 @@ export class KustoConnection {
           message: errorMessage,
         });
 
-        throw new KustoConnectionError(
-          `Failed to connect to Kusto cluster: ${errorMessage}`,
-        );
+        throw new KustoConnectionError(`Connection error: ${errorMessage}`);
       } finally {
         span.end();
       }
