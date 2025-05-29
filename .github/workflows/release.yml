@@ -11,6 +11,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     permissions:
+      contents: write # Required to push tags and create releases
       issues: write # Required to create issues on failure
       packages: write # Required for npm publishing
       pull-requests: write # Required for PR comments (optional but recommended)
