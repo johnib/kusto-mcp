@@ -50,10 +50,9 @@
 
 ### Performance Patterns
 
-1. Use LRU cache for schemas
-2. Implement connection pooling
-3. Optimize query execution
-4. Monitor memory usage
+1. Implement connection pooling
+2. Optimize query execution
+3. Monitor memory usage
 
 ## Development Workflow
 
@@ -124,11 +123,6 @@
 
 ### Caching
 
-1. Use LRU cache for schemas
-2. Configure appropriate cache sizes
-3. Implement cache invalidation
-4. Monitor cache performance
-
 ### Query Optimization
 
 1. Validate queries before execution
@@ -142,7 +136,7 @@
 
 1. MCP protocol standardizes AI assistant interaction
 2. Azure authentication requires careful error handling
-3. Schema caching significantly improves performance
+
 4. Clear error messages are critical for usability
 5. **Data transformation is critical for response consistency**
 6. **Test debugging requires systematic approach with proper logging**
@@ -162,7 +156,7 @@
 
 1. Inadequate error handling
 2. Missing type definitions
-3. Poor cache management
+
 4. Insufficient documentation
 5. **Data structure mismatches between server responses and test expectations**
 6. **Using console.log for debugging (use safeLog instead)**
@@ -174,7 +168,7 @@
 ### Optimization Opportunities
 
 1. Query performance tuning
-2. Enhanced caching strategies
+
 3. Connection pooling
 4. Error recovery mechanisms
 5. **Improved data transformation patterns**

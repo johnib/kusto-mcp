@@ -23,7 +23,6 @@
    - execute-query
 
 4. Performance Features
-   - Schema caching with LRU
    - Query optimization
    - Connection management
    - Error handling
@@ -64,7 +63,7 @@
 2. Core MCP server implementation
 3. Azure authentication integration
 4. Basic tool implementations
-5. Schema caching system
+
 6. Comprehensive E2E testing suite
    - Tests against real Kusto cluster
    - MCP protocol compliance verification
@@ -138,12 +137,6 @@
 
 ### Current Considerations
 
-1. **Caching Strategy**
-   - Optimization of cache size
-   - Cache invalidation rules
-   - Memory management
-   - Performance impact
-
 2. **Query Response Format**
    - Streamlined response structure
    - Primary result data extraction
@@ -156,13 +149,13 @@
    - User feedback
    - Logging strategy
 
-4. **Performance Tuning**
+3. **Performance Tuning**
    - Query optimization
    - Connection management
    - Resource utilization
    - Response times
 
-5. **Security Enhancement**
+4. **Security Enhancement**
    - Authentication methods
    - Token handling
    - Access control

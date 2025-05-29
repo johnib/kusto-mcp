@@ -11,7 +11,6 @@ flowchart TB
         MCP --> Tools[Tool Handlers]
         Tools --> Operations[Kusto Operations]
         Operations --> Connection[Connection Management]
-        Connection --> Cache[Schema Cache]
         Connection --> Kusto[Kusto Client]
     end
     
@@ -51,13 +50,6 @@ flowchart TB
 - Schema retrieval
 - Error handling
 - Performance optimization
-
-### 5. Caching Layer
-
-- Schema caching with LRU strategy
-- Cache invalidation management
-- Performance optimization
-- Memory usage control
 
 ## Design Patterns
 
@@ -107,8 +99,7 @@ flowchart TB
     Method -->|Identity| Identity[Azure Identity]
     CLI --> Token[Get Token]
     Identity --> Token
-    Token --> Cache[Cache Token]
-    Cache --> Use[Use Token]
+    Token --> Use[Use Token]
 ```
 
 ### 3. Error Handling Pattern
@@ -137,7 +128,6 @@ flowchart TB
 - azure-kusto-data: Kusto operations
 - @opentelemetry: Monitoring
 - zod: Schema validation
-- lru-cache: Caching implementation
 
 ### 3. Project Structure
 
@@ -183,13 +173,6 @@ sequenceDiagram
 ```
 
 ## Performance Patterns
-
-### 1. Caching Strategy
-
-- LRU cache for schemas
-- Configurable cache size
-- Cache invalidation rules
-- Hit/miss monitoring
 
 ### 2. Query Optimization
 
