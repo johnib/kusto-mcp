@@ -110,7 +110,7 @@ export interface KustoQueryResultRow {
   /**
    * The row data as a key-value map
    */
-  [key: string]: any;
+  [key: string]: string | number | boolean | null | undefined | Date;
 }
 
 /**
