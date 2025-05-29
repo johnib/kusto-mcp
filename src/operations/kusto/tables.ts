@@ -3,7 +3,7 @@ import {
   KustoQueryError,
   KustoResourceNotFoundError,
 } from '../../common/errors.js';
-import { safeLog } from '../../common/utils.js';
+import { criticalLog, debugLog } from '../../common/utils.js';
 import {
   KustoFunctionListItem,
   KustoFunctionSchema,
@@ -33,7 +33,7 @@ export async function showTables(
       const database = connection.getDatabase();
       span.setAttribute('database', database);
 
-      safeLog(`Listing tables in database: ${database}`);
+      debugLog(`Listing tables in database: ${database}`);
 
       // Execute the query to list tables
       const result = await connection.executeQuery(database, '.show tables');
@@ -71,7 +71,7 @@ export async function showTables(
         Folder: row[2],
         DocString: row[3],
       }));
-      safeLog(
+      debugLog(
         `Successfully retrieved ${tablesData.length} tables from database ${database}`,
       );
 
@@ -81,7 +81,7 @@ export async function showTables(
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      safeLog(`Failed to list tables: ${errorMessage}`);
+      criticalLog(`Failed to list tables: ${errorMessage}`);
 
       span.setStatus({
         code: SpanStatusCode.ERROR,
@@ -113,7 +113,7 @@ export async function showTable(
       const database = connection.getDatabase();
       span.setAttribute('database', database);
 
-      safeLog(
+      debugLog(
         `Getting schema for table: ${tableName} in database: ${database}`,
       );
 
@@ -181,7 +181,7 @@ export async function showTable(
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      safeLog(`Failed to get table schema: ${errorMessage}`);
+      criticalLog(`Failed to get table schema: ${errorMessage}`);
 
       span.setStatus({
         code: SpanStatusCode.ERROR,
@@ -217,7 +217,7 @@ export async function showFunctions(
       const database = connection.getDatabase();
       span.setAttribute('database', database);
 
-      safeLog(`Listing functions in database: ${database}`);
+      debugLog(`Listing functions in database: ${database}`);
 
       // Execute the query to list functions.
       // Get only the function name and docstring to reduce token consumption and focus the agent.
@@ -265,7 +265,7 @@ export async function showFunctions(
         DocString: row[1], // Function docstring
       }));
 
-      safeLog(
+      debugLog(
         `Successfully retrieved ${functionsData.length} functions from database ${database}`,
       );
 
@@ -275,7 +275,7 @@ export async function showFunctions(
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      safeLog(`Failed to list functions: ${errorMessage}`);
+      criticalLog(`Failed to list functions: ${errorMessage}`);
 
       span.setStatus({
         code: SpanStatusCode.ERROR,
@@ -307,7 +307,7 @@ export async function showFunction(
       const database = connection.getDatabase();
       span.setAttribute('database', database);
 
-      safeLog(
+      debugLog(
         `Getting details for function: ${functionName} in database: ${database}`,
       );
 
@@ -370,7 +370,7 @@ export async function showFunction(
         DocString: functionRow[4] || '', // DocString (optional)
       };
 
-      safeLog(
+      debugLog(
         `Successfully retrieved function details for ${functionName} from database ${database}`,
       );
 
@@ -380,7 +380,7 @@ export async function showFunction(
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      safeLog(`Failed to get function details: ${errorMessage}`);
+      criticalLog(`Failed to get function details: ${errorMessage}`);
 
       span.setStatus({
         code: SpanStatusCode.ERROR,

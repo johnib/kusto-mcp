@@ -1,6 +1,6 @@
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import { KustoQueryError } from '../../common/errors.js';
-import { safeLog } from '../../common/utils.js';
+import { criticalLog, debugLog } from '../../common/utils.js';
 import { KustoQueryResult } from '../../types/kusto-interfaces.js';
 import { KustoConnection } from './connection.js';
 
@@ -22,7 +22,7 @@ export async function executeQuery(
     try {
       span.setAttribute('query', query);
 
-      safeLog(`Executing query: ${query}`);
+      debugLog(`Executing query: ${query}`);
 
       if (!connection.isInitialized()) {
         throw new KustoQueryError('Connection not initialized');
@@ -34,14 +34,14 @@ export async function executeQuery(
       // Execute the query
       const result = await connection.executeQuery(database, query);
 
-      safeLog('Query executed successfully');
+      debugLog('Query executed successfully');
       span.setStatus({ code: SpanStatusCode.OK });
 
       return result;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      safeLog(`Failed to execute query: ${errorMessage}`);
+      criticalLog(`Failed to execute query: ${errorMessage}`);
 
       span.setStatus({
         code: SpanStatusCode.ERROR,
@@ -70,7 +70,7 @@ export async function executeManagementCommand(
     try {
       span.setAttribute('command', command);
 
-      safeLog(`Executing management command: ${command}`);
+      debugLog(`Executing management command: ${command}`);
 
       if (!connection.isInitialized()) {
         throw new KustoQueryError('Connection not initialized');
@@ -82,14 +82,14 @@ export async function executeManagementCommand(
       // Execute the command
       const result = await connection.executeQuery(database, command);
 
-      safeLog('Management command executed successfully');
+      debugLog('Management command executed successfully');
       span.setStatus({ code: SpanStatusCode.OK });
 
       return result;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      safeLog(`Failed to execute management command: ${errorMessage}`);
+      criticalLog(`Failed to execute management command: ${errorMessage}`);
 
       span.setStatus({
         code: SpanStatusCode.ERROR,

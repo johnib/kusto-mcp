@@ -8,7 +8,7 @@ import {
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { formatKustoMcpError, isKustoMcpError } from './common/errors.js';
-import { safeLog } from './common/utils.js';
+import { criticalLog, debugLog } from './common/utils.js';
 import {
   executeQuery,
   KustoConnection,
@@ -302,39 +302,41 @@ export function createKustoServer(config: KustoConfig): Server {
           const rawRows = (primaryResult as any)._rows || [];
           const columns = (primaryResult as any).columns || [];
 
-          // DEBUG: Add detailed logging using safeLog
-          safeLog('DEBUG execute-query: STARTED');
-          safeLog(`DEBUG execute-query: Query = ${args.query}`);
-          safeLog(`DEBUG execute-query: Raw rows = ${JSON.stringify(rawRows)}`);
-          safeLog(`DEBUG execute-query: Columns = ${JSON.stringify(columns)}`);
-          safeLog(
+          // DEBUG: Add detailed logging using debugLog
+          debugLog('DEBUG execute-query: STARTED');
+          debugLog(`DEBUG execute-query: Query = ${args.query}`);
+          debugLog(
+            `DEBUG execute-query: Raw rows = ${JSON.stringify(rawRows)}`,
+          );
+          debugLog(`DEBUG execute-query: Columns = ${JSON.stringify(columns)}`);
+          debugLog(
             `DEBUG execute-query: First row = ${JSON.stringify(rawRows[0])}`,
           );
 
           // Transform raw array data to objects using column information
           const transformedRows = rawRows.map((row: any[]) => {
-            safeLog(
+            debugLog(
               `DEBUG execute-query: Processing row = ${JSON.stringify(row)}`,
             );
             const obj: any = {};
 
             if (columns && columns.length > 0) {
               // Use column metadata if available
-              safeLog('DEBUG execute-query: Using column metadata');
+              debugLog('DEBUG execute-query: Using column metadata');
               columns.forEach((column: any, index: number) => {
                 const columnName =
                   column.ColumnName || column.name || `Column${index}`;
                 obj[columnName] = row[index];
-                safeLog(
+                debugLog(
                   `DEBUG execute-query: Set ${columnName} = ${row[index]}`,
                 );
               });
             } else {
-              safeLog('DEBUG execute-query: Using fallback logic');
+              debugLog('DEBUG execute-query: Using fallback logic');
               // Fallback: Try to infer column names based on query type
               if (args.query.toLowerCase().includes('count')) {
                 obj.Count = row[0];
-                safeLog(`DEBUG execute-query: Set Count = ${row[0]}`);
+                debugLog(`DEBUG execute-query: Set Count = ${row[0]}`);
               } else if (args.query.toLowerCase().includes('.show tables')) {
                 obj.TableName = row[0];
                 obj.DatabaseName = row[1];
@@ -353,7 +355,7 @@ export function createKustoServer(config: KustoConfig): Server {
               }
             }
 
-            safeLog(
+            debugLog(
               `DEBUG execute-query: Transformed object = ${JSON.stringify(
                 obj,
               )}`,
@@ -361,7 +363,7 @@ export function createKustoServer(config: KustoConfig): Server {
             return obj;
           });
 
-          safeLog(
+          debugLog(
             `DEBUG execute-query: All transformed rows = ${JSON.stringify(
               transformedRows,
             )}`,
@@ -373,7 +375,7 @@ export function createKustoServer(config: KustoConfig): Server {
             ? transformedRows.slice(0, limit)
             : transformedRows;
 
-          safeLog(
+          debugLog(
             `DEBUG execute-query: Final returned rows = ${JSON.stringify(
               returnedRows,
             )}`,
@@ -394,7 +396,7 @@ export function createKustoServer(config: KustoConfig): Server {
               : undefined,
           };
 
-          safeLog(
+          debugLog(
             `DEBUG execute-query: Enhanced response = ${JSON.stringify(
               enhancedResponse,
               null,
@@ -436,7 +438,7 @@ export function createKustoServer(config: KustoConfig): Server {
           );
       }
     } catch (error) {
-      safeLog(`Error handling tool call: ${error}`);
+      criticalLog(`Error handling tool call: ${error}`);
 
       // Format the error message
       let errorMessage: string;
