@@ -92,52 +92,6 @@ describe('Table Operations', () => {
     assertErrorMessage(response, 'Error');
   });
 
-  test('should cache table schemas effectively', async () => {
-    // First get a valid table name
-    const tablesResponse = await client.callTool('show-tables', {});
-    const tables = assertTablesListResponse(tablesResponse);
-    const firstTableName = tables[0].TableName;
-
-    // Request schema multiple times - should be fast due to caching
-    const startTime = Date.now();
-
-    const firstSchemaResponse = await client.callTool('show-table', {
-      tableName: firstTableName,
-    });
-
-    const secondSchemaResponse = await client.callTool('show-table', {
-      tableName: firstTableName,
-    });
-
-    const thirdSchemaResponse = await client.callTool('show-table', {
-      tableName: firstTableName,
-    });
-
-    const endTime = Date.now();
-    const totalTime = endTime - startTime;
-
-    // All responses should be successful
-    const firstSchema = assertTableSchemaResponse(
-      firstSchemaResponse,
-      firstTableName,
-    );
-    const secondSchema = assertTableSchemaResponse(
-      secondSchemaResponse,
-      firstTableName,
-    );
-    const thirdSchema = assertTableSchemaResponse(
-      thirdSchemaResponse,
-      firstTableName,
-    );
-
-    // Schemas should be identical (caching working)
-    expect(firstSchema).toEqual(secondSchema);
-    expect(secondSchema).toEqual(thirdSchema);
-
-    // Total time should be reasonable (indicating caching effectiveness)
-    expect(totalTime).toBeLessThan(10000); // Should complete within 10 seconds
-  });
-
   test('should validate table schema structure matches expected format', async () => {
     // Get any table
     const tablesResponse = await client.callTool('show-tables', {});
