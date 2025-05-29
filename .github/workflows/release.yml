@@ -12,7 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write # Required for OIDC authentication
-      contents: read # Required for checkout
+      contents: write # Required to push tags and create releases
+      issues: write # Required to create issues on failure
+      packages: write # Required for npm publishing
+      pull-requests: write # Required for PR comments (optional but recommended)
 
     # Skip if commit message contains [skip ci]
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
