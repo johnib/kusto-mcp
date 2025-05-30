@@ -137,19 +137,25 @@ export class KustoConnection {
         // Set timeout from config
         const timeout = this.config.queryTimeout || 60000;
 
-        // Execute the query with timeout
-        const rawResult = await Promise.race([
-          this.client.execute(database, query),
-          new Promise((_, reject) =>
-            setTimeout(
-              () =>
-                reject(
-                  new KustoQueryError(`Query timed out after ${timeout}ms`),
-                ),
-              timeout,
-            ),
-          ),
-        ]);
+        // Execute the query with timeout, ensuring timeout handle is always cleared
+        let timeoutHandle: NodeJS.Timeout;
+        const queryPromise = this.client.execute(database, query);
+
+        const rawResult = await new Promise((resolve, reject) => {
+          timeoutHandle = setTimeout(() => {
+            reject(new KustoQueryError(`Query timed out after ${timeout}ms`));
+          }, timeout);
+
+          queryPromise
+            .then(result => {
+              clearTimeout(timeoutHandle);
+              resolve(result);
+            })
+            .catch(err => {
+              clearTimeout(timeoutHandle);
+              reject(err);
+            });
+        });
 
         debugLog(`Raw Kusto Response: ${JSON.stringify(rawResult, null, 2)}`);
 

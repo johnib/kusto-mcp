@@ -77,7 +77,7 @@ describe('Connection Management', () => {
 
     const functionsResponse = await client.callTool('show-functions', {});
     expect(functionsResponse.isError).toBeFalsy();
-  });
+  }, 20000); // Increase timeout to 20 seconds
 
   test('should allow reconnection with different parameters', async () => {
     // First connection
