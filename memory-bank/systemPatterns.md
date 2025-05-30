@@ -196,3 +196,18 @@ sequenceDiagram
 - Operation-level checks
 - Resource access control
 - Error handling
+
+## Testing Patterns
+
+### 1. Recording-Based Mock Strategy
+
+- Unit tests use mocks generated from real E2E Kusto responses.
+- Each E2E scenario is mapped to a corresponding unit test with a recorded fixture.
+- All Azure/Kusto dependencies are mocked for speed and determinism.
+- Validation workflow: run E2E, capture responses, create fixtures, implement unit test, confirm behavioral equivalence.
+
+### 2. Validation and Documentation
+
+- After major test changes, validate unit test coverage against E2E.
+- Document coverage mapping and performance in the test README.
+- Ensure all core scenarios are covered and results are deterministic.

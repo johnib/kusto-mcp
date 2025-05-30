@@ -39,7 +39,6 @@
 1. Always use Azure Identity or Azure CLI
 2. Handle token refresh automatically
 3. Implement proper error handling
-4. Cache authentication tokens appropriately
 
 ### Error Handling
 
@@ -128,7 +127,6 @@
 1. Validate queries before execution
 2. Implement timeout handling
 3. Monitor query performance
-4. Cache frequent queries
 
 ## Learning Notes
 
@@ -151,6 +149,9 @@
 5. **Use safeLog for debugging instead of console.log**
 6. **Enable DEBUG_SERVER=1 for test debugging**
 7. **Always verify response structure matches test expectations**
+8. **After major test changes, validate unit test coverage against E2E scenarios**
+9. **Document coverage mapping and performance in the test README**
+10. **Use recording-based mocks for all external dependencies in unit tests**
 
 ### Common Pitfalls
 
