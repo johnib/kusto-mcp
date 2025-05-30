@@ -6,6 +6,25 @@
 import { createMockError, createMockKustoResponse } from '../setup.js';
 
 describe('Unit Test Infrastructure', () => {
+  beforeEach(() => {
+    // Clear all mocks before each test
+    jest.clearAllMocks();
+
+    // Clear all timers to prevent open handles
+    jest.clearAllTimers();
+  });
+
+  afterEach(() => {
+    // Clear all mocks after each test
+    jest.clearAllMocks();
+
+    // Clear all timers to prevent open handles
+    jest.clearAllTimers();
+
+    // Reset modules to clean state
+    jest.resetModules();
+  });
+
   test('should load mocked azure-kusto-data', async () => {
     const { Client, KustoConnectionStringBuilder } = await import(
       'azure-kusto-data'

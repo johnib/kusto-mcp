@@ -54,14 +54,17 @@ export class KustoConnection {
         const connectionString =
           KustoConnectionStringBuilder.withAzLoginIdentity(clusterUrl);
 
-        this.client = new Client(connectionString);
-        this.database = database;
+        // Create a temporary client for validation, don't set instance variables yet
+        const tempClient = new Client(connectionString);
 
         // Test the connection with cluster-level query first
-        await this.executeQuery(database, '.show version');
+        const versionResult = await tempClient.execute(
+          database,
+          '.show version',
+        );
 
         // Validate that the database exists by checking the databases list
-        const databaseCheckResult = await this.executeQuery(
+        const databaseCheckResult = await tempClient.execute(
           database,
           `.show databases | where DatabaseName == '${database}'`,
         );
@@ -82,6 +85,10 @@ export class KustoConnection {
             `Database '${database}' not found in the cluster`,
           );
         }
+
+        // Only set the instance variables after successful validation
+        this.client = tempClient;
+        this.database = database;
 
         debugLog('Connection initialized successfully');
         span.setStatus({ code: SpanStatusCode.OK });
