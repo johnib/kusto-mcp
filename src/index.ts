@@ -8,7 +8,11 @@ import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
 import * as dotenv from 'dotenv';
 import { criticalLog, debugLog } from './common/utils.js';
 import { createKustoServer } from './server.js';
-import { AuthenticationMethod, KustoConfig } from './types/config.js';
+import {
+  AuthenticationMethod,
+  KustoConfig,
+  ResponseFormat,
+} from './types/config.js';
 
 // Load environment variables
 dotenv.config();
@@ -60,12 +64,28 @@ if (process.env.KUSTO_AUTH_METHOD) {
   }
 }
 
+// Determine the response format from environment variables
+let responseFormat = ResponseFormat.Json; // Default to JSON for backward compatibility
+if (process.env.KUSTO_RESPONSE_FORMAT) {
+  const format = process.env.KUSTO_RESPONSE_FORMAT.toLowerCase();
+  if (format === 'json') {
+    responseFormat = ResponseFormat.Json;
+    criticalLog('Using JSON response format');
+  } else if (format === 'markdown') {
+    responseFormat = ResponseFormat.Markdown;
+    criticalLog('Using Markdown response format');
+  } else {
+    criticalLog(`Unknown response format: ${format}, falling back to JSON`);
+  }
+}
+
 // Create the server configuration from environment variables
 const config: KustoConfig = {
   authMethod: authMethod,
   queryTimeout: process.env.KUSTO_QUERY_TIMEOUT
     ? parseInt(process.env.KUSTO_QUERY_TIMEOUT)
     : undefined,
+  responseFormat: responseFormat,
 };
 
 // Create the server

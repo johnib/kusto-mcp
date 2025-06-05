@@ -20,6 +20,13 @@ export {
   showTables,
 };
 
+// Export new query transformation functions
+export {
+  executeQueryWithTransformation,
+  transformQueryResult,
+  type TransformedQueryResult,
+} from './queries.js';
+
 /**
  * Create an index for the operations in this module
  */

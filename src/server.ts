@@ -289,101 +289,28 @@ export function createKustoServer(config: KustoConfig): Server {
           const limit = args.limit || 20;
           const modifiedQuery = `${args.query} | take ${limit + 1}`;
 
-          const result = await executeQuery(connection, modifiedQuery);
-
-          if (!result.primaryResults || result.primaryResults.length === 0) {
-            throw new McpError(
-              ErrorCode.InvalidRequest,
-              'No primary result found in query response',
-            );
-          }
-
-          const primaryResult = result.primaryResults[0];
-          const rawRows = (primaryResult as any)._rows || [];
-          const columns = (primaryResult as any).columns || [];
-
-          // DEBUG: Add detailed logging using debugLog
-          debugLog('DEBUG execute-query: STARTED');
-          debugLog(`DEBUG execute-query: Query = ${args.query}`);
-          debugLog(
-            `DEBUG execute-query: Raw rows = ${JSON.stringify(rawRows)}`,
-          );
-          debugLog(`DEBUG execute-query: Columns = ${JSON.stringify(columns)}`);
-          debugLog(
-            `DEBUG execute-query: First row = ${JSON.stringify(rawRows[0])}`,
+          // Import the transformation functions here to avoid auto-formatter issues
+          const { executeQueryWithTransformation, transformQueryResult } =
+            await import('./operations/kusto/index.js');
+          const { formatQueryResult } = await import(
+            './common/markdown-formatter.js'
           );
 
-          // Transform raw array data to objects using column information
-          const transformedRows = rawRows.map((row: any[]) => {
-            debugLog(
-              `DEBUG execute-query: Processing row = ${JSON.stringify(row)}`,
-            );
-            const obj: any = {};
+          // Execute the query and get raw results
+          const rawResult = await executeQuery(connection, modifiedQuery);
 
-            if (columns && columns.length > 0) {
-              // Use column metadata if available
-              debugLog('DEBUG execute-query: Using column metadata');
-              columns.forEach((column: any, index: number) => {
-                const columnName =
-                  column.ColumnName || column.name || `Column${index}`;
-                obj[columnName] = row[index];
-                debugLog(
-                  `DEBUG execute-query: Set ${columnName} = ${row[index]}`,
-                );
-              });
-            } else {
-              debugLog('DEBUG execute-query: Using fallback logic');
-              // Fallback: Try to infer column names based on query type
-              if (args.query.toLowerCase().includes('count')) {
-                obj.Count = row[0];
-                debugLog(`DEBUG execute-query: Set Count = ${row[0]}`);
-              } else if (args.query.toLowerCase().includes('.show tables')) {
-                obj.TableName = row[0];
-                obj.DatabaseName = row[1];
-                obj.Folder = row[2];
-                obj.DocString = row[3];
-              } else if (args.query.toLowerCase().includes('getschema')) {
-                obj.ColumnName = row[0];
-                obj.ColumnOrdinal = row[1];
-                obj.DataType = row[2];
-                obj.ColumnType = row[3];
-              } else {
-                // Generic fallback - use Column0, Column1, etc.
-                row.forEach((value: any, index: number) => {
-                  obj[`Column${index}`] = value;
-                });
-              }
-            }
-
-            debugLog(
-              `DEBUG execute-query: Transformed object = ${JSON.stringify(
-                obj,
-              )}`,
-            );
-            return obj;
-          });
-
-          debugLog(
-            `DEBUG execute-query: All transformed rows = ${JSON.stringify(
-              transformedRows,
-            )}`,
-          );
+          // Transform using the proper architecture
+          const transformedResult = transformQueryResult(rawResult);
 
           // Detect if results are partial using N+1 approach
-          const isPartial = transformedRows.length > limit;
+          const isPartial = transformedResult.data.length > limit;
           const returnedRows = isPartial
-            ? transformedRows.slice(0, limit)
-            : transformedRows;
-
-          debugLog(
-            `DEBUG execute-query: Final returned rows = ${JSON.stringify(
-              returnedRows,
-            )}`,
-          );
+            ? transformedResult.data.slice(0, limit)
+            : transformedResult.data;
 
           // Create enhanced response with metadata
           const enhancedResponse = {
-            name: primaryResult.name,
+            name: transformedResult.name,
             data: returnedRows,
             metadata: {
               rowCount: returnedRows.length,
@@ -396,19 +323,21 @@ export function createKustoServer(config: KustoConfig): Server {
               : undefined,
           };
 
-          debugLog(
-            `DEBUG execute-query: Enhanced response = ${JSON.stringify(
-              enhancedResponse,
-              null,
-              2,
-            )}`,
+          // Determine response format from config
+          const responseFormat = validatedConfig.responseFormat || 'json';
+          const formattedResult = formatQueryResult(
+            enhancedResponse,
+            responseFormat,
           );
+
+          debugLog(`Using ${responseFormat} response format`);
+          debugLog(`Formatted result: ${formattedResult}`);
 
           return {
             content: [
               {
                 type: 'text',
-                text: JSON.stringify(enhancedResponse, null, 2),
+                text: formattedResult,
               },
             ],
           };

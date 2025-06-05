@@ -4,6 +4,12 @@ import { criticalLog, debugLog } from '../../common/utils.js';
 import { KustoQueryResult } from '../../types/kusto-interfaces.js';
 import { KustoConnection } from './connection.js';
 
+export interface TransformedQueryResult {
+  name?: string;
+  data: Array<Record<string, any>>;
+  rawResult: KustoQueryResult;
+}
+
 // Create a tracer for this module
 const tracer = trace.getTracer('kusto-queries');
 
@@ -53,6 +59,111 @@ export async function executeQuery(
       span.end();
     }
   });
+}
+
+/**
+ * Transform raw Kusto query results into structured objects using column metadata
+ *
+ * @param rawResult The raw result from Kusto
+ * @returns Transformed result with proper object structure
+ */
+export function transformQueryResult(
+  rawResult: KustoQueryResult,
+): TransformedQueryResult {
+  debugLog('Transforming query result using column metadata');
+
+  if (!rawResult.primaryResults || rawResult.primaryResults.length === 0) {
+    debugLog('No primary results found');
+    return {
+      name: 'query_result',
+      data: [],
+      rawResult,
+    };
+  }
+
+  const primaryResult = rawResult.primaryResults[0];
+  const rawRows = (primaryResult as any)._rows || [];
+  const columns = (primaryResult as any).columns || [];
+
+  debugLog(`Found ${rawRows.length} rows and ${columns.length} columns`);
+  debugLog(`Columns: ${JSON.stringify(columns)}`);
+
+  // Transform raw array data to objects using ONLY column metadata
+  const transformedRows = rawRows.map((row: any[], rowIndex: number) => {
+    const obj: any = {};
+
+    if (columns && columns.length > 0) {
+      // Use column metadata - this is the CORRECT approach
+      columns.forEach((column: any, columnIndex: number) => {
+        const columnName =
+          column.ColumnName || column.name || `Column${columnIndex}`;
+        obj[columnName] = row[columnIndex];
+      });
+    } else {
+      // Fallback: use generic column names when no metadata available
+      row.forEach((value: any, index: number) => {
+        obj[`Column${index}`] = value;
+      });
+    }
+
+    debugLog(`Row ${rowIndex}: ${JSON.stringify(obj)}`);
+    return obj;
+  });
+
+  debugLog(
+    `Transformation complete: ${transformedRows.length} rows transformed`,
+  );
+
+  return {
+    name: primaryResult.name || 'query_result',
+    data: transformedRows,
+    rawResult,
+  };
+}
+
+/**
+ * Execute a query and return transformed results
+ *
+ * @param connection The Kusto connection
+ * @param query The query to execute
+ * @returns The transformed result
+ */
+export async function executeQueryWithTransformation(
+  connection: KustoConnection,
+  query: string,
+): Promise<TransformedQueryResult> {
+  return tracer.startActiveSpan(
+    'executeQueryWithTransformation',
+    async span => {
+      try {
+        span.setAttribute('query', query);
+
+        // Execute the raw query
+        const rawResult = await executeQuery(connection, query);
+
+        // Transform the result using column metadata
+        const transformedResult = transformQueryResult(rawResult);
+
+        span.setStatus({ code: SpanStatusCode.OK });
+        return transformedResult;
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        criticalLog(`Failed to execute and transform query: ${errorMessage}`);
+
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: errorMessage,
+        });
+
+        throw new KustoQueryError(
+          `Failed to execute and transform query: ${errorMessage}`,
+        );
+      } finally {
+        span.end();
+      }
+    },
+  );
 }
 
 /**
@@ -110,5 +221,7 @@ export async function executeManagementCommand(
  */
 export default {
   executeQuery,
+  executeQueryWithTransformation,
+  transformQueryResult,
   executeManagementCommand,
 };
