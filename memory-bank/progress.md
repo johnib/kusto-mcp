@@ -54,6 +54,17 @@
 - [x] NPM publishing automation
 - [x] Auto-generated changelogs
 
+#### Response Format Support ✅
+
+- [x] JSON response format (default)
+- [x] Markdown table response format using `markdown-table` library
+- [x] Configurable via KUSTO_RESPONSE_FORMAT environment variable
+- [x] Professional markdown table formatting with perfect alignment
+- [x] Advanced features: column alignment, truncation, configurable metadata
+- [x] Integration with existing query execution pipeline
+- [x] Documentation and examples provided
+- [x] **Library Migration Completed**: Replaced custom formatting with `markdown-table` library
+
 ### Pending Features
 
 #### Documentation 🚧
@@ -171,12 +182,21 @@
 
 ### Current Milestone
 
-🚧 **Architecture Cleanup and Documentation**
+✅ **Markdown Response Format Implementation**
 
-- Progress: 20%
-- Focus: **Fix critical data transformation anti-pattern + documentation**
-- Status: Active development
-- **URGENT**: Data transformation refactor required
+- Progress: 100% ✅
+- Focus: Add markdown table response format support
+- Status: **COMPLETED**
+- Achievement: Successfully implemented configurable response formats (JSON/Markdown)
+
+### Previous Milestone
+
+✅ **Architecture Cleanup and Documentation**
+
+- Progress: 100% ✅
+- Focus: **Fixed critical data transformation anti-pattern + enhanced documentation**
+- Status: **COMPLETED**
+- Achievement: Refactored data transformation to proper architecture with clean separation of concerns
 
 ### Upcoming Milestones
 

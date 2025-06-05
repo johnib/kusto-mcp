@@ -60,6 +60,7 @@ Create a `.env` file based on the provided `.env.example`:
 # Kusto Configuration
 KUSTO_AUTH_METHOD=azure-cli  # Options: azure-identity, azure-cli
 KUSTO_QUERY_TIMEOUT=60000  # Timeout in milliseconds (default: 60000)
+KUSTO_RESPONSE_FORMAT=json  # Options: json, markdown (default: json)
 
 # OpenTelemetry Configuration (optional)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317/v1/traces
@@ -169,6 +170,49 @@ This MCP server includes detailed guidance for AI assistants on how to effective
 - **ADX KQL Specifics**: Best practices for writing efficient KQL queries
 
 This guidance helps ensure that AI assistants can provide a consistent, helpful experience when helping users interact with Azure Data Explorer through this MCP server.
+
+### Response Formats
+
+The server supports two response formats for query results:
+
+#### JSON Format (Default)
+
+```json
+{
+  "name": "PrimaryResult",
+  "data": [
+    {"Column1": "value1", "Column2": "value2"},
+    {"Column1": "value3", "Column2": "value4"}
+  ],
+  "metadata": {
+    "rowCount": 2,
+    "isPartial": false,
+    "requestedLimit": 20,
+    "hasMoreResults": false
+  }
+}
+```
+
+#### Markdown Format
+
+When `KUSTO_RESPONSE_FORMAT=markdown` is set, query results are returned as formatted markdown tables:
+
+```markdown
+## Query Results
+
+| Column1 | Column2 |
+|---------|---------|
+| value1  | value2  |
+| value3  | value4  |
+
+**Metadata:**
+- Rows returned: 2
+- Partial results: false
+- Requested limit: 20
+- Has more results: false
+```
+
+The markdown format is particularly useful when working with AI assistants that can better interpret and present tabular data in a human-readable format.
 
 ## Authentication
 

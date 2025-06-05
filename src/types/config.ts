@@ -7,6 +7,14 @@ export enum AuthenticationMethod {
 }
 
 /**
+ * Response format options for query results
+ */
+export enum ResponseFormat {
+  Json = 'json',
+  Markdown = 'markdown',
+}
+
+/**
  * Configuration for the Kusto MCP server
  */
 export interface KustoConfig {
@@ -19,6 +27,11 @@ export interface KustoConfig {
    * The timeout for Kusto queries in milliseconds
    */
   queryTimeout?: number;
+
+  /**
+   * The response format for query results
+   */
+  responseFormat?: ResponseFormat;
 }
 
 /**
@@ -27,6 +40,7 @@ export interface KustoConfig {
 export const DEFAULT_CONFIG: Partial<KustoConfig> = {
   authMethod: AuthenticationMethod.AzureIdentity,
   queryTimeout: 60000, // 1 minute
+  responseFormat: ResponseFormat.Json, // Default to JSON for backward compatibility
 };
 
 /**
