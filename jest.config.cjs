@@ -5,6 +5,7 @@ module.exports = {
   collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts'],
   coverageReporters: ['text', 'lcov', 'html'],
   transformIgnorePatterns: ['node_modules/(?!(@azure|azure-))'],
+  maxWorkers: '100%', // Enable parallel project execution
 
   // Multi-project configuration
   projects: [
@@ -33,7 +34,7 @@ module.exports = {
         '^(\\.{1,2}/.*)\\.js$': '$1',
       },
       setupFilesAfterEnv: ['<rootDir>/tests/unit/setup.ts'],
-      maxWorkers: '50%', // Parallel execution for unit tests
+      maxWorkers: '100%', // Parallel execution for unit tests
     },
     {
       displayName: 'e2e',
@@ -60,7 +61,8 @@ module.exports = {
         '^(\\.{1,2}/.*)\\.js$': '$1',
       },
       setupFilesAfterEnv: ['<rootDir>/tests/e2e/setup.ts'],
-      maxWorkers: '100%', // Run tests sequentially to avoid conflicts
+      testTimeout: 10000, // 10 second timeout for e2e tests
+      maxWorkers: '100%', // Parallel execution for e2e tests
     },
   ],
 };
