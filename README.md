@@ -63,6 +63,10 @@ KUSTO_QUERY_TIMEOUT=60000  # Timeout in milliseconds (default: 60000)
 KUSTO_RESPONSE_FORMAT=json  # Options: json, markdown (default: json)
 KUSTO_MARKDOWN_MAX_CELL_LENGTH=1000  # Maximum characters per table cell (default: 1000)
 
+# Global response size limiting
+KUSTO_MAX_RESPONSE_LENGTH=12000  # Maximum characters for entire MCP response (default: 12000)
+KUSTO_MIN_RESPONSE_ROWS=1  # Minimum rows to return when data exists (default: 1)
+
 # OpenTelemetry Configuration (optional)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317/v1/traces
 ```
@@ -251,6 +255,76 @@ With `KUSTO_MARKDOWN_MAX_CELL_LENGTH=50`:
 - **Detailed Analysis**: Set to 2000+ characters when you need to see full content
 - **Context Window Management**: Prevent extremely large tables from overwhelming AI context windows
 - **Disable Truncation**: Set to a very large number (e.g., 999999) to effectively disable truncation
+
+#### Global Response Size Limiting
+
+Beyond cell-level truncation, the server provides intelligent global response limiting to prevent context window overflow while maximizing data utility. This feature dynamically reduces the number of rows returned to fit within a specified character limit.
+
+**Configuration:**
+
+```bash
+# Set maximum characters for entire MCP response (default: 12000)
+KUSTO_MAX_RESPONSE_LENGTH=8000
+
+# Set minimum rows to return when data exists (default: 1)
+KUSTO_MIN_RESPONSE_ROWS=3
+```
+
+**How It Works:**
+
+The server uses a sophisticated binary search algorithm to find the optimal number of rows that fit within the character limit:
+
+1. **Initial Assessment**: Checks if the full requested data fits within the limit
+2. **Dynamic Reduction**: If too large, uses binary search to find the maximum rows that fit
+3. **Minimum Guarantee**: Always returns at least `KUSTO_MIN_RESPONSE_ROWS` when data exists
+4. **Smart Metadata**: Provides detailed information about the reduction process
+
+**Example Response with Global Limiting:**
+
+```json
+{
+  "name": "PrimaryResult", 
+  "data": [
+    {"EventTime": "2024-01-01T10:00:00Z", "CustomerID": "C001", "Revenue": 1250.50},
+    {"EventTime": "2024-01-01T10:15:00Z", "CustomerID": "C002", "Revenue": 875.25},
+    {"EventTime": "2024-01-01T10:30:00Z", "CustomerID": "C003", "Revenue": 2100.75}
+  ],
+  "metadata": {
+    "rowCount": 3,
+    "isPartial": true,
+    "requestedLimit": 20,
+    "hasMoreResults": true,
+    "reducedForResponseSize": true,
+    "originalRowsAvailable": 15,
+    "globalCharLimit": 8000,
+    "responseCharCount": 7856
+  },
+  "message": "Row count reduced to fit response size limit. Use more specific filters for larger datasets."
+}
+```
+
+**Features:**
+
+- **Binary Search Optimization**: Efficiently finds the optimal row count without testing every possibility
+- **Format Awareness**: Works with both JSON and Markdown response formats
+- **Metadata Transparency**: Clearly indicates when and why reduction occurred
+- **Preservation Priority**: Maintains data structure and formatting while reducing volume
+- **Performance**: Minimizes query re-execution through intelligent caching
+
+**Use Cases:**
+
+- **AI Context Management**: Prevent overwhelming language model context windows (8K-32K character limits)
+- **Large Dataset Exploration**: Get meaningful samples from huge query results
+- **Interactive Analysis**: Provide quick insights while suggesting refinement strategies
+- **Progressive Disclosure**: Show initial results with clear indicators about available data
+- **Response Optimization**: Balance information density with processing constraints
+
+**Best Practices:**
+
+- **Conservative Limits**: Start with 8000-12000 characters for most AI assistants
+- **Minimum Rows**: Set to 1-5 rows to ensure meaningful results even from large datasets
+- **Query Guidance**: The system automatically suggests using filters and aggregations for large results
+- **Format Consideration**: Markdown format typically uses more characters than JSON
 
 ## Authentication
 

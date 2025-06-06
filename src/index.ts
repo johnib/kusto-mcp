@@ -89,6 +89,12 @@ const config: KustoConfig = {
   markdownMaxCellLength: process.env.KUSTO_MARKDOWN_MAX_CELL_LENGTH
     ? parseInt(process.env.KUSTO_MARKDOWN_MAX_CELL_LENGTH)
     : undefined,
+  maxResponseLength: process.env.KUSTO_MAX_RESPONSE_LENGTH
+    ? parseInt(process.env.KUSTO_MAX_RESPONSE_LENGTH)
+    : undefined,
+  minRowsInResponse: process.env.KUSTO_MIN_RESPONSE_ROWS
+    ? parseInt(process.env.KUSTO_MIN_RESPONSE_ROWS)
+    : undefined,
 };
 
 // Create the server

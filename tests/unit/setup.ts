@@ -158,6 +158,28 @@ jest.mock('dotenv', () => ({
   config: jest.fn(),
 }));
 
+// Mock markdown-table module to handle ES module import issues
+jest.mock('markdown-table', () => ({
+  markdownTable: jest.fn((table, options) => {
+    if (!table || table.length === 0) {
+      return '';
+    }
+
+    // Simple table formatting for testing
+    const headers = table[0];
+    const rows = table.slice(1);
+
+    let result = '| ' + headers.join(' | ') + ' |\n';
+    result += '|' + headers.map(() => '---').join('|') + '|\n';
+
+    for (const row of rows) {
+      result += '| ' + row.join(' | ') + ' |\n';
+    }
+
+    return result;
+  }),
+}));
+
 // Global test configuration
 beforeEach(() => {
   // Clear all mocks before each test

@@ -285,15 +285,21 @@ export function createKustoServer(config: KustoConfig): Server {
             );
           }
 
-          // Apply limit using N+1 approach for truncation detection
-          const limit = args.limit || 20;
-          const modifiedQuery = `${args.query} | take ${limit + 1}`;
+          // Get user-requested limit and global response limit
+          const requestedLimit = args.limit || 20;
+          const globalCharLimit = validatedConfig.maxResponseLength || 12000;
+          const minRows = validatedConfig.minRowsInResponse || 1;
+
+          // Execute query with generous limit initially (for dynamic reduction)
+          // Use a reasonable upper bound to avoid excessive data fetching
+          const initialLimit = requestedLimit;
+          const modifiedQuery = `${args.query} | take ${initialLimit + 1}`;
 
           // Import the transformation functions here to avoid auto-formatter issues
           const { executeQueryWithTransformation, transformQueryResult } =
             await import('./operations/kusto/index.js');
-          const { formatQueryResult } = await import(
-            './common/markdown-formatter.js'
+          const { limitResponseSize } = await import(
+            './common/response-limiter.js'
           );
 
           // Execute the query and get raw results
@@ -303,45 +309,59 @@ export function createKustoServer(config: KustoConfig): Server {
           const transformedResult = transformQueryResult(rawResult);
 
           // Detect if results are partial using N+1 approach
-          const isPartial = transformedResult.data.length > limit;
-          const returnedRows = isPartial
-            ? transformedResult.data.slice(0, limit)
+          const hasMoreDataAvailable =
+            transformedResult.data.length > initialLimit;
+          const availableData = hasMoreDataAvailable
+            ? transformedResult.data.slice(0, initialLimit)
             : transformedResult.data;
 
-          // Create enhanced response with metadata
-          const enhancedResponse = {
+          // Create base response structure with all available data
+          const baseResponse = {
             name: transformedResult.name,
-            data: returnedRows,
+            data: availableData,
             metadata: {
-              rowCount: returnedRows.length,
-              isPartial,
-              requestedLimit: limit,
-              hasMoreResults: isPartial,
+              rowCount: 0, // Will be updated by response limiter
+              isPartial:
+                hasMoreDataAvailable || availableData.length > requestedLimit,
+              requestedLimit,
+              hasMoreResults:
+                hasMoreDataAvailable || availableData.length > requestedLimit,
             },
-            message: isPartial
-              ? 'Results are partial. Consider using aggregations, filters, or more specific conditions to reduce the dataset.'
-              : undefined,
+            message: undefined, // Will be set by response limiter if needed
           };
 
           // Determine response format from config
           const responseFormat = validatedConfig.responseFormat || 'json';
-          const formattedResult = formatQueryResult(
-            enhancedResponse,
-            responseFormat,
-            {
+
+          // Apply global response size limiting with dynamic row reduction
+          const limitResult = limitResponseSize(baseResponse, {
+            maxLength: globalCharLimit,
+            minRows: minRows,
+            format: responseFormat,
+            formatOptions: {
               maxColumnWidth: validatedConfig.markdownMaxCellLength,
               showMetadata: true,
             },
-          );
+          });
 
           debugLog(`Using ${responseFormat} response format`);
-          debugLog(`Formatted result: ${formattedResult}`);
+          debugLog(
+            `Global response limiting: ${
+              limitResult.wasReduced ? 'Applied' : 'Not needed'
+            }`,
+          );
+          debugLog(
+            `Optimal row count: ${limitResult.optimalRowCount} / ${limitResult.originalRowCount}`,
+          );
+          debugLog(
+            `Final response size: ${limitResult.finalCharCount} / ${globalCharLimit} chars`,
+          );
 
           return {
             content: [
               {
                 type: 'text',
-                text: formattedResult,
+                text: limitResult.content,
               },
             ],
           };

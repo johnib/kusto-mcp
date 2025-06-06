@@ -37,6 +37,16 @@ export interface KustoConfig {
    * Maximum characters per cell in markdown tables
    */
   markdownMaxCellLength?: number;
+
+  /**
+   * Maximum total characters for entire MCP response
+   */
+  maxResponseLength?: number;
+
+  /**
+   * Minimum number of rows to return in response (when data exists)
+   */
+  minRowsInResponse?: number;
 }
 
 /**
@@ -47,6 +57,8 @@ export const DEFAULT_CONFIG: Partial<KustoConfig> = {
   queryTimeout: 60000, // 1 minute
   responseFormat: ResponseFormat.Json, // Default to JSON for backward compatibility
   markdownMaxCellLength: 1000, // Default to 1000 characters per cell
+  maxResponseLength: 12000, // 12K characters - conservative for context windows
+  minRowsInResponse: 1, // Always return at least 1 row if data exists
 };
 
 /**

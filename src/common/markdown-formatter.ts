@@ -12,6 +12,11 @@ export interface QueryResult {
     isPartial: boolean;
     requestedLimit: number;
     hasMoreResults: boolean;
+    // Global response limiting metadata
+    reducedForResponseSize?: boolean;
+    originalRowsAvailable?: number;
+    globalCharLimit?: number;
+    responseCharCount?: number;
   };
   message?: string;
 }
@@ -80,6 +85,22 @@ function generateMetadataSummary(
     `- Partial results: ${metadata.isPartial ? 'Yes' : 'No'}`,
     `- Has more results: ${metadata.hasMoreResults ? 'Yes' : 'No'}`,
   ];
+
+  // Add global response limiting information if available
+  if (metadata.reducedForResponseSize) {
+    summary.push(`- Reduced for response size: Yes`);
+    if (metadata.originalRowsAvailable) {
+      summary.push(
+        `- Original rows available: ${metadata.originalRowsAvailable}`,
+      );
+    }
+  }
+
+  if (metadata.responseCharCount && metadata.globalCharLimit) {
+    summary.push(
+      `- Response size: ${metadata.responseCharCount} / ${metadata.globalCharLimit} chars`,
+    );
+  }
 
   if (message) {
     summary.push(`- Note: ${message}`);

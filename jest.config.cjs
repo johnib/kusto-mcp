@@ -4,7 +4,7 @@ module.exports = {
   verbose: true,
   collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts'],
   coverageReporters: ['text', 'lcov', 'html'],
-  transformIgnorePatterns: ['node_modules/(?!(@azure|azure-))'],
+  transformIgnorePatterns: ['node_modules/(?!(@azure|azure-|markdown-table))'],
   maxWorkers: '100%', // Enable parallel project execution
 
   // Multi-project configuration
