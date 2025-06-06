@@ -24,32 +24,46 @@ export interface MarkdownTableOptions {
 /**
  * Format a value for display in a markdown table cell
  */
-function formatCellValue(value: unknown, maxWidth?: number): string {
-  let formattedValue: string;
-
+function formatCellValue(value: unknown): string {
   if (value === null || value === undefined) {
     return '';
   }
 
   if (typeof value === 'string') {
-    formattedValue = value.replace(/\n/g, ' ').trim();
+    return value.replace(/\n/g, ' ').trim();
   } else if (typeof value === 'number') {
-    formattedValue = value.toString();
+    return value.toString();
   } else if (typeof value === 'boolean') {
-    formattedValue = value ? 'true' : 'false';
+    return value ? 'true' : 'false';
   } else if (value instanceof Date) {
-    formattedValue = value.toISOString();
+    return value.toISOString();
   } else {
     // For objects, arrays, etc., convert to string
-    formattedValue = String(value).replace(/\n/g, ' ').trim();
+    return String(value).replace(/\n/g, ' ').trim();
   }
+}
 
-  // Apply max width truncation if specified
-  if (maxWidth && formattedValue.length > maxWidth) {
-    formattedValue = formattedValue.substring(0, maxWidth - 3) + '...';
+/**
+ * Truncate a string to a maximum length with ellipsis
+ */
+function truncateString(str: string, maxLength: number): string {
+  if (str.length <= maxLength) {
+    return str;
   }
+  return str.substring(0, maxLength - 3) + '...';
+}
 
-  return formattedValue;
+/**
+ * Create a stringLength function for markdown-table that handles truncation
+ */
+function createStringLengthWithLimit(maxLength: number) {
+  return (str: string): number => {
+    if (str.length <= maxLength) {
+      return str.length;
+    }
+    // Return length of truncated string including ellipsis
+    return maxLength;
+  };
 }
 
 /**
@@ -103,19 +117,29 @@ export function formatAsMarkdownTable(
     return `*No columns found in results*${metadataSection}`;
   }
 
-  // Prepare table data: header row + data rows
+  // Prepare table data with truncation: header row + data rows
   const tableData = [
-    columns, // Header row
+    columns, // Header row (no truncation needed)
     ...data.map(row =>
-      columns.map(col => formatCellValue(row[col], maxColumnWidth)),
+      columns.map(col => {
+        const value = formatCellValue(row[col]);
+        return maxColumnWidth ? truncateString(value, maxColumnWidth) : value;
+      }),
     ),
   ];
 
-  // Generate the markdown table using the library with default alignment
-  const table = markdownTable(tableData, {
+  // Generate the markdown table using the library with stringLength option
+  const markdownOptions: any = {
     padding: true,
     alignDelimiters: true,
-  });
+  };
+
+  // Add stringLength function if maxColumnWidth is specified
+  if (maxColumnWidth) {
+    markdownOptions.stringLength = createStringLengthWithLimit(maxColumnWidth);
+  }
+
+  const table = markdownTable(tableData, markdownOptions);
 
   // Add metadata summary if requested
   const metadataSection = showMetadata

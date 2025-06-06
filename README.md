@@ -61,6 +61,7 @@ Create a `.env` file based on the provided `.env.example`:
 KUSTO_AUTH_METHOD=azure-cli  # Options: azure-identity, azure-cli
 KUSTO_QUERY_TIMEOUT=60000  # Timeout in milliseconds (default: 60000)
 KUSTO_RESPONSE_FORMAT=json  # Options: json, markdown (default: json)
+KUSTO_MARKDOWN_MAX_CELL_LENGTH=1000  # Maximum characters per table cell (default: 1000)
 
 # OpenTelemetry Configuration (optional)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317/v1/traces
@@ -213,6 +214,43 @@ When `KUSTO_RESPONSE_FORMAT=markdown` is set, query results are returned as form
 ```
 
 The markdown format is particularly useful when working with AI assistants that can better interpret and present tabular data in a human-readable format.
+
+#### Markdown Table Character Limits
+
+When using the markdown response format, you can control the maximum length of content in table cells using the `KUSTO_MARKDOWN_MAX_CELL_LENGTH` environment variable. This is particularly useful for preventing extremely wide tables when query results contain long text values.
+
+**Configuration:**
+
+```bash
+# Set maximum characters per table cell (default: 1000)
+KUSTO_MARKDOWN_MAX_CELL_LENGTH=500
+```
+
+**Examples:**
+
+With `KUSTO_MARKDOWN_MAX_CELL_LENGTH=50`:
+
+```markdown
+| Short | Medium                                             | Long                                               |
+| ----- | -------------------------------------------------- | -------------------------------------------------- |
+| ABC   | This is a medium length string that should not... | This is a very long string that gets truncated... |
+| DEF   | Another medium string that fits                    | Another very long string that should also be tr... |
+```
+
+**Features:**
+
+- **Automatic Truncation**: Long content is automatically truncated with `...` ellipsis
+- **Table Alignment**: The markdown-table library properly aligns columns even with truncated content
+- **Configurable Limit**: Set any positive number for the character limit
+- **Smart Formatting**: Uses the library's built-in `stringLength` option for proper table rendering
+- **Backward Compatible**: When not configured, tables render without truncation (existing behavior)
+
+**Use Cases:**
+
+- **Compact Display**: Set to 100-200 characters for compact tables in chat interfaces
+- **Detailed Analysis**: Set to 2000+ characters when you need to see full content
+- **Context Window Management**: Prevent extremely large tables from overwhelming AI context windows
+- **Disable Truncation**: Set to a very large number (e.g., 999999) to effectively disable truncation
 
 ## Authentication
 

@@ -328,6 +328,10 @@ export function createKustoServer(config: KustoConfig): Server {
           const formattedResult = formatQueryResult(
             enhancedResponse,
             responseFormat,
+            {
+              maxColumnWidth: validatedConfig.markdownMaxCellLength,
+              showMetadata: true,
+            },
           );
 
           debugLog(`Using ${responseFormat} response format`);

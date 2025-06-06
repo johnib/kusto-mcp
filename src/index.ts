@@ -86,6 +86,9 @@ const config: KustoConfig = {
     ? parseInt(process.env.KUSTO_QUERY_TIMEOUT)
     : undefined,
   responseFormat: responseFormat,
+  markdownMaxCellLength: process.env.KUSTO_MARKDOWN_MAX_CELL_LENGTH
+    ? parseInt(process.env.KUSTO_MARKDOWN_MAX_CELL_LENGTH)
+    : undefined,
 };
 
 // Create the server
