@@ -4,6 +4,15 @@
 
 import { markdownTable } from 'markdown-table';
 
+/**
+ * Options for markdown table generation
+ */
+interface MarkdownTableLibraryOptions {
+  padding?: boolean;
+  alignDelimiters?: boolean;
+  stringLength?: (str: string) => number;
+}
+
 export interface QueryResult {
   name?: string;
   data: Array<Record<string, unknown>>;
@@ -150,7 +159,7 @@ export function formatAsMarkdownTable(
   ];
 
   // Generate the markdown table using the library with stringLength option
-  const markdownOptions: any = {
+  const markdownOptions: MarkdownTableLibraryOptions = {
     padding: true,
     alignDelimiters: true,
   };
