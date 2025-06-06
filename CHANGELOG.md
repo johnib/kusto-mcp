@@ -1,3 +1,11 @@
+# [1.3.0](https://github.com/johnib/kusto-mcp/compare/v1.2.0...v1.3.0) (2025-06-06)
+
+
+### Features
+
+* Add configurable markdown table cell truncation ([a9f8de1](https://github.com/johnib/kusto-mcp/commit/a9f8de179b41cf734f0b0e23024182df3b1c5bcd))
+* Add global response size limiting with intelligent row reduction ([a3d6a4e](https://github.com/johnib/kusto-mcp/commit/a3d6a4ee9afcc68fd4f37e1cf2280d65d2fa3620))
+
 # [1.2.0](https://github.com/johnib/kusto-mcp/compare/v1.1.1...v1.2.0) (2025-06-06)
 
 
