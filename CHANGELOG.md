@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/johnib/kusto-mcp/compare/v1.3.0...v1.4.0) (2025-06-06)
+
+
+### Features
+
+* add pre-commit hooks with Husky and lint-staged ([61a2379](https://github.com/johnib/kusto-mcp/commit/61a2379a84ec4bc1a622c7fa8dc8baa24293b462))
+
 # [1.3.0](https://github.com/johnib/kusto-mcp/compare/v1.2.0...v1.3.0) (2025-06-06)
 
 
