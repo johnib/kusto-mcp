@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/johnib/kusto-mcp/compare/v1.4.0...v1.4.1) (2025-06-19)
+
+
+### Bug Fixes
+
+* Improve markdown formatter object handling with JSON serialization ([d41e558](https://github.com/johnib/kusto-mcp/commit/d41e558aa79b7a902380a17381a83d960c785182))
+
 # [1.4.0](https://github.com/johnib/kusto-mcp/compare/v1.3.0...v1.4.0) (2025-06-06)
 
 
