@@ -52,8 +52,13 @@ function formatCellValue(value: unknown): string {
   } else if (value instanceof Date) {
     return value.toISOString();
   } else {
-    // For objects, arrays, etc., convert to string
-    return String(value).replace(/\n/g, ' ').trim();
+    // For objects, arrays, etc., convert to JSON string
+    try {
+      return JSON.stringify(value).replace(/\n/g, ' ').trim();
+    } catch {
+      // Fallback for non-serializable objects (circular refs, etc.)
+      return String(value).replace(/\n/g, ' ').trim();
+    }
   }
 }
 
