@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/johnib/kusto-mcp/compare/v1.4.1...v1.4.2) (2025-06-24)
+
+
+### Bug Fixes
+
+* Simplify Kusto connection validation and update test configuration ([5658759](https://github.com/johnib/kusto-mcp/commit/5658759426cae6de5c68d62bac3b8f78598d4889))
+
 ## [1.4.1](https://github.com/johnib/kusto-mcp/compare/v1.4.0...v1.4.1) (2025-06-19)
 
 
