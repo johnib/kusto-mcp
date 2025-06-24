@@ -7,11 +7,8 @@ import { KustoConnectionError } from '../../../src/common/errors.js';
 import { KustoConnection } from '../../../src/operations/kusto/connection.js';
 import {
   invalidClusterError,
-  showDatabasesEmptyResponse,
-  showDatabasesValidResponse,
   showFunctionsResponse,
   showTablesResponse,
-  showVersionResponse,
 } from '../fixtures/connection-responses.js';
 
 // Mock the modules
@@ -109,9 +106,9 @@ describe('Connection Management Unit Tests', () => {
   describe('Successful Operations', () => {
     test('should connect to help.kusto.windows.net successfully', async () => {
       // Setup mocks for successful connection
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse) // .show version
-        .mockResolvedValueOnce(showDatabasesValidResponse); // .show databases check
+      mockExecute.mockResolvedValueOnce({
+        primaryResults: [{ data: [{ now: new Date().toISOString() }] }],
+      }); // print now() response
 
       // Test the connection
       const result = await connection.initialize(
@@ -127,17 +124,8 @@ describe('Connection Management Unit Tests', () => {
       });
 
       // Verify the mock calls
-      expect(mockExecute).toHaveBeenCalledTimes(2);
-      expect(mockExecute).toHaveBeenNthCalledWith(
-        1,
-        'ContosoSales',
-        '.show version',
-      );
-      expect(mockExecute).toHaveBeenNthCalledWith(
-        2,
-        'ContosoSales',
-        ".show databases | where DatabaseName == 'ContosoSales'",
-      );
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', 'print now()');
 
       // Verify connection state
       expect(connection.isInitialized()).toBe(true);
@@ -146,9 +134,9 @@ describe('Connection Management Unit Tests', () => {
 
     test('should maintain connection state across multiple operations', async () => {
       // Setup mocks for initialization
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockResolvedValueOnce(showDatabasesValidResponse);
+      mockExecute.mockResolvedValueOnce({
+        primaryResults: [{ data: [{ now: new Date().toISOString() }] }],
+      });
 
       // Initialize connection
       await connection.initialize(
@@ -198,9 +186,9 @@ describe('Connection Management Unit Tests', () => {
 
     test('should allow reconnection with different parameters', async () => {
       // First connection
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockResolvedValueOnce(showDatabasesValidResponse);
+      mockExecute.mockResolvedValueOnce({
+        primaryResults: [{ data: [{ now: new Date().toISOString() }] }],
+      });
 
       const firstResult = await connection.initialize(
         'https://help.kusto.windows.net/',
@@ -214,9 +202,9 @@ describe('Connection Management Unit Tests', () => {
       mockExecute.mockClear();
 
       // Second connection (should override the first)
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockResolvedValueOnce(showDatabasesValidResponse);
+      mockExecute.mockResolvedValueOnce({
+        primaryResults: [{ data: [{ now: new Date().toISOString() }] }],
+      });
 
       const secondResult = await connection.initialize(
         'https://help.kusto.windows.net/',
@@ -227,7 +215,7 @@ describe('Connection Management Unit Tests', () => {
       expect(connection.getDatabase()).toBe('ContosoSales');
 
       // Verify both initialization sequences were called
-      expect(mockExecute).toHaveBeenCalledTimes(2);
+      expect(mockExecute).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -247,17 +235,16 @@ describe('Connection Management Unit Tests', () => {
       ).rejects.toThrow(KustoConnectionError);
 
       // Verify connection was attempted
-      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', '.show version');
+      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', 'print now()');
 
       // Verify connection is not initialized
       expect(connection.isInitialized()).toBe(false);
     });
 
     test('should handle invalid database name gracefully', async () => {
-      // Setup mocks: version check succeeds, database check returns empty
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse) // .show version succeeds
-        .mockResolvedValueOnce(showDatabasesEmptyResponse); // database check returns empty
+      // Setup mock to reject with database error (e.g., database doesn't exist)
+      const error = new Error('Database "NonExistentDatabase" not found');
+      mockExecute.mockRejectedValueOnce(error);
 
       // Test with non-existent database
       await expect(
@@ -267,17 +254,11 @@ describe('Connection Management Unit Tests', () => {
         ),
       ).rejects.toThrow(KustoConnectionError);
 
-      // Verify both queries were executed
-      expect(mockExecute).toHaveBeenCalledTimes(2);
-      expect(mockExecute).toHaveBeenNthCalledWith(
-        1,
+      // Verify the query was attempted
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(mockExecute).toHaveBeenCalledWith(
         'NonExistentDatabase',
-        '.show version',
-      );
-      expect(mockExecute).toHaveBeenNthCalledWith(
-        2,
-        'NonExistentDatabase',
-        ".show databases | where DatabaseName == 'NonExistentDatabase'",
+        'print now()',
       );
 
       // Verify connection is not initialized
@@ -307,9 +288,9 @@ describe('Connection Management Unit Tests', () => {
       expect(connection.isInitialized()).toBe(false);
 
       // Setup successful initialization
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockResolvedValueOnce(showDatabasesValidResponse);
+      mockExecute.mockResolvedValueOnce({
+        primaryResults: [{ data: [{ now: new Date().toISOString() }] }],
+      });
 
       // After successful initialization
       await connection.initialize(
@@ -322,10 +303,8 @@ describe('Connection Management Unit Tests', () => {
     });
 
     test('should handle partial initialization failure correctly', async () => {
-      // Setup: version check succeeds, database check fails
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockRejectedValueOnce(new Error('Database check failed'));
+      // Setup: connectivity check fails
+      mockExecute.mockRejectedValueOnce(new Error('Connection failed'));
 
       // Test that failed initialization leaves connection uninitialized
       await expect(

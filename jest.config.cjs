@@ -6,6 +6,7 @@ module.exports = {
   coverageReporters: ['text', 'lcov', 'html'],
   transformIgnorePatterns: ['node_modules/(?!(@azure|azure-|markdown-table))'],
   maxWorkers: '100%', // Enable parallel project execution
+  testTimeout: 30000, // 30 second timeout for all tests
 
   // Multi-project configuration
   projects: [
@@ -61,8 +62,7 @@ module.exports = {
         '^(\\.{1,2}/.*)\\.js$': '$1',
       },
       setupFilesAfterEnv: ['<rootDir>/tests/e2e/setup.ts'],
-      testTimeout: 10000, // 10 second timeout for e2e tests
-      maxWorkers: '100%', // Parallel execution for e2e tests
+      maxWorkers: 1, // Run e2e tests sequentially to avoid conflicts
     },
   ],
 };

@@ -6,18 +6,12 @@
 import { KustoConnectionError } from '../../../src/common/errors.js';
 import { KustoConnection } from '../../../src/operations/kusto/connection.js';
 import {
-  showDatabasesValidResponse,
-  showVersionResponse,
-} from '../fixtures/connection-responses.js';
-import {
   authenticationError,
-  emptyDatabaseCheckResponse,
   emptyQueryError,
   incompleteWhereError,
   invalidFunctionError,
   invalidOperatorError,
   invalidSyntaxError,
-  largeResultSetPartialResponse,
   networkError,
   nonExistentTableError,
   timeoutError,
@@ -89,10 +83,10 @@ describe('Error Scenarios Unit Tests', () => {
 
   describe('Query Execution Errors', () => {
     beforeEach(async () => {
-      // Initialize connection for query tests
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockResolvedValueOnce(showDatabasesValidResponse);
+      // Initialize connection for query tests using new print now() validation
+      mockExecute.mockResolvedValueOnce({
+        primaryResults: [{ data: [{ now: new Date().toISOString() }] }],
+      });
 
       await connection.initialize(
         'https://help.kusto.windows.net/',
@@ -213,8 +207,22 @@ describe('Error Scenarios Unit Tests', () => {
     });
 
     test('should handle large result sets with limits appropriately', async () => {
-      // Mock Kusto returning partial results
-      mockExecute.mockResolvedValueOnce(largeResultSetPartialResponse);
+      // Mock Kusto returning partial results with correct structure
+      const mockResult = {
+        primaryResults: [
+          {
+            data: [
+              { i: 1, data: 'large_data_1' },
+              { i: 2, data: 'large_data_2' },
+            ],
+            _rows: [
+              [1, 'large_data_1'],
+              [2, 'large_data_2'],
+            ],
+          },
+        ],
+      };
+      mockExecute.mockResolvedValueOnce(mockResult);
 
       // Test large query with limit (limit would be applied at tool level, not connection level)
       const result = await connection.executeQuery(
@@ -227,7 +235,7 @@ describe('Error Scenarios Unit Tests', () => {
       );
 
       // Verify limit was respected
-      expect(result.primaryResults[0].rows.length).toBe(2);
+      expect(result.primaryResults[0]._rows.length).toBe(2);
       expect(mockExecute).toHaveBeenCalledWith(
         'ContosoSales',
         expect.stringContaining('range i from 1 to 100000'),
@@ -285,26 +293,14 @@ describe('Error Scenarios Unit Tests', () => {
         ),
       ).rejects.toThrow('ENOTFOUND');
 
-      // Verify connection attempt was made
-      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', '.show version');
+      // Verify connection attempt was made with new validation query
+      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', 'print now()');
     });
 
     test('should handle database connection errors', async () => {
-      // First connection succeeds
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockResolvedValueOnce(showDatabasesValidResponse);
-
-      await connection.initialize(
-        'https://help.kusto.windows.net/',
-        'ContosoSales',
-      );
-
-      // Clear mocks and attempt connection to non-existent database
-      mockExecute.mockClear();
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse) // Version check succeeds
-        .mockResolvedValueOnce(emptyDatabaseCheckResponse); // Database check fails
+      // Test with database that doesn't exist - the print now() query should fail
+      const error = new Error('Database "NonExistentDatabase123" not found');
+      mockExecute.mockRejectedValueOnce(error);
 
       // Test with non-existent database
       await expect(
@@ -314,10 +310,10 @@ describe('Error Scenarios Unit Tests', () => {
         ),
       ).rejects.toThrow(KustoConnectionError);
 
-      // Verify database check was performed
+      // Verify connection attempt was made with new validation query
       expect(mockExecute).toHaveBeenCalledWith(
         'NonExistentDatabase123',
-        ".show databases | where DatabaseName == 'NonExistentDatabase123'",
+        'print now()',
       );
     });
 
@@ -349,16 +345,16 @@ describe('Error Scenarios Unit Tests', () => {
         ),
       ).rejects.toThrow('Network error');
 
-      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', '.show version');
+      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', 'print now()');
     });
   });
 
   describe('Timeout Scenarios', () => {
     test('should handle query timeouts gracefully', async () => {
-      // Initialize connection first
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockResolvedValueOnce(showDatabasesValidResponse);
+      // Initialize connection first with new validation
+      mockExecute.mockResolvedValueOnce({
+        primaryResults: [{ data: [{ now: new Date().toISOString() }] }],
+      });
 
       await connection.initialize(
         'https://help.kusto.windows.net/',
@@ -387,10 +383,10 @@ describe('Error Scenarios Unit Tests', () => {
     });
 
     test('should handle slow queries with configured timeout', async () => {
-      // Initialize connection
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockResolvedValueOnce(showDatabasesValidResponse);
+      // Initialize connection with new validation
+      mockExecute.mockResolvedValueOnce({
+        primaryResults: [{ data: [{ now: new Date().toISOString() }] }],
+      });
 
       await connection.initialize(
         'https://help.kusto.windows.net/',
@@ -425,22 +421,23 @@ describe('Error Scenarios Unit Tests', () => {
       // Clear mocks
       mockExecute.mockClear();
 
-      // Mock responses for valid cluster but empty database
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockResolvedValueOnce({ primaryResults: [{ rows: [] }] }); // Empty result for database check
+      // Test missing database - should fail because print now() validates database existence
+      mockExecute.mockRejectedValueOnce(new Error('Database "" was not found'));
 
       // Test missing database
       await expect(
         connection.initialize('https://help.kusto.windows.net/', ''),
-      ).rejects.toThrow();
+      ).rejects.toThrow(KustoConnectionError);
+
+      // Verify the query was attempted with empty database name
+      expect(mockExecute).toHaveBeenCalledWith('', 'print now()');
     });
 
     test('should handle invalid parameter types gracefully', async () => {
-      // Initialize connection
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockResolvedValueOnce(showDatabasesValidResponse);
+      // Initialize connection with new validation
+      mockExecute.mockResolvedValueOnce({
+        primaryResults: [{ data: [{ now: new Date().toISOString() }] }],
+      });
 
       await connection.initialize(
         'https://help.kusto.windows.net/',
@@ -449,13 +446,9 @@ describe('Error Scenarios Unit Tests', () => {
 
       mockExecute.mockClear();
 
-      // Test with invalid limit type (string instead of number)
-      // The connection class should handle type validation
-      const invalidLimit = 'invalid_number' as any;
-
-      // Mock successful query but with type validation
+      // Mock successful query with correct structure
       mockExecute.mockResolvedValueOnce({
-        primaryResults: [{ rows: [] }],
+        primaryResults: [{ data: [], _rows: [] }],
         tables: [],
       });
 
@@ -467,7 +460,7 @@ describe('Error Scenarios Unit Tests', () => {
 
       // Verify query was executed
       expect(mockExecute).toHaveBeenCalled();
-      expect(result.primaryResults[0].rows).toHaveLength(0);
+      expect(result.primaryResults[0]._rows).toHaveLength(0);
     });
   });
 
@@ -486,10 +479,10 @@ describe('Error Scenarios Unit Tests', () => {
       // Clear mocks for retry
       mockExecute.mockClear();
 
-      // Second attempt succeeds
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockResolvedValueOnce(showDatabasesValidResponse);
+      // Second attempt succeeds with new validation
+      mockExecute.mockResolvedValueOnce({
+        primaryResults: [{ data: [{ now: new Date().toISOString() }] }],
+      });
 
       const result = await connection.initialize(
         'https://help.kusto.windows.net/',
@@ -501,10 +494,10 @@ describe('Error Scenarios Unit Tests', () => {
     });
 
     test('should maintain error state correctly', async () => {
-      // Initialize successfully
-      mockExecute
-        .mockResolvedValueOnce(showVersionResponse)
-        .mockResolvedValueOnce(showDatabasesValidResponse);
+      // Initialize successfully with new validation
+      mockExecute.mockResolvedValueOnce({
+        primaryResults: [{ data: [{ now: new Date().toISOString() }] }],
+      });
 
       await connection.initialize(
         'https://help.kusto.windows.net/',

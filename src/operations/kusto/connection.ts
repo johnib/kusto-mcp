@@ -57,34 +57,9 @@ export class KustoConnection {
         // Create a temporary client for validation, don't set instance variables yet
         const tempClient = new Client(connectionString);
 
-        // Test the connection with cluster-level query first
-        const versionResult = await tempClient.execute(
-          database,
-          '.show version',
-        );
-
-        // Validate that the database exists by checking the databases list
-        const databaseCheckResult = await tempClient.execute(
-          database,
-          `.show databases | where DatabaseName == '${database}'`,
-        );
-
-        // Check if the database was found
-        // The query returns results in primaryResults[0]._rows (Kusto client library structure)
-        const primaryResult = databaseCheckResult.primaryResults?.[0];
-        const rows = (primaryResult as any)?._rows || [];
-
-        if (
-          !databaseCheckResult.primaryResults ||
-          databaseCheckResult.primaryResults.length === 0 ||
-          !primaryResult ||
-          !rows ||
-          rows.length === 0
-        ) {
-          throw new KustoConnectionError(
-            `Database '${database}' not found in the cluster`,
-          );
-        }
+        // Test basic connectivity and authentication with a universal query
+        // This works with regular Kusto clusters and ADX Proxy endpoints
+        await tempClient.execute(database, 'print now()');
 
         // Only set the instance variables after successful validation
         this.client = tempClient;
