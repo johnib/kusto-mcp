@@ -162,9 +162,9 @@
 5. **Data structure mismatches between server responses and test expectations**
 6. **Using console.log for debugging (use safeLog instead)**
 7. **Not validating Kusto query syntax evolution**
-8. **🚨 CRITICAL: Query-specific business logic in server layer (anti-pattern)**
-9. **Hardcoded query string matching (brittle and unmaintainable)**
-10. **Server layer knowing about KQL query types (violates separation of concerns)**
+8. **✅ RESOLVED: Query-specific business logic moved to operations layer**
+9. **✅ RESOLVED: Hardcoded query string matching eliminated**
+10. **✅ RESOLVED: Server layer is now protocol-agnostic**
 
 ### Optimization Opportunities
 
@@ -257,8 +257,8 @@ if (columns && columns.length > 0) {
 3. Use column metadata for transformation, never query string matching
 4. Keep server layer query-agnostic
 
-### Emergency Technical Debt Warning
+### ✅ Resolved Technical Debt
 
-The current codebase contains this anti-pattern as **emergency technical debt** from test debugging. This was a quick fix to make tests pass but violates architectural principles.
+The previous anti-pattern from test debugging has been successfully refactored. Clean architecture with proper separation of concerns is now implemented.
 
-**Required Action:** Move all transformation logic to operations layer before any new development.
+**✅ Completed Actions:** All transformation logic moved to operations layer with proper abstraction.

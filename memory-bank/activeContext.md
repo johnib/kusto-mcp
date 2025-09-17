@@ -111,12 +111,12 @@
 
 ### Priority Tasks
 
-1. **🚨 CRITICAL: Refactor Data Transformation Anti-Pattern**
-   - [ ] Move query-specific transformation logic out of server layer
-   - [ ] Implement generic column-metadata-only transformation
-   - [ ] Update executeQuery operation to return structured objects
-   - [ ] Remove hardcoded query-type detection from server
-   - [ ] Clean up server to be protocol-agnostic
+1. **✅ COMPLETED: Data Transformation Architecture**
+   - [x] Moved query-specific transformation logic to operations layer
+   - [x] Implemented generic column-metadata-only transformation
+   - [x] Updated executeQuery operation to return structured objects
+   - [x] Removed hardcoded query-type detection from server
+   - [x] Cleaned up server to be protocol-agnostic
 
 2. Complete documentation
    - [ ] Update README
@@ -171,31 +171,18 @@
 
 ## Known Issues
 
-### Critical Technical Debt
+### Previously Resolved Technical Debt
 
-1. **🚨 CRITICAL: Query-Specific Data Transformation Anti-Pattern**
-   - **Location**: `src/server.ts` - `execute-query` handler
-   - **Problem**: Server layer contains hardcoded, query-specific transformation logic
-   - **Issues**:
-     - Violates separation of concerns
-     - Creates brittle, unmaintainable code
-     - Query-specific string matching (`includes('count')`, `includes('getschema')`)
-     - Server should be protocol-agnostic, not know about KQL query types
-     - Hardcoded column order assumptions
-   - **Anti-Pattern Code**:
-
-     ```javascript
-     if (args.query.toLowerCase().includes('count')) {
-       obj.Count = row[0];
-     } else if (args.query.toLowerCase().includes('.show tables')) {
-       obj.TableName = row[0]; obj.DatabaseName = row[1];
-     } else if (args.query.toLowerCase().includes('getschema')) {
-       obj.ColumnName = row[0]; obj.ColumnOrdinal = row[1];
-     }
-     ```
-
-   - **Correct Pattern**: Use ONLY column metadata for generic transformation
-   - **ACTION REQUIRED**: Move transformation to operations layer, eliminate query-specific logic
+1. **✅ RESOLVED: Query-Specific Data Transformation Anti-Pattern**
+   - **Status**: **COMPLETED** - Fixed in architecture refactor
+   - **Previous Problem**: Server layer contained hardcoded, query-specific transformation logic
+   - **Solution Implemented**:
+     - ✅ Moved all transformation logic to operations layer (`src/operations/kusto/queries.ts`)
+     - ✅ Server now uses generic `transformQueryResult()` function
+     - ✅ Eliminated hardcoded query string matching (`includes('count')`, `includes('getschema')`)
+     - ✅ Server is now protocol-agnostic and doesn't know about KQL query types
+     - ✅ Uses only column metadata for transformation
+   - **Current Architecture**: Clean separation of concerns with proper abstraction layers
 
 ### Active Problems
 
@@ -222,7 +209,7 @@
 
 ### Short-term Goals
 
-1. **Fix critical data transformation anti-pattern** (URGENT)
+1. **✅ Data transformation architecture** (COMPLETED)
 2. Complete core documentation
 3. Expand test coverage
 4. Optimize performance
@@ -238,7 +225,7 @@
 
 ### Current Topics
 
-1. **Data transformation architecture** (critical priority)
+1. **✅ Data transformation architecture** (completed)
 2. Performance optimization strategies
 3. Security enhancement options
 4. Testing approach improvements
@@ -246,7 +233,7 @@
 
 ### Pending Decisions
 
-1. **Data transformation refactor approach** (urgent)
+1. **✅ Data transformation refactor** (completed)
 3. Error handling strategies
 4. Monitoring enhancements
 5. Security hardening approaches
@@ -255,14 +242,14 @@
 
 ### Data Transformation Refactor Required
 
-**Current State**: Emergency technical debt from test debugging
-**Required State**: Clean, maintainable architecture
+**Current State**: ✅ Clean, maintainable architecture achieved
+**Previous State**: Emergency technical debt from test debugging (now resolved)
 
-**Refactor Plan**:
+**Completed Refactor**:
 
-1. Move all transformation logic to `src/operations/kusto/queries.ts`
-2. Have `executeQuery` return properly structured objects
-3. Make server layer thin - only MCP protocol handling
-4. Use only column metadata for transformation
-5. Remove all query-specific string matching
-6. Eliminate hardcoded assumptions about column order
+1. ✅ Moved all transformation logic to `src/operations/kusto/queries.ts`
+2. ✅ `executeQuery` returns properly structured objects
+3. ✅ Server layer is thin - only MCP protocol handling
+4. ✅ Uses only column metadata for transformation
+5. ✅ Removed all query-specific string matching
+6. ✅ Eliminated hardcoded assumptions about column order
