@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/johnib/kusto-mcp/compare/v1.4.2...v1.5.0) (2025-09-17)
+
+
+### Features
+
+* add auto-connection functionality for MCP server startup ([760bd79](https://github.com/johnib/kusto-mcp/commit/760bd796f3d5baab0f4feb991f6d5507733681e0))
+
 ## [1.4.2](https://github.com/johnib/kusto-mcp/compare/v1.4.1...v1.4.2) (2025-06-24)
 
 
