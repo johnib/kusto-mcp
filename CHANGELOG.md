@@ -1,3 +1,11 @@
+# [1.6.0](https://github.com/johnib/kusto-mcp/compare/v1.5.0...v1.6.0) (2025-09-17)
+
+
+### Features
+
+* add MCP test client script for feature testing during development ([24f5b80](https://github.com/johnib/kusto-mcp/commit/24f5b802237579de316aacecea7b4f0e9a66ac83))
+* add query statistics extraction and configuration option ([a75bbf9](https://github.com/johnib/kusto-mcp/commit/a75bbf9e36c7335b143354708c66e4289f1571dc))
+
 # [1.5.0](https://github.com/johnib/kusto-mcp/compare/v1.4.2...v1.5.0) (2025-09-17)
 
 
