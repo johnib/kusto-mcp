@@ -336,7 +336,7 @@ export function createKustoServer(config: KustoConfig): Server {
           const rawResult = await executeQuery(connection, modifiedQuery);
 
           // Transform using the proper architecture
-          const transformedResult = transformQueryResult(rawResult);
+          const transformedResult = transformQueryResult(rawResult, validatedConfig);
 
           // Detect if results are partial using N+1 approach
           const hasMoreDataAvailable =
@@ -356,6 +356,10 @@ export function createKustoServer(config: KustoConfig): Server {
               requestedLimit,
               hasMoreResults:
                 hasMoreDataAvailable || availableData.length > requestedLimit,
+              // Include query statistics in metadata only if enabled and present
+              ...(transformedResult.queryStatistics && {
+                queryStatistics: transformedResult.queryStatistics,
+              }),
             },
             message: undefined, // Will be set by response limiter if needed
           };

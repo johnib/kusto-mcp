@@ -26,6 +26,14 @@ export interface QueryResult {
     originalRowsAvailable?: number;
     globalCharLimit?: number;
     responseCharCount?: number;
+    // Query statistics metadata
+    queryStatistics?: {
+      totalCpu?: string;
+      executionTime?: string;
+      extentsTotal?: number;
+      extentsScanned?: number;
+      resourceUsage?: Record<string, unknown>;
+    };
   };
   message?: string;
 }
@@ -114,6 +122,23 @@ function generateMetadataSummary(
     summary.push(
       `- Response size: ${metadata.responseCharCount} / ${metadata.globalCharLimit} chars`,
     );
+  }
+
+  // Add query statistics if available
+  if (metadata.queryStatistics) {
+    summary.push(`**Query Performance:**`);
+    if (metadata.queryStatistics.totalCpu) {
+      summary.push(`- Total CPU: ${metadata.queryStatistics.totalCpu}`);
+    }
+    if (metadata.queryStatistics.executionTime) {
+      summary.push(`- Execution time: ${metadata.queryStatistics.executionTime}`);
+    }
+    if (metadata.queryStatistics.extentsTotal !== undefined) {
+      summary.push(`- Extents total: ${metadata.queryStatistics.extentsTotal}`);
+    }
+    if (metadata.queryStatistics.extentsScanned !== undefined) {
+      summary.push(`- Extents scanned: ${metadata.queryStatistics.extentsScanned}`);
+    }
   }
 
   if (message) {

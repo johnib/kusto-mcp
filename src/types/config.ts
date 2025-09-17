@@ -57,6 +57,12 @@ export interface KustoConfig {
    * Optional default database for automatic connection on startup
    */
   defaultDatabase?: string;
+
+  /**
+   * Enable extraction and display of query performance statistics
+   * (CPU time, execution time, extents scanned, etc.)
+   */
+  enableQueryStatistics?: boolean;
 }
 
 /**
@@ -69,6 +75,7 @@ export const DEFAULT_CONFIG: Partial<KustoConfig> = {
   markdownMaxCellLength: 1000, // Default to 1000 characters per cell
   maxResponseLength: 12000, // 12K characters - conservative for context windows
   minRowsInResponse: 1, // Always return at least 1 row if data exists
+  enableQueryStatistics: false, // Disabled by default for backward compatibility
 };
 
 /**
