@@ -47,6 +47,16 @@ export interface KustoConfig {
    * Minimum number of rows to return in response (when data exists)
    */
   minRowsInResponse?: number;
+
+  /**
+   * Optional cluster URL for automatic connection on startup
+   */
+  clusterUrl?: string;
+
+  /**
+   * Optional default database for automatic connection on startup
+   */
+  defaultDatabase?: string;
 }
 
 /**

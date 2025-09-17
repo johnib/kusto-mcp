@@ -49,10 +49,19 @@ export class KustoConnection {
           `Initializing connection to ${clusterUrl}, database: ${database}`,
         );
 
-        // Create a connection string with Azure CLI authentication
-        // This will use the token from Azure CLI for authentication
-        const connectionString =
-          KustoConnectionStringBuilder.withAzLoginIdentity(clusterUrl);
+        // Create a connection string with the configured authentication method
+        let connectionString;
+
+        if (this.config.authMethod === 'azure-cli') {
+          debugLog('Using Azure CLI authentication for connection');
+          connectionString = KustoConnectionStringBuilder.withAzLoginIdentity(clusterUrl);
+        } else {
+          debugLog('Using Azure Identity (DefaultAzureCredential) for connection');
+          connectionString = KustoConnectionStringBuilder.withTokenCredential(
+            clusterUrl,
+            this.tokenCredential
+          );
+        }
 
         // Create a temporary client for validation, don't set instance variables yet
         const tempClient = new Client(connectionString);

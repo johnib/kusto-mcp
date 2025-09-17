@@ -157,6 +157,36 @@ export function createKustoServer(config: KustoConfig): Server {
   // Declare a variable to store the connection when it's initialized
   let connection: KustoConnection | null = null;
 
+  // Auto-connection function
+  async function tryAutoConnect(): Promise<void> {
+    // Only attempt auto-connection if both cluster URL and database are configured
+    if (!validatedConfig.clusterUrl || !validatedConfig.defaultDatabase) {
+      debugLog('Auto-connection skipped: missing cluster URL or database configuration');
+      return;
+    }
+
+    try {
+      debugLog(`Attempting auto-connection to ${validatedConfig.clusterUrl} -> ${validatedConfig.defaultDatabase}`);
+
+      // Create a new connection
+      const autoConnection = new KustoConnection(validatedConfig);
+
+      // Initialize the connection
+      const result = await autoConnection.initialize(
+        validatedConfig.clusterUrl,
+        validatedConfig.defaultDatabase
+      );
+
+      // If successful, store the connection
+      connection = autoConnection;
+      criticalLog(`Auto-connection successful: ${result.cluster} -> ${result.database}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      criticalLog(`Auto-connection failed: ${errorMessage}. Manual connection will be required.`);
+      // Don't throw - just log and continue with manual connection mode
+    }
+  }
+
   // Register the ListTools request handler
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     return {
@@ -411,6 +441,14 @@ export function createKustoServer(config: KustoConfig): Server {
         isError: true,
       };
     }
+  });
+
+  // Trigger auto-connection asynchronously (fire-and-forget)
+  // This allows the server to start immediately while attempting connection in the background
+  tryAutoConnect().catch(error => {
+    // This catch is redundant since tryAutoConnect already handles errors,
+    // but it's a safety net in case of unexpected issues
+    criticalLog(`Unexpected error in auto-connection: ${error instanceof Error ? error.message : String(error)}`);
   });
 
   return server;
