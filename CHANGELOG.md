@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/johnib/kusto-mcp/compare/v1.6.0...v1.6.1) (2025-09-25)
+
+
+### Bug Fixes
+
+* preserve detailed Kusto error messages instead of generic HTTP status codes ([36e0b20](https://github.com/johnib/kusto-mcp/commit/36e0b205bbfd7895db06c9421dc11360fecc7ae6))
+
 # [1.6.0](https://github.com/johnib/kusto-mcp/compare/v1.5.0...v1.6.0) (2025-09-17)
 
 
