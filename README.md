@@ -19,6 +19,14 @@ No more writing complex KQL queries. Just ask your AI assistant natural question
 
 ## Quick Setup
 
+### For Claude Code Users
+
+Run this terminal command to install:
+
+```bash
+claude mcp add kusto-mcp -- npx -y kusto-mcp@latest
+```
+
 ### For Cline Users
 
 Add this to your `cline_mcp_settings.json` file:
@@ -28,7 +36,7 @@ Add this to your `cline_mcp_settings.json` file:
   "mcpServers": {
     "github.com/johnib/kusto-mcp": {
       "command": "npx",
-      "args": ["-y", "kusto-mcp"],
+      "args": ["-y", "kusto-mcp@latest"],
       "env": {},
       "disabled": false,
       "autoApprove": [
@@ -108,6 +116,7 @@ You should see your AI successfully connect and list your database tables.
 
 ## Supported AI Tools
 
+- ✅ **Claude Code** - One-command setup with native MCP support
 - ✅ **Cline** - Full support with auto-approval
 - ✅ **Cursor** - Complete integration
 - ✅ **Claude Desktop** - Native MCP support
