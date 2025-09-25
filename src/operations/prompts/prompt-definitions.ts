@@ -3,20 +3,6 @@ import { loadMarkdownPrompt, extractMarkdownTitle, extractMarkdownDescription, e
 
 export const PROMPT_DEFINITIONS: PromptDefinition[] = [
   {
-    name: 'hello-kusto',
-    title: extractMarkdownTitle('hello-kusto'),
-    description: extractMarkdownDescription('hello-kusto'),
-    arguments: extractMarkdownArguments('hello-kusto'),
-    template: (args: Record<string, string>) => {
-      // Provide default value for limit if not specified
-      const templateArgs = {
-        ...args,
-        limit: args.limit || '10'
-      };
-      return loadMarkdownPrompt('hello-kusto', templateArgs);
-    },
-  },
-  {
     name: 'analyze-query-perf',
     title: extractMarkdownTitle('analyze-query-perf'),
     description: extractMarkdownDescription('analyze-query-perf'),

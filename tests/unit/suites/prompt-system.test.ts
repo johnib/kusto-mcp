@@ -28,41 +28,36 @@ describe('Prompt System Unit Tests', () => {
       expect(Array.isArray(result.prompts)).toBe(true);
       expect(result.prompts.length).toBeGreaterThan(0);
 
-      // Should contain the hello-kusto prompt
-      const helloPrompt = result.prompts.find(p => p.name === 'hello-kusto');
-      expect(helloPrompt).toBeDefined();
-      expect(helloPrompt).toMatchObject({
-        name: 'hello-kusto',
-        title: 'Hello Kusto',
-        description: expect.stringContaining('simple test prompt'),
+      // Should contain the analyze-query-perf prompt
+      const perfPrompt = result.prompts.find(p => p.name === 'analyze-query-perf');
+      expect(perfPrompt).toBeDefined();
+      expect(perfPrompt).toMatchObject({
+        name: 'analyze-query-perf',
+        title: 'Analyze Query Performance',
+        description: expect.stringContaining('performance'),
         arguments: expect.arrayContaining([
           expect.objectContaining({
-            name: 'tableName',
+            name: 'query',
             required: true,
-          }),
-          expect.objectContaining({
-            name: 'limit',
-            required: false,
           }),
         ]),
       });
     });
 
     test('should check if prompt exists', () => {
-      expect(promptManager.hasPrompt('hello-kusto')).toBe(true);
+      expect(promptManager.hasPrompt('analyze-query-perf')).toBe(true);
       expect(promptManager.hasPrompt('nonexistent-prompt')).toBe(false);
     });
 
     test('should get prompt names', () => {
       const names = promptManager.getPromptNames();
       expect(Array.isArray(names)).toBe(true);
-      expect(names).toContain('hello-kusto');
+      expect(names).toContain('analyze-query-perf');
     });
 
     test('should get prompt with valid arguments', () => {
-      const result = promptManager.getPrompt('hello-kusto', {
-        tableName: 'TestTable',
-        limit: 5,
+      const result = promptManager.getPrompt('analyze-query-perf', {
+        query: 'TestTable | count',
       });
 
       expect(result).toHaveProperty('messages');
@@ -72,24 +67,23 @@ describe('Prompt System Unit Tests', () => {
       const message = result.messages[0];
       expect(message.role).toBe('user');
       expect(message.content.type).toBe('text');
-      expect(message.content.text).toContain('TestTable');
-      expect(message.content.text).toContain('5');
+      expect(message.content.text).toContain('TestTable | count');
     });
 
-    test('should get prompt with default arguments', () => {
-      const result = promptManager.getPrompt('hello-kusto', {
-        tableName: 'TestTable',
+    test('should get prompt with required arguments', () => {
+      const result = promptManager.getPrompt('analyze-query-perf', {
+        query: 'TestTable | count',
       });
 
       const message = result.messages[0];
-      expect(message.content.text).toContain('TestTable');
-      expect(message.content.text).toContain('10'); // default limit
+      expect(message.content.text).toContain('TestTable | count');
+      expect(message.content.text).toContain('performance');
     });
 
     test('should throw error for missing required argument', () => {
       expect(() => {
-        promptManager.getPrompt('hello-kusto', {});
-      }).toThrow('Missing required argument: tableName');
+        promptManager.getPrompt('analyze-query-perf', {});
+      }).toThrow('Missing required argument: query');
     });
 
     test('should throw error for nonexistent prompt', () => {
@@ -165,16 +159,16 @@ describe('Prompt System Unit Tests', () => {
       expect(Array.isArray(prompts)).toBe(true);
       expect(prompts.length).toBeGreaterThan(0);
 
-      // Should contain hello-kusto prompt
-      const helloPrompt = prompts.find(p => p.name === 'hello-kusto');
-      expect(helloPrompt).toBeDefined();
+      // Should contain analyze-query-perf prompt
+      const perfPrompt = prompts.find(p => p.name === 'analyze-query-perf');
+      expect(perfPrompt).toBeDefined();
     });
 
     test('should get prompt by name', () => {
-      const prompt = getPromptByName('hello-kusto');
+      const prompt = getPromptByName('analyze-query-perf');
 
       expect(prompt).toBeDefined();
-      expect(prompt!.name).toBe('hello-kusto');
+      expect(prompt!.name).toBe('analyze-query-perf');
       expect(typeof prompt!.template).toBe('function');
     });
 

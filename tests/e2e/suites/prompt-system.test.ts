@@ -40,12 +40,12 @@ describe('Prompt System Integration Tests', () => {
       expect(response.result).toHaveProperty('prompts');
       expect(Array.isArray(response.result.prompts)).toBe(true);
 
-      // Should contain hello-kusto prompt
-      const helloPrompt = response.result.prompts.find(
-        (p: any) => p.name === 'hello-kusto'
+      // Should contain analyze-query-perf prompt
+      const perfPrompt = response.result.prompts.find(
+        (p: any) => p.name === 'analyze-query-perf'
       );
-      expect(helloPrompt).toBeDefined();
-      expect(helloPrompt.title).toBe('Hello Kusto');
+      expect(perfPrompt).toBeDefined();
+      expect(perfPrompt.title).toBe('Analyze Query Performance');
     });
 
     test('should handle list prompts request with cursor', async () => {
@@ -68,10 +68,9 @@ describe('Prompt System Integration Tests', () => {
         id: '1',
         method: 'prompts/get',
         params: {
-          name: 'hello-kusto',
+          name: 'analyze-query-perf',
           arguments: {
-            tableName: 'TestTable',
-            limit: 5,
+            query: 'TestTable | count',
           },
         },
       };
@@ -86,18 +85,18 @@ describe('Prompt System Integration Tests', () => {
       const message = response.result.messages[0];
       expect(message.role).toBe('user');
       expect(message.content.type).toBe('text');
-      expect(message.content.text).toContain('TestTable');
-      expect(message.content.text).toContain('5');
+      expect(message.content.text).toContain('TestTable | count');
+      expect(message.content.text).toContain('performance');
     });
 
-    test('should handle get prompt request without optional arguments', async () => {
+    test('should handle get prompt request with required arguments', async () => {
       const request = {
         id: '1',
         method: 'prompts/get',
         params: {
-          name: 'hello-kusto',
+          name: 'analyze-query-perf',
           arguments: {
-            tableName: 'TestTable',
+            query: 'TestTable | count',
           },
         },
       };
@@ -105,7 +104,7 @@ describe('Prompt System Integration Tests', () => {
       const response = await server.request(request);
 
       expect(response).toHaveProperty('result');
-      expect(response.result.messages[0].content.text).toContain('10'); // default limit
+      expect(response.result.messages[0].content.text).toContain('performance');
     });
 
     test('should return error for nonexistent prompt', async () => {
@@ -130,7 +129,7 @@ describe('Prompt System Integration Tests', () => {
         id: '1',
         method: 'prompts/get',
         params: {
-          name: 'hello-kusto',
+          name: 'analyze-query-perf',
           arguments: {},
         },
       };
