@@ -4,12 +4,14 @@
 
 import { PromptManager } from '../../../src/operations/prompts/prompt-manager.js';
 import { renderPrompt } from '../../../src/operations/prompts/prompt-renderer.js';
-import { getAllPrompts, getPromptByName } from '../../../src/operations/prompts/prompt-definitions.js';
+import { getAllPrompts, getPromptByName, refreshPromptDefinitions } from '../../../src/operations/prompts/prompt-definitions.js';
 
 describe('Prompt System Unit Tests', () => {
   let promptManager: PromptManager;
 
   beforeEach(() => {
+    // Clear cache to ensure fresh data for each test
+    refreshPromptDefinitions();
     promptManager = new PromptManager();
   });
 

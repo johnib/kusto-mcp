@@ -1,22 +1,46 @@
 import { PromptDefinition } from '../../types/prompt-interfaces.js';
-import { loadMarkdownPrompt, extractMarkdownTitle, extractMarkdownDescription, extractMarkdownArguments } from './markdown-loader.js';
+import {
+  loadMarkdownPrompt,
+  extractMarkdownTitle,
+  extractMarkdownDescription,
+  extractMarkdownArguments,
+  getAvailableTemplates
+} from './markdown-loader.js';
 
-export const PROMPT_DEFINITIONS: PromptDefinition[] = [
-  {
-    name: 'analyze-query-perf',
-    title: extractMarkdownTitle('analyze-query-perf'),
-    description: extractMarkdownDescription('analyze-query-perf'),
-    arguments: extractMarkdownArguments('analyze-query-perf'),
+/**
+ * Dynamically generate prompt definitions from available .md template files
+ */
+function generatePromptDefinitions(): PromptDefinition[] {
+  const templateNames = getAvailableTemplates();
+
+  return templateNames.map(name => ({
+    name,
+    title: extractMarkdownTitle(name),
+    description: extractMarkdownDescription(name),
+    arguments: extractMarkdownArguments(name),
     template: (args: Record<string, string>) => {
-      return loadMarkdownPrompt('analyze-query-perf', args);
+      return loadMarkdownPrompt(name, args);
     },
-  },
-];
+  }));
+}
+
+// Cache the prompt definitions to avoid repeated file system operations
+let cachedPromptDefinitions: PromptDefinition[] | null = null;
 
 export function getAllPrompts(): PromptDefinition[] {
-  return PROMPT_DEFINITIONS;
+  if (!cachedPromptDefinitions) {
+    cachedPromptDefinitions = generatePromptDefinitions();
+  }
+  return cachedPromptDefinitions;
 }
 
 export function getPromptByName(name: string): PromptDefinition | undefined {
-  return PROMPT_DEFINITIONS.find(prompt => prompt.name === name);
+  return getAllPrompts().find(prompt => prompt.name === name);
+}
+
+/**
+ * Force refresh the prompt definitions cache (useful for testing or when templates are added/removed)
+ */
+export function refreshPromptDefinitions(): void {
+  cachedPromptDefinitions = null;
 }

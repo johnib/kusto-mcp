@@ -173,3 +173,24 @@ export function extractMarkdownArguments(templateName: string): Array<{
 
   return frontmatter.arguments || [];
 }
+
+/**
+ * Get all available template names by scanning the templates directory
+ */
+export function getAvailableTemplates(): string[] {
+  const templatesDir = path.join(currentDirname, 'templates');
+
+  if (!fs.existsSync(templatesDir)) {
+    return [];
+  }
+
+  try {
+    return fs.readdirSync(templatesDir)
+      .filter(file => file.endsWith('.md'))
+      .map(file => file.replace('.md', ''))
+      .sort();
+  } catch (error) {
+    console.warn('Failed to read templates directory:', error);
+    return [];
+  }
+}
