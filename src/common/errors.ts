@@ -45,7 +45,7 @@ export class KustoAuthenticationError extends KustoMcpError {
  */
 export class KustoQueryError extends KustoMcpError {
   constructor(message: string) {
-    super(`Query error: ${message}`);
+    super(message);
   }
 }
 

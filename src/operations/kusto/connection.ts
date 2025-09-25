@@ -83,8 +83,18 @@ export class KustoConnection {
           database: database,
         };
       } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
+        let errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Extract detailed error message from Kusto response if available
+        if (error && typeof error === 'object' && 'response' in error) {
+          const response = (error as any).response;
+          if (response?.data?.error?.['@message']) {
+            errorMessage = response.data.error['@message'];
+          } else if (response?.data?.error?.message) {
+            errorMessage = response.data.error.message;
+          }
+        }
+
         criticalLog(`Failed to initialize connection: ${errorMessage}`);
 
         span.setStatus({
@@ -92,7 +102,7 @@ export class KustoConnection {
           message: errorMessage,
         });
 
-        throw new KustoConnectionError(`Connection error: ${errorMessage}`);
+        throw new KustoConnectionError(errorMessage);
       } finally {
         span.end();
       }
@@ -152,8 +162,18 @@ export class KustoConnection {
 
         return formattedResult;
       } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
+        let errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Extract detailed error message from Kusto response if available
+        if (error && typeof error === 'object' && 'response' in error) {
+          const response = (error as any).response;
+          if (response?.data?.error?.['@message']) {
+            errorMessage = response.data.error['@message'];
+          } else if (response?.data?.error?.message) {
+            errorMessage = response.data.error.message;
+          }
+        }
+
         criticalLog(`Failed to execute query: ${errorMessage}`);
 
         span.setStatus({
@@ -161,7 +181,10 @@ export class KustoConnection {
           message: errorMessage,
         });
 
-        throw new KustoQueryError(`Failed to execute query: ${errorMessage}`);
+        // Don't wrap as KustoQueryError here since queries.ts will handle it
+        // Just rethrow with the detailed error message
+        const customError = new Error(errorMessage);
+        throw customError;
       } finally {
         span.end();
       }

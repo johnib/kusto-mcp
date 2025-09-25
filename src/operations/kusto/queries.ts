@@ -209,8 +209,18 @@ export async function executeQuery(
 
       return result;
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      let errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Extract detailed error message from Kusto response if available
+      if (error && typeof error === 'object' && 'response' in error) {
+        const response = (error as any).response;
+        if (response?.data?.error?.['@message']) {
+          errorMessage = response.data.error['@message'];
+        } else if (response?.data?.error?.message) {
+          errorMessage = response.data.error.message;
+        }
+      }
+
       criticalLog(`Failed to execute query: ${errorMessage}`);
 
       span.setStatus({
@@ -218,7 +228,7 @@ export async function executeQuery(
         message: errorMessage,
       });
 
-      throw new KustoQueryError(`Failed to execute query: ${errorMessage}`);
+      throw new KustoQueryError(errorMessage);
     } finally {
       span.end();
     }
@@ -326,8 +336,18 @@ export async function executeQueryWithTransformation(
         span.setStatus({ code: SpanStatusCode.OK });
         return transformedResult;
       } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
+        let errorMessage = error instanceof Error ? error.message : String(error);
+
+        // Extract detailed error message from Kusto response if available
+        if (error && typeof error === 'object' && 'response' in error) {
+          const response = (error as any).response;
+          if (response?.data?.error?.['@message']) {
+            errorMessage = response.data.error['@message'];
+          } else if (response?.data?.error?.message) {
+            errorMessage = response.data.error.message;
+          }
+        }
+
         criticalLog(`Failed to execute and transform query: ${errorMessage}`);
 
         span.setStatus({
@@ -335,9 +355,12 @@ export async function executeQueryWithTransformation(
           message: errorMessage,
         });
 
-        throw new KustoQueryError(
-          `Failed to execute and transform query: ${errorMessage}`,
-        );
+        // Don't double-wrap if it's already a KustoQueryError from executeQuery
+        if (error instanceof KustoQueryError) {
+          throw error;
+        }
+
+        throw new KustoQueryError(errorMessage);
       } finally {
         span.end();
       }
@@ -377,8 +400,18 @@ export async function executeManagementCommand(
 
       return result;
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      let errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Extract detailed error message from Kusto response if available
+      if (error && typeof error === 'object' && 'response' in error) {
+        const response = (error as any).response;
+        if (response?.data?.error?.['@message']) {
+          errorMessage = response.data.error['@message'];
+        } else if (response?.data?.error?.message) {
+          errorMessage = response.data.error.message;
+        }
+      }
+
       criticalLog(`Failed to execute management command: ${errorMessage}`);
 
       span.setStatus({
@@ -386,9 +419,7 @@ export async function executeManagementCommand(
         message: errorMessage,
       });
 
-      throw new KustoQueryError(
-        `Failed to execute management command: ${errorMessage}`,
-      );
+      throw new KustoQueryError(errorMessage);
     } finally {
       span.end();
     }
