@@ -63,6 +63,11 @@ export interface KustoConfig {
    * (CPU time, execution time, extents scanned, etc.)
    */
   enableQueryStatistics?: boolean;
+
+  /**
+   * Enable MCP prompts support
+   */
+  enablePrompts?: boolean;
 }
 
 /**
@@ -76,6 +81,7 @@ export const DEFAULT_CONFIG: Partial<KustoConfig> = {
   maxResponseLength: 12000, // 12K characters - conservative for context windows
   minRowsInResponse: 1, // Always return at least 1 row if data exists
   enableQueryStatistics: false, // Disabled by default for backward compatibility
+  enablePrompts: true, // Enable prompts by default
 };
 
 /**
