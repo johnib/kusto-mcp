@@ -4,23 +4,28 @@ import * as yaml from 'js-yaml';
 
 // Get the current directory, handling both ES modules and CommonJS
 const getCurrentDirname = (): string => {
-  // For Jest tests, __dirname is available and works
-  if (typeof __dirname !== 'undefined') {
+  // For Jest tests, __dirname is available and points to the test directory
+  // Only use __dirname if it contains 'test' (indicating we're in Jest environment)
+  if (typeof __dirname !== 'undefined' && __dirname.includes('test')) {
     return __dirname;
   }
 
-  // For production ES modules, use a fallback that works consistently
-  // Check if we're running in dist/ or src/
+  // For production and development, use filesystem detection
   const cwd = process.cwd();
   const distPath = path.join(cwd, 'dist', 'operations', 'prompts');
   const srcPath = path.join(cwd, 'src', 'operations', 'prompts');
 
-  // Check if dist version exists (production), otherwise use src (development/test)
+  // Try dist first (production), then src (development/test)
   if (fs.existsSync(path.join(distPath, 'templates'))) {
     return distPath;
   }
+  if (fs.existsSync(path.join(srcPath, 'templates'))) {
+    return srcPath;
+  }
 
-  return srcPath;
+  // Final fallback - return dist path even if templates don't exist yet
+  // This helps in production builds where templates should be there
+  return distPath;
 };
 
 const currentDirname = getCurrentDirname();
