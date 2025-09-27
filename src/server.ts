@@ -2,8 +2,12 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   CallToolRequestSchema,
   ErrorCode,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
   ListToolsRequestSchema,
   McpError,
+  ListPromptsResult,
+  GetPromptResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { zodToJsonSchema } from 'zod-to-json-schema';
@@ -17,6 +21,7 @@ import {
   showTables,
 } from './operations/kusto/index.js';
 import { showFunctions } from './operations/kusto/tables.js';
+import { PromptManager } from './operations/prompts/index.js';
 import { KustoConfig, validateConfig } from './types/config.js';
 
 /**
@@ -150,12 +155,16 @@ export function createKustoServer(config: KustoConfig): Server {
     {
       capabilities: {
         tools: {},
+        ...(validatedConfig.enablePrompts && { prompts: {} }),
       },
     },
   );
 
   // Declare a variable to store the connection when it's initialized
   let connection: KustoConnection | null = null;
+
+  // Initialize the prompt manager
+  const promptManager = validatedConfig.enablePrompts ? new PromptManager() : null;
 
   // Auto-connection function
   async function tryAutoConnect(): Promise<void> {
@@ -225,6 +234,50 @@ export function createKustoServer(config: KustoConfig): Server {
         },
       ],
     };
+  });
+
+  // Register the ListPrompts request handler
+  server.setRequestHandler(ListPromptsRequestSchema, async request => {
+    if (!validatedConfig.enablePrompts || !promptManager) {
+      throw new McpError(ErrorCode.MethodNotFound, 'Prompts are disabled');
+    }
+
+    try {
+      const cursor = request.params?.cursor;
+      const result = promptManager.listPrompts(cursor);
+      return result;
+    } catch (error) {
+      criticalLog(`Error listing prompts: ${error}`);
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  });
+
+  // Register the GetPrompt request handler
+  server.setRequestHandler(GetPromptRequestSchema, async request => {
+    if (!validatedConfig.enablePrompts || !promptManager) {
+      throw new McpError(ErrorCode.MethodNotFound, 'Prompts are disabled');
+    }
+
+    try {
+      const name = request.params.name;
+      const arguments_ = request.params.arguments || {};
+      const result = promptManager.getPrompt(name, arguments_);
+      return result;
+    } catch (error) {
+      criticalLog(`Error getting prompt: ${error}`);
+
+      if (error instanceof Error && error.message.includes('not found')) {
+        throw new McpError(ErrorCode.InvalidParams, error.message);
+      }
+
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to get prompt: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   });
 
   // Register the CallTool request handler

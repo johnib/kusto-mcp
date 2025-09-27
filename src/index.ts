@@ -93,6 +93,20 @@ if (process.env.KUSTO_ENABLE_QUERY_STATISTICS) {
   criticalLog('Query statistics extraction disabled by default');
 }
 
+// Determine prompts feature flag from environment variables
+let enablePrompts = true; // Default to true for new functionality
+if (process.env.KUSTO_ENABLE_PROMPTS) {
+  const value = process.env.KUSTO_ENABLE_PROMPTS.toLowerCase();
+  enablePrompts = value === 'true' || value === '1' || value === 'yes';
+  if (enablePrompts) {
+    criticalLog('MCP prompts enabled');
+  } else {
+    criticalLog('MCP prompts disabled');
+  }
+} else {
+  criticalLog('MCP prompts enabled by default');
+}
+
 // Create the server configuration from environment variables
 const config: KustoConfig = {
   authMethod: authMethod,
@@ -112,6 +126,7 @@ const config: KustoConfig = {
   clusterUrl: process.env.KUSTO_CLUSTER_URL && process.env.KUSTO_CLUSTER_URL.trim() ? process.env.KUSTO_CLUSTER_URL.trim() : undefined,
   defaultDatabase: process.env.KUSTO_DEFAULT_DATABASE && process.env.KUSTO_DEFAULT_DATABASE.trim() ? process.env.KUSTO_DEFAULT_DATABASE.trim() : undefined,
   enableQueryStatistics: enableQueryStatistics,
+  enablePrompts: enablePrompts,
 };
 
 // Log auto-connection configuration
