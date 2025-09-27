@@ -9,14 +9,18 @@ const getCurrentDirname = (): string => {
     return __dirname;
   }
 
-  // For ES modules, use import.meta.url to get the current module's directory
-  // This works correctly for both src/ and dist/ after compilation
-  if (import.meta.url) {
-    return path.dirname(new URL(import.meta.url).pathname);
+  // For production ES modules, use a fallback that works consistently
+  // Check if we're running in dist/ or src/
+  const cwd = process.cwd();
+  const distPath = path.join(cwd, 'dist', 'operations', 'prompts');
+  const srcPath = path.join(cwd, 'src', 'operations', 'prompts');
+
+  // Check if dist version exists (production), otherwise use src (development/test)
+  if (fs.existsSync(path.join(distPath, 'templates'))) {
+    return distPath;
   }
 
-  // Fallback - should rarely be used
-  return path.join(process.cwd(), 'src', 'operations', 'prompts');
+  return srcPath;
 };
 
 const currentDirname = getCurrentDirname();
