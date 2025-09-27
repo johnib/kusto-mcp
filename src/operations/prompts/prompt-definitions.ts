@@ -11,9 +11,11 @@ import {
  * Dynamically generate prompt definitions from available .md template files
  */
 function generatePromptDefinitions(): PromptDefinition[] {
+  console.log('[prompt-definitions] generatePromptDefinitions() called');
   const templateNames = getAvailableTemplates();
+  console.log('[prompt-definitions] - templateNames returned:', templateNames);
 
-  return templateNames.map(name => ({
+  const definitions = templateNames.map(name => ({
     name,
     title: extractMarkdownTitle(name),
     description: extractMarkdownDescription(name),
@@ -22,15 +24,25 @@ function generatePromptDefinitions(): PromptDefinition[] {
       return loadMarkdownPrompt(name, args);
     },
   }));
+
+  console.log('[prompt-definitions] - generated definitions:', definitions.map(d => ({ name: d.name, title: d.title })));
+  return definitions;
 }
 
 // Cache the prompt definitions to avoid repeated file system operations
 let cachedPromptDefinitions: PromptDefinition[] | null = null;
 
 export function getAllPrompts(): PromptDefinition[] {
+  console.log('[prompt-definitions] getAllPrompts() called');
+  console.log('[prompt-definitions] - cachedPromptDefinitions is null:', cachedPromptDefinitions === null);
+
   if (!cachedPromptDefinitions) {
+    console.log('[prompt-definitions] - generating new prompt definitions...');
     cachedPromptDefinitions = generatePromptDefinitions();
+    console.log('[prompt-definitions] - cached definitions count:', cachedPromptDefinitions.length);
   }
+
+  console.log('[prompt-definitions] - returning', cachedPromptDefinitions.length, 'prompts');
   return cachedPromptDefinitions;
 }
 

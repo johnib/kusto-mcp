@@ -4,9 +4,17 @@ import * as yaml from 'js-yaml';
 
 // Get the current directory, handling both ES modules and CommonJS
 const getCurrentDirname = (): string => {
+  console.log('[markdown-loader] Directory resolution debug:');
+  console.log('[markdown-loader] - typeof __dirname:', typeof __dirname);
+  if (typeof __dirname !== 'undefined') {
+    console.log('[markdown-loader] - __dirname value:', __dirname);
+    console.log('[markdown-loader] - __dirname includes test:', __dirname.includes('test'));
+  }
+
   // For Jest tests, __dirname is available and points to the test directory
   // Only use __dirname if it contains 'test' (indicating we're in Jest environment)
   if (typeof __dirname !== 'undefined' && __dirname.includes('test')) {
+    console.log('[markdown-loader] - Using Jest __dirname:', __dirname);
     return __dirname;
   }
 
@@ -15,16 +23,33 @@ const getCurrentDirname = (): string => {
   const distPath = path.join(cwd, 'dist', 'operations', 'prompts');
   const srcPath = path.join(cwd, 'src', 'operations', 'prompts');
 
+  console.log('[markdown-loader] - cwd:', cwd);
+  console.log('[markdown-loader] - distPath:', distPath);
+  console.log('[markdown-loader] - srcPath:', srcPath);
+
+  const distTemplatesPath = path.join(distPath, 'templates');
+  const srcTemplatesPath = path.join(srcPath, 'templates');
+
+  console.log('[markdown-loader] - checking distTemplatesPath:', distTemplatesPath);
+  console.log('[markdown-loader] - distTemplatesPath exists:', fs.existsSync(distTemplatesPath));
+
   // Try dist first (production), then src (development/test)
-  if (fs.existsSync(path.join(distPath, 'templates'))) {
+  if (fs.existsSync(distTemplatesPath)) {
+    console.log('[markdown-loader] - Using distPath:', distPath);
     return distPath;
   }
-  if (fs.existsSync(path.join(srcPath, 'templates'))) {
+
+  console.log('[markdown-loader] - checking srcTemplatesPath:', srcTemplatesPath);
+  console.log('[markdown-loader] - srcTemplatesPath exists:', fs.existsSync(srcTemplatesPath));
+
+  if (fs.existsSync(srcTemplatesPath)) {
+    console.log('[markdown-loader] - Using srcPath:', srcPath);
     return srcPath;
   }
 
   // Final fallback - return dist path even if templates don't exist yet
   // This helps in production builds where templates should be there
+  console.log('[markdown-loader] - Using fallback distPath:', distPath);
   return distPath;
 };
 
@@ -194,17 +219,29 @@ export function extractMarkdownArguments(templateName: string): Array<{
 export function getAvailableTemplates(): string[] {
   const templatesDir = path.join(currentDirname, 'templates');
 
+  console.log('[markdown-loader] getAvailableTemplates() called');
+  console.log('[markdown-loader] - currentDirname:', currentDirname);
+  console.log('[markdown-loader] - templatesDir:', templatesDir);
+  console.log('[markdown-loader] - templatesDir exists:', fs.existsSync(templatesDir));
+
   if (!fs.existsSync(templatesDir)) {
+    console.log('[markdown-loader] - templatesDir does not exist, returning empty array');
     return [];
   }
 
   try {
-    return fs.readdirSync(templatesDir)
-      .filter(file => file.endsWith('.md'))
-      .map(file => file.replace('.md', ''))
-      .sort();
+    const files = fs.readdirSync(templatesDir);
+    console.log('[markdown-loader] - found files in templatesDir:', files);
+
+    const mdFiles = files.filter(file => file.endsWith('.md'));
+    console.log('[markdown-loader] - filtered .md files:', mdFiles);
+
+    const templateNames = mdFiles.map(file => file.replace('.md', '')).sort();
+    console.log('[markdown-loader] - final template names:', templateNames);
+
+    return templateNames;
   } catch (error) {
-    console.warn('Failed to read templates directory:', error);
+    console.warn('[markdown-loader] Failed to read templates directory:', error);
     return [];
   }
 }
