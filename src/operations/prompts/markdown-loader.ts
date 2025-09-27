@@ -1,55 +1,61 @@
 import fs from 'fs';
 import path from 'path';
 import * as yaml from 'js-yaml';
+import { debugLog, criticalLog } from '../../common/utils.js';
 
 // Get the current directory, handling both ES modules and CommonJS
 const getCurrentDirname = (): string => {
-  console.log('[markdown-loader] Directory resolution debug:');
-  console.log('[markdown-loader] - typeof __dirname:', typeof __dirname);
-  if (typeof __dirname !== 'undefined') {
-    console.log('[markdown-loader] - __dirname value:', __dirname);
-    console.log('[markdown-loader] - __dirname includes test:', __dirname.includes('test'));
-  }
+  criticalLog('[markdown-loader] Directory resolution starting...');
+  criticalLog(`[markdown-loader] __dirname type: ${typeof __dirname}`);
 
   // For Jest tests, __dirname is available and points to the test directory
   // Only use __dirname if it contains 'test' (indicating we're in Jest environment)
   if (typeof __dirname !== 'undefined' && __dirname.includes('test')) {
-    console.log('[markdown-loader] - Using Jest __dirname:', __dirname);
+    criticalLog(`[markdown-loader] Using Jest __dirname: ${__dirname}`);
     return __dirname;
   }
 
-  // For production and development, use filesystem detection
+  // Try using __filename for Node.js environments (works in both CommonJS and when __filename is shimmed)
+  if (typeof __filename !== 'undefined') {
+    const currentFileDir = path.dirname(__filename);
+    criticalLog(`[markdown-loader] Using __filename: ${__filename}`);
+    criticalLog(`[markdown-loader] Current file directory: ${currentFileDir}`);
+    return currentFileDir;
+  }
+
+  criticalLog('[markdown-loader] Using fallback directory resolution (__filename unavailable)');
+
+  // Fallback to process.cwd() based detection
   const cwd = process.cwd();
   const distPath = path.join(cwd, 'dist', 'operations', 'prompts');
   const srcPath = path.join(cwd, 'src', 'operations', 'prompts');
 
-  console.log('[markdown-loader] - cwd:', cwd);
-  console.log('[markdown-loader] - distPath:', distPath);
-  console.log('[markdown-loader] - srcPath:', srcPath);
+  criticalLog(`[markdown-loader] Fallback - cwd: ${cwd}`);
+  criticalLog(`[markdown-loader] Fallback - distPath: ${distPath}`);
+  criticalLog(`[markdown-loader] Fallback - srcPath: ${srcPath}`);
 
   const distTemplatesPath = path.join(distPath, 'templates');
   const srcTemplatesPath = path.join(srcPath, 'templates');
 
-  console.log('[markdown-loader] - checking distTemplatesPath:', distTemplatesPath);
-  console.log('[markdown-loader] - distTemplatesPath exists:', fs.existsSync(distTemplatesPath));
+  criticalLog(`[markdown-loader] checking distTemplatesPath: ${distTemplatesPath}`);
+  criticalLog(`[markdown-loader] distTemplatesPath exists: ${fs.existsSync(distTemplatesPath)}`);
 
   // Try dist first (production), then src (development/test)
   if (fs.existsSync(distTemplatesPath)) {
-    console.log('[markdown-loader] - Using distPath:', distPath);
+    criticalLog(`[markdown-loader] Using fallback distPath: ${distPath}`);
     return distPath;
   }
 
-  console.log('[markdown-loader] - checking srcTemplatesPath:', srcTemplatesPath);
-  console.log('[markdown-loader] - srcTemplatesPath exists:', fs.existsSync(srcTemplatesPath));
+  criticalLog(`[markdown-loader] checking srcTemplatesPath: ${srcTemplatesPath}`);
+  criticalLog(`[markdown-loader] srcTemplatesPath exists: ${fs.existsSync(srcTemplatesPath)}`);
 
   if (fs.existsSync(srcTemplatesPath)) {
-    console.log('[markdown-loader] - Using srcPath:', srcPath);
+    criticalLog(`[markdown-loader] Using fallback srcPath: ${srcPath}`);
     return srcPath;
   }
 
   // Final fallback - return dist path even if templates don't exist yet
-  // This helps in production builds where templates should be there
-  console.log('[markdown-loader] - Using fallback distPath:', distPath);
+  criticalLog(`[markdown-loader] Using final fallback distPath: ${distPath}`);
   return distPath;
 };
 
@@ -86,7 +92,7 @@ function parseMarkdownWithFrontmatter(content: string): ParsedMarkdown {
         content: match[2].trim(),
       };
     } catch (error) {
-      console.warn('Failed to parse YAML frontmatter:', error);
+      debugLog(`Failed to parse YAML frontmatter: ${error}`);
       return {
         frontmatter: {},
         content: content.trim(),
@@ -218,30 +224,25 @@ export function extractMarkdownArguments(templateName: string): Array<{
  */
 export function getAvailableTemplates(): string[] {
   const templatesDir = path.join(currentDirname, 'templates');
-
-  console.log('[markdown-loader] getAvailableTemplates() called');
-  console.log('[markdown-loader] - currentDirname:', currentDirname);
-  console.log('[markdown-loader] - templatesDir:', templatesDir);
-  console.log('[markdown-loader] - templatesDir exists:', fs.existsSync(templatesDir));
+  criticalLog(`[markdown-loader] getAvailableTemplates() - currentDirname: ${currentDirname}`);
+  criticalLog(`[markdown-loader] templatesDir: ${templatesDir}`);
+  criticalLog(`[markdown-loader] templatesDir exists: ${fs.existsSync(templatesDir)}`);
 
   if (!fs.existsSync(templatesDir)) {
-    console.log('[markdown-loader] - templatesDir does not exist, returning empty array');
+    criticalLog('[markdown-loader] templatesDir does not exist, returning empty array');
     return [];
   }
 
   try {
     const files = fs.readdirSync(templatesDir);
-    console.log('[markdown-loader] - found files in templatesDir:', files);
-
+    criticalLog(`[markdown-loader] found files: ${JSON.stringify(files)}`);
     const mdFiles = files.filter(file => file.endsWith('.md'));
-    console.log('[markdown-loader] - filtered .md files:', mdFiles);
-
+    criticalLog(`[markdown-loader] filtered .md files: ${JSON.stringify(mdFiles)}`);
     const templateNames = mdFiles.map(file => file.replace('.md', '')).sort();
-    console.log('[markdown-loader] - final template names:', templateNames);
-
+    criticalLog(`[markdown-loader] final template names: ${JSON.stringify(templateNames)}`);
     return templateNames;
   } catch (error) {
-    console.warn('[markdown-loader] Failed to read templates directory:', error);
+    criticalLog(`[markdown-loader] Failed to read templates directory: ${error}`);
     return [];
   }
 }
