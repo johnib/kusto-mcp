@@ -1,5 +1,5 @@
 ---
-title: Analyze Query Performance
+title: analyze_query_performance
 description: Analyze KQL query performance by measuring scanned extents and totalCpu impact of each query part
 arguments:
   - name: query
@@ -121,18 +121,22 @@ Total CPU Impact:
 Key Findings:
 
 🔴 MAJOR BOTTLENECK: Lookup Operation
+
 - Scanned Extents: Doubled from 31 to 62 (+100%)
 - Total CPU Impact: Increased by ~18.3 seconds (+23,000%)
 - The lookup operation is by far the most expensive part of your query
 
 🟡 MODERATE IMPACT: First Summarize
+
 - Added ~9.7 seconds of total CPU time (+53% over lookup)
 - No additional extent scanning overhead
 
 🟢 MINIMAL IMPACT: Second Summarize, Order By
+
 - Virtually no additional total CPU overhead
 - These operations are very efficient on the reduced dataset
 
 🟡 MODERATE IMPACT: Top 10
+
 - Added ~3.9 seconds (+14%)
 - Likely due to sorting overhead on the final result set

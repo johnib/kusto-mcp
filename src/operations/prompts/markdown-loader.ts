@@ -9,8 +9,13 @@ const getCurrentDirname = (): string => {
     return __dirname;
   }
 
-  // For production ES modules, we'll need to handle this differently
-  // For now, use a relative path from project root
+  // For ES modules, use import.meta.url to get the current module's directory
+  // This works correctly for both src/ and dist/ after compilation
+  if (import.meta.url) {
+    return path.dirname(new URL(import.meta.url).pathname);
+  }
+
+  // Fallback - should rarely be used
   return path.join(process.cwd(), 'src', 'operations', 'prompts');
 };
 
