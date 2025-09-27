@@ -35,7 +35,7 @@ describe('Prompt System Unit Tests', () => {
       expect(perfPrompt).toBeDefined();
       expect(perfPrompt).toMatchObject({
         name: 'analyze-query-perf',
-        title: 'Analyze Query Performance',
+        title: 'analyze_query_performance',
         description: expect.stringContaining('performance'),
         arguments: expect.arrayContaining([
           expect.objectContaining({
