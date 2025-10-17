@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/johnib/kusto-mcp/compare/v1.6.1...v1.7.0) (2025-10-17)
+
+
+### Features
+
+* add MCP prompts support with query performance analysis prompt ([#14](https://github.com/johnib/kusto-mcp/issues/14)) ([37f003b](https://github.com/johnib/kusto-mcp/commit/37f003bc16c53abc8bd6bc51162016e24c767b36))
+
 ## [1.6.1](https://github.com/johnib/kusto-mcp/compare/v1.6.0...v1.6.1) (2025-09-25)
 
 
