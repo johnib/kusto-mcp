@@ -32,15 +32,15 @@ jobs:
 
       - name: Run Claude Code
         id: claude
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          CLAUDE_DEBUG: 'true'
-          ANTHROPIC_LOG: 'debug'
         with:
+          anthropic_api_key: ${{ secrets.CUSTOM_ANTHROPIC_API_KEY }}
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
             actions: read
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.CUSTOM_ANTHROPIC_BASE_URL }}
 
           # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
           # prompt: 'Update the pull request description to include a summary of changes.'
