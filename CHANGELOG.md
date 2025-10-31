@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/johnib/kusto-mcp/compare/v1.7.0...v1.8.0) (2025-10-31)
+
+
+### Features
+
+* enhance Claude Code workflow with additional environment variables for improved functionality ([09ed243](https://github.com/johnib/kusto-mcp/commit/09ed24394260db34fa787fb385d4f0defe9b1ed2))
+
 # [1.7.0](https://github.com/johnib/kusto-mcp/compare/v1.6.1...v1.7.0) (2025-10-17)
 
 
