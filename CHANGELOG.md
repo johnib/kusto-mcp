@@ -1,3 +1,10 @@
+## [1.8.1](https://github.com/johnib/kusto-mcp/compare/v1.8.0...v1.8.1) (2025-10-31)
+
+
+### Bug Fixes
+
+* update claude workflow to use standard ANTHROPIC_API_KEY secret ([b5024b5](https://github.com/johnib/kusto-mcp/commit/b5024b53b0b60e54b4e69d7ad3f676ad1cfd78d9))
+
 # [1.8.0](https://github.com/johnib/kusto-mcp/compare/v1.7.0...v1.8.0) (2025-10-31)
 
 
