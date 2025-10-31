@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/johnib/kusto-mcp/compare/v1.8.1...v1.9.0) (2025-10-31)
+
+
+### Features
+
+* configure Claude Code action with custom endpoint support ([9a9c03c](https://github.com/johnib/kusto-mcp/commit/9a9c03c0e163b005a74352c481795fe5d583a89e))
+
 ## [1.8.1](https://github.com/johnib/kusto-mcp/compare/v1.8.0...v1.8.1) (2025-10-31)
 
 
