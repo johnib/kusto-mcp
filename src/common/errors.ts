@@ -126,7 +126,7 @@ export function isTransientError(error: unknown): boolean {
     errorMessage = error.toLowerCase();
   }
 
-  // Extract status code from error object if available
+  // Extract status code and error messages from error object if available
   if (error && typeof error === 'object') {
     const errorObj = error as Record<string, unknown>;
 
@@ -140,6 +140,20 @@ export function isTransientError(error: unknown): boolean {
       const response = errorObj.response as Record<string, unknown>;
       if (typeof response.status === 'number') statusCode = statusCode || response.status;
       if (typeof response.statusCode === 'number') statusCode = statusCode || response.statusCode;
+
+      // Extract error messages from nested response.data.error structure
+      if (response.data && typeof response.data === 'object') {
+        const data = response.data as Record<string, unknown>;
+        if (data.error && typeof data.error === 'object') {
+          const errorData = data.error as Record<string, unknown>;
+          if (typeof errorData['@message'] === 'string') {
+            errorMessage = errorMessage || errorData['@message'].toLowerCase();
+          }
+          if (typeof errorData.message === 'string') {
+            errorMessage = errorMessage || errorData.message.toLowerCase();
+          }
+        }
+      }
     }
 
     // Also check string error codes and add them to error message for pattern matching
@@ -217,7 +231,7 @@ export function isPermanentError(error: unknown): boolean {
     errorMessage = error.toLowerCase();
   }
 
-  // Extract status code from error object
+  // Extract status code and error messages from error object
   if (error && typeof error === 'object') {
     const errorObj = error as Record<string, unknown>;
 
@@ -230,6 +244,20 @@ export function isPermanentError(error: unknown): boolean {
       const response = errorObj.response as Record<string, unknown>;
       if (typeof response.status === 'number') statusCode = statusCode || response.status;
       if (typeof response.statusCode === 'number') statusCode = statusCode || response.statusCode;
+
+      // Extract error messages from nested response.data.error structure
+      if (response.data && typeof response.data === 'object') {
+        const data = response.data as Record<string, unknown>;
+        if (data.error && typeof data.error === 'object') {
+          const errorData = data.error as Record<string, unknown>;
+          if (typeof errorData['@message'] === 'string') {
+            errorMessage = errorMessage || errorData['@message'].toLowerCase();
+          }
+          if (typeof errorData.message === 'string') {
+            errorMessage = errorMessage || errorData.message.toLowerCase();
+          }
+        }
+      }
     }
 
     // Also check string error codes and add them to error message for pattern matching
