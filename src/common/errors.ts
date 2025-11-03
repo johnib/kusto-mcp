@@ -130,13 +130,21 @@ export function isTransientError(error: unknown): boolean {
   if (error && typeof error === 'object') {
     const errorObj = error as Record<string, unknown>;
 
-    // Check various common status code properties
-    statusCode = (errorObj.status as number) || (errorObj.statusCode as number) || (errorObj.code as number);
+    // Check various common status code properties (only if they're numbers)
+    if (typeof errorObj.status === 'number') statusCode = errorObj.status;
+    if (typeof errorObj.statusCode === 'number') statusCode = statusCode || errorObj.statusCode;
+    if (typeof errorObj.code === 'number') statusCode = statusCode || errorObj.code;
 
     // Check nested response object (common in HTTP libraries)
     if (errorObj.response && typeof errorObj.response === 'object') {
       const response = errorObj.response as Record<string, unknown>;
-      statusCode = statusCode || (response.status as number) || (response.statusCode as number);
+      if (typeof response.status === 'number') statusCode = statusCode || response.status;
+      if (typeof response.statusCode === 'number') statusCode = statusCode || response.statusCode;
+    }
+
+    // Also check string error codes and add them to error message for pattern matching
+    if (typeof errorObj.code === 'string') {
+      errorMessage = errorMessage || errorObj.code.toLowerCase();
     }
   }
 
@@ -212,11 +220,21 @@ export function isPermanentError(error: unknown): boolean {
   // Extract status code from error object
   if (error && typeof error === 'object') {
     const errorObj = error as Record<string, unknown>;
-    statusCode = (errorObj.status as number) || (errorObj.statusCode as number) || (errorObj.code as number);
+
+    // Check various common status code properties (only if they're numbers)
+    if (typeof errorObj.status === 'number') statusCode = errorObj.status;
+    if (typeof errorObj.statusCode === 'number') statusCode = statusCode || errorObj.statusCode;
+    if (typeof errorObj.code === 'number') statusCode = statusCode || errorObj.code;
 
     if (errorObj.response && typeof errorObj.response === 'object') {
       const response = errorObj.response as Record<string, unknown>;
-      statusCode = statusCode || (response.status as number) || (response.statusCode as number);
+      if (typeof response.status === 'number') statusCode = statusCode || response.status;
+      if (typeof response.statusCode === 'number') statusCode = statusCode || response.statusCode;
+    }
+
+    // Also check string error codes and add them to error message for pattern matching
+    if (typeof errorObj.code === 'string') {
+      errorMessage = errorMessage || errorObj.code.toLowerCase();
     }
   }
 
