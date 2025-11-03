@@ -128,14 +128,15 @@ export function isTransientError(error: unknown): boolean {
 
   // Extract status code from error object if available
   if (error && typeof error === 'object') {
-    const errorObj = error as any;
+    const errorObj = error as Record<string, unknown>;
 
     // Check various common status code properties
-    statusCode = errorObj.status || errorObj.statusCode || errorObj.code;
+    statusCode = (errorObj.status as number) || (errorObj.statusCode as number) || (errorObj.code as number);
 
     // Check nested response object (common in HTTP libraries)
     if (errorObj.response && typeof errorObj.response === 'object') {
-      statusCode = statusCode || errorObj.response.status || errorObj.response.statusCode;
+      const response = errorObj.response as Record<string, unknown>;
+      statusCode = statusCode || (response.status as number) || (response.statusCode as number);
     }
   }
 
@@ -210,11 +211,12 @@ export function isPermanentError(error: unknown): boolean {
 
   // Extract status code from error object
   if (error && typeof error === 'object') {
-    const errorObj = error as any;
-    statusCode = errorObj.status || errorObj.statusCode || errorObj.code;
+    const errorObj = error as Record<string, unknown>;
+    statusCode = (errorObj.status as number) || (errorObj.statusCode as number) || (errorObj.code as number);
 
     if (errorObj.response && typeof errorObj.response === 'object') {
-      statusCode = statusCode || errorObj.response.status || errorObj.response.statusCode;
+      const response = errorObj.response as Record<string, unknown>;
+      statusCode = statusCode || (response.status as number) || (response.statusCode as number);
     }
   }
 
