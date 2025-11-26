@@ -68,6 +68,21 @@ export interface KustoConfig {
    * Enable MCP prompts support
    */
   enablePrompts?: boolean;
+
+  /**
+   * Maximum number of retry attempts for transient failures
+   */
+  maxRetries?: number;
+
+  /**
+   * Base delay in milliseconds for retry logic
+   */
+  retryBaseDelayMs?: number;
+
+  /**
+   * Backoff multiplier for exponential backoff retry logic
+   */
+  retryBackoffMultiplier?: number;
 }
 
 /**
@@ -82,6 +97,9 @@ export const DEFAULT_CONFIG: Partial<KustoConfig> = {
   minRowsInResponse: 1, // Always return at least 1 row if data exists
   enableQueryStatistics: false, // Disabled by default for backward compatibility
   enablePrompts: true, // Enable prompts by default
+  maxRetries: 3, // Default to 3 retry attempts
+  retryBaseDelayMs: 100, // Default to 100ms base delay
+  retryBackoffMultiplier: 2, // Default to exponential backoff with multiplier 2
 };
 
 /**

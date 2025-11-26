@@ -2,7 +2,13 @@ import { TokenCredential } from '@azure/identity';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import { Client, KustoConnectionStringBuilder } from 'azure-kusto-data';
 import { createTokenCredential } from '../../auth/token-credentials.js';
-import { KustoConnectionError, KustoQueryError } from '../../common/errors.js';
+import {
+  KustoConnectionError,
+  KustoQueryError,
+  RetryConfig,
+  withRetry,
+  DEFAULT_RETRY_CONFIG
+} from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import { KustoConfig } from '../../types/config.js';
 import { KustoQueryResult } from '../../types/kusto-interfaces.js';
@@ -30,6 +36,17 @@ export class KustoConnection {
   }
 
   /**
+   * Get retry configuration from the Kusto config
+   */
+  private getRetryConfig(): RetryConfig {
+    return {
+      maxRetries: this.config.maxRetries ?? DEFAULT_RETRY_CONFIG.maxRetries,
+      baseDelayMs: this.config.retryBaseDelayMs ?? DEFAULT_RETRY_CONFIG.baseDelayMs,
+      backoffMultiplier: this.config.retryBackoffMultiplier ?? DEFAULT_RETRY_CONFIG.backoffMultiplier,
+    };
+  }
+
+  /**
    * Initialize the connection to the Kusto cluster
    *
    * @param clusterUrl The URL of the Kusto cluster
@@ -49,39 +66,45 @@ export class KustoConnection {
           `Initializing connection to ${clusterUrl}, database: ${database}`,
         );
 
-        // Create a connection string with the configured authentication method
-        let connectionString;
+        const retryConfig = this.getRetryConfig();
 
-        if (this.config.authMethod === 'azure-cli') {
-          debugLog('Using Azure CLI authentication for connection');
-          connectionString = KustoConnectionStringBuilder.withAzLoginIdentity(clusterUrl);
-        } else {
-          debugLog('Using Azure Identity (DefaultAzureCredential) for connection');
-          connectionString = KustoConnectionStringBuilder.withTokenCredential(
-            clusterUrl,
-            this.tokenCredential
-          );
-        }
+        const result = await withRetry(async () => {
+          // Create a connection string with the configured authentication method
+          let connectionString;
 
-        // Create a temporary client for validation, don't set instance variables yet
-        const tempClient = new Client(connectionString);
+          if (this.config.authMethod === 'azure-cli') {
+            debugLog('Using Azure CLI authentication for connection');
+            connectionString = KustoConnectionStringBuilder.withAzLoginIdentity(clusterUrl);
+          } else {
+            debugLog('Using Azure Identity (DefaultAzureCredential) for connection');
+            connectionString = KustoConnectionStringBuilder.withTokenCredential(
+              clusterUrl,
+              this.tokenCredential
+            );
+          }
 
-        // Test basic connectivity and authentication with a universal query
-        // This works with regular Kusto clusters and ADX Proxy endpoints
-        await tempClient.execute(database, 'print now()');
+          // Create a temporary client for validation, don't set instance variables yet
+          const tempClient = new Client(connectionString);
 
-        // Only set the instance variables after successful validation
-        this.client = tempClient;
-        this.database = database;
+          // Test basic connectivity and authentication with a universal query
+          // This works with regular Kusto clusters and ADX Proxy endpoints
+          await tempClient.execute(database, 'print now()');
+
+          // Only set the instance variables after successful validation
+          this.client = tempClient;
+          this.database = database;
+
+          return {
+            success: true,
+            cluster: clusterUrl,
+            database: database,
+          };
+        }, retryConfig, 'Kusto connection initialization');
 
         debugLog('Connection initialized successfully');
         span.setStatus({ code: SpanStatusCode.OK });
 
-        return {
-          success: true,
-          cluster: clusterUrl,
-          database: database,
-        };
+        return result;
       } catch (error) {
         let errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -128,34 +151,40 @@ export class KustoConnection {
 
         debugLog(`Executing query on database ${database}: ${query}`);
 
-        // Set timeout from config
-        const timeout = this.config.queryTimeout || 60000;
+        const retryConfig = this.getRetryConfig();
 
-        // Execute the query with timeout, ensuring timeout handle is always cleared
-        let timeoutHandle: NodeJS.Timeout;
-        const queryPromise = this.client.execute(database, query);
+        const result = await withRetry(async () => {
+          // Set timeout from config
+          const timeout = this.config.queryTimeout || 60000;
 
-        const rawResult = await new Promise((resolve, reject) => {
-          timeoutHandle = setTimeout(() => {
-            reject(new KustoQueryError(`Query timed out after ${timeout}ms`));
-          }, timeout);
+          // Execute the query with timeout, ensuring timeout handle is always cleared
+          let timeoutHandle: NodeJS.Timeout;
+          const queryPromise = this.client!.execute(database, query);
 
-          queryPromise
-            .then(result => {
-              clearTimeout(timeoutHandle);
-              resolve(result);
-            })
-            .catch(err => {
-              clearTimeout(timeoutHandle);
-              reject(err);
-            });
-        });
+          const rawResult = await new Promise((resolve, reject) => {
+            timeoutHandle = setTimeout(() => {
+              reject(new KustoQueryError(`Query timed out after ${timeout}ms`));
+            }, timeout);
 
-        debugLog(`Raw Kusto Response: ${JSON.stringify(rawResult, null, 2)}`);
+            queryPromise
+              .then(result => {
+                clearTimeout(timeoutHandle);
+                resolve(result);
+              })
+              .catch(err => {
+                clearTimeout(timeoutHandle);
+                reject(err);
+              });
+          });
+
+          return rawResult;
+        }, retryConfig, 'Kusto query execution');
+
+        debugLog(`Raw Kusto Response: ${JSON.stringify(result, null, 2)}`);
 
         // Convert the result to a JSON-friendly format
         // Cast the result to KustoQueryResult type
-        const formattedResult = rawResult as KustoQueryResult;
+        const formattedResult = result as KustoQueryResult;
 
         debugLog('Query executed successfully');
         span.setStatus({ code: SpanStatusCode.OK });

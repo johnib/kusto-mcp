@@ -127,6 +127,15 @@ const config: KustoConfig = {
   defaultDatabase: process.env.KUSTO_DEFAULT_DATABASE && process.env.KUSTO_DEFAULT_DATABASE.trim() ? process.env.KUSTO_DEFAULT_DATABASE.trim() : undefined,
   enableQueryStatistics: enableQueryStatistics,
   enablePrompts: enablePrompts,
+  maxRetries: process.env.KUSTO_MAX_RETRIES
+    ? parseInt(process.env.KUSTO_MAX_RETRIES)
+    : undefined,
+  retryBaseDelayMs: process.env.KUSTO_RETRY_BASE_DELAY_MS
+    ? parseInt(process.env.KUSTO_RETRY_BASE_DELAY_MS)
+    : undefined,
+  retryBackoffMultiplier: process.env.KUSTO_RETRY_BACKOFF_MULTIPLIER
+    ? parseFloat(process.env.KUSTO_RETRY_BACKOFF_MULTIPLIER)
+    : undefined,
 };
 
 // Log auto-connection configuration
@@ -137,6 +146,12 @@ if (config.clusterUrl && config.defaultDatabase) {
 } else {
   criticalLog('No auto-connection configuration detected, manual connection required');
 }
+
+// Log retry configuration
+const maxRetries = config.maxRetries ?? 3;
+const baseDelay = config.retryBaseDelayMs ?? 100;
+const backoffMultiplier = config.retryBackoffMultiplier ?? 2;
+criticalLog(`Retry configuration: maxRetries=${maxRetries}, baseDelay=${baseDelay}ms, backoffMultiplier=${backoffMultiplier}`);
 
 // Create the server
 const server = createKustoServer(config);
