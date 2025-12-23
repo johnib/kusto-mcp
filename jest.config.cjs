@@ -57,7 +57,11 @@ module.exports = {
             },
           },
         ],
+        '^.+\\.js$': 'babel-jest',
       },
+      transformIgnorePatterns: [
+        'node_modules/(?!(azure-kusto-data|azure-kusto-ingest|@azure|markdown-table)/)',
+      ],
       moduleNameMapper: {
         '^(\\.{1,2}/.*)\\.js$': '$1',
       },

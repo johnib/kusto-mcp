@@ -51,6 +51,7 @@
     "zod-to-json-schema": "^3.20.4"
   },
   "devDependencies": {
+    "@babel/preset-env": "^7.28.5",
     "@modelcontextprotocol/inspector": "^0.16.6",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/commit-analyzer": "^11.1.0",

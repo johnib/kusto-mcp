@@ -224,6 +224,31 @@ export class MCPTestClient {
   }
 
   /**
+   * List available prompts
+   */
+  async listPrompts(cursor?: string): Promise<any> {
+    if (!this.isInitialized) {
+      throw new Error('Client not initialized');
+    }
+
+    return await this.sendRequest('prompts/list', cursor ? { cursor } : {});
+  }
+
+  /**
+   * Get a specific prompt
+   */
+  async getPrompt(name: string, arguments_: Record<string, string> = {}): Promise<any> {
+    if (!this.isInitialized) {
+      throw new Error('Client not initialized');
+    }
+
+    return await this.sendRequest('prompts/get', {
+      name,
+      arguments: arguments_,
+    });
+  }
+
+  /**
    * Get server logs for debugging
    */
   getServerLogs(): string[] {

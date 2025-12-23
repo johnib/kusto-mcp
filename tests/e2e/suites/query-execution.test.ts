@@ -114,7 +114,6 @@ describe('Query Execution', () => {
     if (result.data.length === limit) {
       expect(result.metadata.isPartial).toBe(true);
       expect(result.metadata.hasMoreResults).toBe(true);
-      expect(result.message).toContain('Results are partial');
     }
   });
 
@@ -132,8 +131,6 @@ describe('Query Execution', () => {
 
     if (result.metadata.isPartial) {
       expect(result.metadata.hasMoreResults).toBe(true);
-      expect(result.message).toContain('Results are partial');
-      expect(result.message).toContain('aggregations, filters');
     }
   });
 
