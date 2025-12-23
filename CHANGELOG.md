@@ -1,3 +1,10 @@
+## [1.9.2](https://github.com/johnib/kusto-mcp/compare/v1.9.1...v1.9.2) (2025-12-23)
+
+
+### Bug Fixes
+
+* update dependencies and fix e2e test issues ([f812248](https://github.com/johnib/kusto-mcp/commit/f812248233a3ff6bf991fed82691f1f3479db22b))
+
 ## [1.9.1](https://github.com/johnib/kusto-mcp/compare/v1.9.0...v1.9.1) (2025-11-26)
 
 
