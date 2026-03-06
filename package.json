@@ -82,8 +82,9 @@
   "overrides": {
     "body-parser": "^2.2.1",
     "glob": "^11.0.0",
+    "undici": "^6.23.0",
     "semantic-release": {
-      "npm": "^11.6.4"
+      "npm": "^11.11.0"
     }
   },
   "lint-staged": {
