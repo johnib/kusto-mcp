@@ -1,3 +1,17 @@
+# [1.10.0](https://github.com/johnib/kusto-mcp/compare/v1.9.2...v1.10.0) (2026-03-06)
+
+
+### Bug Fixes
+
+* update CI node version for semantic-release v25 compatibility ([05ac006](https://github.com/johnib/kusto-mcp/commit/05ac00645da8a7ad6bbbd08f5f91572d484dce0e))
+* update dependencies to address security vulnerabilities ([fba28e7](https://github.com/johnib/kusto-mcp/commit/fba28e7c6a17395cb4f4066b064e5740a98e6dc1))
+* update dependency overrides to address security vulnerabilities ([a631f7d](https://github.com/johnib/kusto-mcp/commit/a631f7d842abddc71e82b37f09c2f1d45dbca745))
+
+
+### Features
+
+* upgrade all dependencies to latest major versions ([ba6c9a3](https://github.com/johnib/kusto-mcp/commit/ba6c9a370155aae182d37b7bc10a09bd19701d91)), closes [#29](https://github.com/johnib/kusto-mcp/issues/29)
+
 ## [1.9.2](https://github.com/johnib/kusto-mcp/compare/v1.9.1...v1.9.2) (2025-12-23)
 
 
