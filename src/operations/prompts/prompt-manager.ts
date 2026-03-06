@@ -1,7 +1,8 @@
+import { PromptDefinition } from '../../types/prompt-interfaces.js';
 import {
-  PromptDefinition,
-} from '../../types/prompt-interfaces.js';
-import { ListPromptsResult, GetPromptResult } from '@modelcontextprotocol/sdk/types.js';
+  ListPromptsResult,
+  GetPromptResult,
+} from '@modelcontextprotocol/sdk/types.js';
 import { getAllPrompts, getPromptByName } from './prompt-definitions.js';
 import { renderPrompt } from './prompt-renderer.js';
 

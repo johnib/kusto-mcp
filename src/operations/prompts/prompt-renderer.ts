@@ -1,8 +1,12 @@
-import { PromptDefinition, PromptMessage, GetPromptResult } from '../../types/prompt-interfaces.js';
+import {
+  PromptDefinition,
+  PromptMessage,
+  GetPromptResult,
+} from '../../types/prompt-interfaces.js';
 
 export function renderPrompt(
   prompt: PromptDefinition,
-  args: Record<string, any> = {}
+  args: Record<string, any> = {},
 ): GetPromptResult {
   // Validate required arguments
   if (prompt.arguments) {
@@ -23,7 +27,10 @@ export function renderPrompt(
       for (const arg of prompt.arguments) {
         const value = args[arg.name];
         if (value !== undefined) {
-          content = content.replace(new RegExp(`\\{${arg.name}\\}`, 'g'), String(value));
+          content = content.replace(
+            new RegExp(`\\{${arg.name}\\}`, 'g'),
+            String(value),
+          );
         }
       }
     }

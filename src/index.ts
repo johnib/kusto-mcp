@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { Resource } from '@opentelemetry/resources';
-import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
-import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+import { resourceFromAttributes } from '@opentelemetry/resources';
+import {
+  BatchSpanProcessor,
+  NodeTracerProvider,
+} from '@opentelemetry/sdk-trace-node';
+import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import * as dotenv from 'dotenv';
 import { criticalLog, debugLog } from './common/utils.js';
 import { createKustoServer } from './server.js';
@@ -18,11 +20,7 @@ import {
 dotenv.config();
 
 // Configure OpenTelemetry
-const provider = new NodeTracerProvider({
-  resource: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: 'kusto-mcp',
-  }),
-});
+const spanProcessors: BatchSpanProcessor[] = [];
 
 // Add OTLP exporter if configured
 if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
@@ -30,13 +28,20 @@ if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
     url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
   });
 
-  provider.addSpanProcessor(new BatchSpanProcessor(exporter));
+  spanProcessors.push(new BatchSpanProcessor(exporter));
   debugLog(
     `OpenTelemetry exporter configured with endpoint: ${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}`,
   );
 } else {
   debugLog('OpenTelemetry exporter not configured, skipping');
 }
+
+const provider = new NodeTracerProvider({
+  resource: resourceFromAttributes({
+    [ATTR_SERVICE_NAME]: 'kusto-mcp',
+  }),
+  spanProcessors,
+});
 
 // Register the provider
 provider.register();
@@ -123,19 +128,32 @@ const config: KustoConfig = {
   minRowsInResponse: process.env.KUSTO_MIN_RESPONSE_ROWS
     ? parseInt(process.env.KUSTO_MIN_RESPONSE_ROWS)
     : undefined,
-  clusterUrl: process.env.KUSTO_CLUSTER_URL && process.env.KUSTO_CLUSTER_URL.trim() ? process.env.KUSTO_CLUSTER_URL.trim() : undefined,
-  defaultDatabase: process.env.KUSTO_DEFAULT_DATABASE && process.env.KUSTO_DEFAULT_DATABASE.trim() ? process.env.KUSTO_DEFAULT_DATABASE.trim() : undefined,
+  clusterUrl:
+    process.env.KUSTO_CLUSTER_URL && process.env.KUSTO_CLUSTER_URL.trim()
+      ? process.env.KUSTO_CLUSTER_URL.trim()
+      : undefined,
+  defaultDatabase:
+    process.env.KUSTO_DEFAULT_DATABASE &&
+    process.env.KUSTO_DEFAULT_DATABASE.trim()
+      ? process.env.KUSTO_DEFAULT_DATABASE.trim()
+      : undefined,
   enableQueryStatistics: enableQueryStatistics,
   enablePrompts: enablePrompts,
 };
 
 // Log auto-connection configuration
 if (config.clusterUrl && config.defaultDatabase) {
-  criticalLog(`Auto-connection configured: ${config.clusterUrl} -> ${config.defaultDatabase}`);
+  criticalLog(
+    `Auto-connection configured: ${config.clusterUrl} -> ${config.defaultDatabase}`,
+  );
 } else if (config.clusterUrl || config.defaultDatabase) {
-  criticalLog('Partial auto-connection configuration detected (both KUSTO_CLUSTER_URL and KUSTO_DEFAULT_DATABASE required)');
+  criticalLog(
+    'Partial auto-connection configuration detected (both KUSTO_CLUSTER_URL and KUSTO_DEFAULT_DATABASE required)',
+  );
 } else {
-  criticalLog('No auto-connection configuration detected, manual connection required');
+  criticalLog(
+    'No auto-connection configuration detected, manual connection required',
+  );
 }
 
 // Create the server

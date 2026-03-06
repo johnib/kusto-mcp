@@ -7,7 +7,8 @@ const PROMPT_DEFINITIONS: PromptDefinition[] = [
   {
     name: 'analyze-query-perf',
     title: 'analyze_query_performance',
-    description: 'Analyze KQL query performance by measuring scanned extents and totalCpu impact of each query part',
+    description:
+      'Analyze KQL query performance by measuring scanned extents and totalCpu impact of each query part',
     arguments: [
       {
         name: 'query',

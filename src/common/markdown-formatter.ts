@@ -131,13 +131,17 @@ function generateMetadataSummary(
       summary.push(`- Total CPU: ${metadata.queryStatistics.totalCpu}`);
     }
     if (metadata.queryStatistics.executionTime) {
-      summary.push(`- Execution time: ${metadata.queryStatistics.executionTime}`);
+      summary.push(
+        `- Execution time: ${metadata.queryStatistics.executionTime}`,
+      );
     }
     if (metadata.queryStatistics.extentsTotal !== undefined) {
       summary.push(`- Extents total: ${metadata.queryStatistics.extentsTotal}`);
     }
     if (metadata.queryStatistics.extentsScanned !== undefined) {
-      summary.push(`- Extents scanned: ${metadata.queryStatistics.extentsScanned}`);
+      summary.push(
+        `- Extents scanned: ${metadata.queryStatistics.extentsScanned}`,
+      );
     }
   }
 

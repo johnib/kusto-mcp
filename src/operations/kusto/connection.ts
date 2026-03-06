@@ -54,12 +54,15 @@ export class KustoConnection {
 
         if (this.config.authMethod === 'azure-cli') {
           debugLog('Using Azure CLI authentication for connection');
-          connectionString = KustoConnectionStringBuilder.withAzLoginIdentity(clusterUrl);
+          connectionString =
+            KustoConnectionStringBuilder.withAzLoginIdentity(clusterUrl);
         } else {
-          debugLog('Using Azure Identity (DefaultAzureCredential) for connection');
+          debugLog(
+            'Using Azure Identity (DefaultAzureCredential) for connection',
+          );
           connectionString = KustoConnectionStringBuilder.withTokenCredential(
             clusterUrl,
-            this.tokenCredential
+            this.tokenCredential,
           );
         }
 
@@ -83,7 +86,8 @@ export class KustoConnection {
           database: database,
         };
       } catch (error) {
-        let errorMessage = error instanceof Error ? error.message : String(error);
+        let errorMessage =
+          error instanceof Error ? error.message : String(error);
 
         // Extract detailed error message from Kusto response if available
         if (error && typeof error === 'object' && 'response' in error) {
@@ -162,7 +166,8 @@ export class KustoConnection {
 
         return formattedResult;
       } catch (error) {
-        let errorMessage = error instanceof Error ? error.message : String(error);
+        let errorMessage =
+          error instanceof Error ? error.message : String(error);
 
         // Extract detailed error message from Kusto response if available
         if (error && typeof error === 'object' && 'response' in error) {

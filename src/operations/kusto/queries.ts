@@ -49,9 +49,16 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
     let queryCompletionTable = null;
 
     // Check statusTable first
-    if (rawAny.statusTable && rawAny.statusTable.name === 'QueryCompletionInformation') {
+    if (
+      rawAny.statusTable &&
+      rawAny.statusTable.name === 'QueryCompletionInformation'
+    ) {
       // Try _rows if data is empty
-      if ((!rawAny.statusTable.data || rawAny.statusTable.data.length === 0) && rawAny.statusTable._rows && rawAny.statusTable._rows.length > 0) {
+      if (
+        (!rawAny.statusTable.data || rawAny.statusTable.data.length === 0) &&
+        rawAny.statusTable._rows &&
+        rawAny.statusTable._rows.length > 0
+      ) {
         rawAny.statusTable.data = rawAny.statusTable._rows;
       }
 
@@ -63,10 +70,16 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
     // Fallback to tables array
     if (!queryCompletionTable) {
       const allTables = rawAny.tables || [];
-      const foundTable = allTables.find((table: any) => table.name === 'QueryCompletionInformation');
+      const foundTable = allTables.find(
+        (table: any) => table.name === 'QueryCompletionInformation',
+      );
       if (foundTable) {
         // Try _rows if data is empty
-        if ((!foundTable.data || foundTable.data.length === 0) && foundTable._rows && foundTable._rows.length > 0) {
+        if (
+          (!foundTable.data || foundTable.data.length === 0) &&
+          foundTable._rows &&
+          foundTable._rows.length > 0
+        ) {
           foundTable.data = foundTable._rows;
         }
 
@@ -76,7 +89,11 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
       }
     }
 
-    if (queryCompletionTable && queryCompletionTable.data && queryCompletionTable.data.length > 0) {
+    if (
+      queryCompletionTable &&
+      queryCompletionTable.data &&
+      queryCompletionTable.data.length > 0
+    ) {
       // Get column metadata to understand the structure
       const columns = queryCompletionTable.columns || [];
 
@@ -85,7 +102,8 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
         const obj: any = {};
         if (columns && columns.length > 0) {
           columns.forEach((column: any, columnIndex: number) => {
-            const columnName = column.ColumnName || column.name || `Column${columnIndex}`;
+            const columnName =
+              column.ColumnName || column.name || `Column${columnIndex}`;
             obj[columnName] = rowArray[columnIndex];
           });
         } else {
@@ -99,7 +117,7 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
 
       // Look for the row with EventTypeName: "QueryResourceConsumption"
       const resourceConsumptionRow = convertedRows.find(
-        (row: any) => row.EventTypeName === 'QueryResourceConsumption'
+        (row: any) => row.EventTypeName === 'QueryResourceConsumption',
       );
 
       if (resourceConsumptionRow && resourceConsumptionRow.Payload) {
@@ -121,7 +139,10 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
           }
 
           // Extract extents statistics (keep)
-          if (payload.input_dataset_statistics && payload.input_dataset_statistics.extents) {
+          if (
+            payload.input_dataset_statistics &&
+            payload.input_dataset_statistics.extents
+          ) {
             const extents = payload.input_dataset_statistics.extents;
             if (extents.total !== undefined) {
               statistics.extentsTotal = extents.total;
@@ -134,7 +155,9 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
           // Store all resource usage data for debugging
           statistics.resourceUsage = { ...payload };
         } catch (parseError) {
-          debugLog(`Error parsing QueryResourceConsumption payload: ${parseError}`);
+          debugLog(
+            `Error parsing QueryResourceConsumption payload: ${parseError}`,
+          );
         }
       }
 
@@ -157,7 +180,9 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
     const primaryResults = rawResult.primaryResults || [];
     for (const result of primaryResults) {
       if (result.name && result.name.toLowerCase().includes('completion')) {
-        debugLog(`Found completion info in primaryResults: ${JSON.stringify(result)}`);
+        debugLog(
+          `Found completion info in primaryResults: ${JSON.stringify(result)}`,
+        );
         // Extract any additional statistics if found
       }
     }
@@ -336,7 +361,8 @@ export async function executeQueryWithTransformation(
         span.setStatus({ code: SpanStatusCode.OK });
         return transformedResult;
       } catch (error) {
-        let errorMessage = error instanceof Error ? error.message : String(error);
+        let errorMessage =
+          error instanceof Error ? error.message : String(error);
 
         // Extract detailed error message from Kusto response if available
         if (error && typeof error === 'object' && 'response' in error) {
