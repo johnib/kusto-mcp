@@ -1,8 +1,8 @@
 /**
- * Critical logging function that always prints important messages
- * Use for startup, shutdown, errors, and configuration messages
+ * Critical logging function that always prints important messages.
+ * Use for startup, shutdown, errors, and configuration messages.
  *
- * @param message The message to log
+ * @param message - The message to log
  */
 export function criticalLog(message: string): void {
   process.stderr.write(`${message}\n`);
