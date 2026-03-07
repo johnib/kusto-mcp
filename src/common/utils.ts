@@ -9,10 +9,10 @@ export function criticalLog(message: string): void {
 }
 
 /**
- * Debug logging function that only prints when DEBUG_SERVER=1
- * Use for detailed debugging information
+ * Debug logging function that only prints when DEBUG_SERVER=1.
+ * Use for detailed debugging information.
  *
- * @param message The message to log
+ * @param message - The message to log
  */
 export function debugLog(message: string): void {
   if (process.env.DEBUG_SERVER === '1') {
