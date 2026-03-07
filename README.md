@@ -15,7 +15,7 @@ Connect Cline, Cursor, Claude Desktop, or any AI tool to Azure Data Explorer. As
 - **"Find all failed authentication attempts"** → Investigate security incidents with AI help
 - **"Summarize system performance trends"** → Get automated analysis of monitoring data
 
-No more writing complex KQL queries. Just ask your AI assistant natural questions about your data.
+No more writing complex KQL queries. Just ask your AI assistant natural language questions about your data.
 
 ## Quick Setup
 
