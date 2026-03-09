@@ -178,3 +178,4 @@ Building, testing, or contributing? See our [Developer Documentation](docs/DEVEL
 ---
 
 **💡 Pro tip**: Start by asking your AI to "show me the tables in my database" to explore what data you have available, then ask natural language questions about specific tables.
+# Test vars.ANTHROPIC_BASE_URL
