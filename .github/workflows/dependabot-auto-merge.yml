@@ -1,8 +1,11 @@
 name: Auto-merge Dependabot PRs
 
+# Uses pull_request_target to run in base repo context with full token access.
+# Safe because there is no checkout step — no untrusted PR code is executed.
 on:
   pull_request_target:
-    types: [opened, reopened]
+    types: [opened, reopened, synchronize]
+    branches: [master]
 
 permissions:
   contents: write
