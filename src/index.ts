@@ -7,7 +7,6 @@ import {
   NodeTracerProvider,
 } from '@opentelemetry/sdk-trace-node';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
-import * as dotenv from 'dotenv';
 import { criticalLog, debugLog } from './common/utils.js';
 import { createKustoServer } from './server.js';
 import {
@@ -15,9 +14,6 @@ import {
   KustoConfig,
   ResponseFormat,
 } from './types/config.js';
-
-// Load environment variables
-dotenv.config();
 
 // Configure OpenTelemetry
 const spanProcessors: BatchSpanProcessor[] = [];

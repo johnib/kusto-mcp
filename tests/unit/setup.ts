@@ -153,11 +153,6 @@ jest.mock('@azure/identity', () => {
   };
 });
 
-// Mock dotenv to prevent loading actual .env files in tests
-jest.mock('dotenv', () => ({
-  config: jest.fn(),
-}));
-
 // Mock markdown-table module to handle ES module import issues
 jest.mock('markdown-table', () => ({
   markdownTable: jest.fn((table, options) => {
