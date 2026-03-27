@@ -43,7 +43,6 @@
     "axios": "^1.13.6",
     "azure-kusto-data": "^7.0.4",
     "azure-kusto-ingest": "^7.0.4",
-    "dotenv": "^17.3.1",
     "markdown-table": "^3.0.4",
     "zod": "^4.3.6"
   },
