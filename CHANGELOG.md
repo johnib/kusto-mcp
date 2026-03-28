@@ -1,3 +1,11 @@
+## [1.10.1](https://github.com/johnib/kusto-mcp/compare/v1.10.0...v1.10.1) (2026-03-28)
+
+
+### Bug Fixes
+
+* remove dotenv to prevent stdout pollution breaking MCP stdio transport ([#41](https://github.com/johnib/kusto-mcp/issues/41)) ([3374328](https://github.com/johnib/kusto-mcp/commit/3374328ec060f38a65ee3eb76387eec10da07f12))
+* use PAT in release workflow to bypass branch protection ([#42](https://github.com/johnib/kusto-mcp/issues/42)) ([a8bb1eb](https://github.com/johnib/kusto-mcp/commit/a8bb1ebb5bd3f34bc5287473c9ce223b54c981a0))
+
 # [1.10.0](https://github.com/johnib/kusto-mcp/compare/v1.9.2...v1.10.0) (2026-03-06)
 
 
