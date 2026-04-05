@@ -26,7 +26,7 @@ module.exports = {
             tsconfig: {
               module: 'ESNext',
               target: 'ES2022',
-              moduleResolution: 'node',
+              moduleResolution: 'nodenext',
             },
           },
         ],
@@ -53,7 +53,7 @@ module.exports = {
             tsconfig: {
               module: 'ESNext',
               target: 'ES2022',
-              moduleResolution: 'node',
+              moduleResolution: 'nodenext',
             },
           },
         ],
