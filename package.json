@@ -12,6 +12,11 @@
     "dist"
   ],
   "bugs": "https://github.com/johnib/kusto-mcp/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johnib/kusto-mcp.git"
+  },
+  "homepage": "https://github.com/johnib/kusto-mcp#readme",
   "scripts": {
     "build": "tsc && shx chmod +x dist/*.js",
     "start": "node dist/index.js",
