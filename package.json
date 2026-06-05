@@ -53,7 +53,7 @@
   },
   "devDependencies": {
     "@babel/preset-env": "^7.29.0",
-    "@modelcontextprotocol/inspector": "^0.21.1",
+    "@modelcontextprotocol/inspector": "^0.22.0",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/commit-analyzer": "^13.0.1",
     "@semantic-release/git": "^10.0.1",
