@@ -3,6 +3,10 @@ import {
   KustoQueryError,
   KustoResourceNotFoundError,
 } from '../../common/errors.js';
+import {
+  bracketEntityName,
+  validateEntityName,
+} from '../../common/kql-safety.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
   KustoFunctionListItem,
@@ -121,10 +125,14 @@ export async function showTable(
         throw new KustoQueryError('Connection not initialized');
       }
 
-      // Execute the query to get the table schema using getschema
+      // Execute the query to get the table schema using getschema. The table
+      // name is validated and bracket-quoted to prevent KQL injection.
+      const safeTable = bracketEntityName(
+        validateEntityName(tableName, 'table'),
+      );
       const result = await connection.executeQuery(
         database,
-        `${tableName} | getschema`,
+        `${safeTable} | getschema`,
       );
 
       // Extract the table schema data from the Kusto response
@@ -315,10 +323,14 @@ export async function showFunction(
         throw new KustoQueryError('Connection not initialized');
       }
 
-      // Execute the query to get the function details
+      // Execute the query to get the function details. The function name is
+      // validated and bracket-quoted to prevent KQL injection.
+      const safeFunction = bracketEntityName(
+        validateEntityName(functionName, 'function'),
+      );
       const result = await connection.executeQuery(
         database,
-        `.show function ${functionName}`,
+        `.show function ${safeFunction}`,
       );
 
       // Extract the function details data from the Kusto response

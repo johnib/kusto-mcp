@@ -1,5 +1,8 @@
 import { SpanStatusCode, trace } from '@opentelemetry/api';
-import { KustoQueryError } from '../../common/errors.js';
+import {
+  extractKustoErrorMessage,
+  KustoQueryError,
+} from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import { KustoQueryResult } from '../../types/kusto-interfaces.js';
 import { KustoConfig } from '../../types/config.js';
@@ -215,7 +218,7 @@ export async function executeQuery(
 ): Promise<KustoQueryResult> {
   return tracer.startActiveSpan('executeQuery', async span => {
     try {
-      span.setAttribute('query', query);
+      span.setAttribute('query.length', query.length);
 
       debugLog(`Executing query: ${query}`);
 
@@ -234,17 +237,7 @@ export async function executeQuery(
 
       return result;
     } catch (error) {
-      let errorMessage = error instanceof Error ? error.message : String(error);
-
-      // Extract detailed error message from Kusto response if available
-      if (error && typeof error === 'object' && 'response' in error) {
-        const response = (error as any).response;
-        if (response?.data?.error?.['@message']) {
-          errorMessage = response.data.error['@message'];
-        } else if (response?.data?.error?.message) {
-          errorMessage = response.data.error.message;
-        }
-      }
+      const errorMessage = extractKustoErrorMessage(error);
 
       criticalLog(`Failed to execute query: ${errorMessage}`);
 
@@ -350,7 +343,7 @@ export async function executeQueryWithTransformation(
     'executeQueryWithTransformation',
     async span => {
       try {
-        span.setAttribute('query', query);
+        span.setAttribute('query.length', query.length);
 
         // Execute the raw query
         const rawResult = await executeQuery(connection, query);
@@ -361,18 +354,7 @@ export async function executeQueryWithTransformation(
         span.setStatus({ code: SpanStatusCode.OK });
         return transformedResult;
       } catch (error) {
-        let errorMessage =
-          error instanceof Error ? error.message : String(error);
-
-        // Extract detailed error message from Kusto response if available
-        if (error && typeof error === 'object' && 'response' in error) {
-          const response = (error as any).response;
-          if (response?.data?.error?.['@message']) {
-            errorMessage = response.data.error['@message'];
-          } else if (response?.data?.error?.message) {
-            errorMessage = response.data.error.message;
-          }
-        }
+        const errorMessage = extractKustoErrorMessage(error);
 
         criticalLog(`Failed to execute and transform query: ${errorMessage}`);
 
@@ -407,7 +389,7 @@ export async function executeManagementCommand(
 ): Promise<any> {
   return tracer.startActiveSpan('executeManagementCommand', async span => {
     try {
-      span.setAttribute('command', command);
+      span.setAttribute('command.length', command.length);
 
       debugLog(`Executing management command: ${command}`);
 
@@ -426,17 +408,7 @@ export async function executeManagementCommand(
 
       return result;
     } catch (error) {
-      let errorMessage = error instanceof Error ? error.message : String(error);
-
-      // Extract detailed error message from Kusto response if available
-      if (error && typeof error === 'object' && 'response' in error) {
-        const response = (error as any).response;
-        if (response?.data?.error?.['@message']) {
-          errorMessage = response.data.error['@message'];
-        } else if (response?.data?.error?.message) {
-          errorMessage = response.data.error.message;
-        }
-      }
+      const errorMessage = extractKustoErrorMessage(error);
 
       criticalLog(`Failed to execute management command: ${errorMessage}`);
 

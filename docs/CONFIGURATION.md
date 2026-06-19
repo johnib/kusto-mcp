@@ -17,9 +17,23 @@ KUSTO_MARKDOWN_MAX_CELL_LENGTH=1000  # Maximum characters per table cell (defaul
 KUSTO_MAX_RESPONSE_LENGTH=12000  # Maximum characters for entire MCP response (default: 12000)
 KUSTO_MIN_RESPONSE_ROWS=1  # Minimum rows to return when data exists (default: 1)
 
+# Safety
+KUSTO_ALLOW_WRITE_OPERATIONS=true  # Allow write/management commands (default: true). Set false for read-only.
+
 # OpenTelemetry Configuration (optional)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317/v1/traces
 ```
+
+## Read-Only Mode
+
+By default the `execute-query` tool accepts any command, including
+write/management commands (e.g. `.set-or-append`, `.append`, `.ingest`,
+`.drop`, `.create`, `.alter`).
+
+To harden the server — for example when the tool is auto-approved or driven by
+untrusted input — set `KUSTO_ALLOW_WRITE_OPERATIONS=false`. In read-only mode
+only plain KQL queries and `.show` commands are permitted; all other
+control/management commands are rejected.
 
 ## Authentication Methods
 

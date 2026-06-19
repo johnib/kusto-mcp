@@ -17,6 +17,7 @@
     "url": "git+https://github.com/johnib/kusto-mcp.git"
   },
   "homepage": "https://github.com/johnib/kusto-mcp#readme",
+  "license": "MIT",
   "scripts": {
     "build": "tsc && shx chmod +x dist/*.js",
     "start": "node dist/index.js",
@@ -30,9 +31,9 @@
     "test:e2e:debug": "DEBUG_SERVER=1 jest --selectProjects e2e",
     "test:all": "jest",
     "test:debug": "DEBUG_SERVER=1 npm run test",
-    "lint": "eslint src/**/*.ts",
-    "lint:check": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix",
+    "lint": "eslint src",
+    "lint:check": "eslint src",
+    "lint:fix": "eslint src --fix",
     "format": "prettier --config .prettierrc.json --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
     "format:fix": "prettier --config .prettierrc.json --write 'src/**/*.ts'"
@@ -45,9 +46,7 @@
     "@opentelemetry/resources": "^2.6.0",
     "@opentelemetry/sdk-trace-node": "^2.6.0",
     "@opentelemetry/semantic-conventions": "^1.40.0",
-    "axios": "^1.13.6",
     "azure-kusto-data": "^7.0.4",
-    "azure-kusto-ingest": "^7.0.4",
     "markdown-table": "^3.0.4",
     "zod": "^4.3.6"
   },

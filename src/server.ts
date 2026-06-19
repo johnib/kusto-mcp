@@ -6,12 +6,12 @@ import {
   GetPromptRequestSchema,
   ListToolsRequestSchema,
   McpError,
-  ListPromptsResult,
-  GetPromptResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { formatKustoMcpError, isKustoMcpError } from './common/errors.js';
 import { criticalLog, debugLog } from './common/utils.js';
+import { appendRowLimit, assertQueryAllowed } from './common/kql-safety.js';
+import { VERSION } from './common/version.js';
 import {
   executeQuery,
   KustoConnection,
@@ -65,7 +65,7 @@ export function createKustoServer(config: KustoConfig): Server {
   const server = new Server(
     {
       name: 'kusto-mcp',
-      version: '1.0.0',
+      version: VERSION,
     },
     {
       capabilities: {
@@ -294,18 +294,28 @@ export function createKustoServer(config: KustoConfig): Server {
             );
           }
 
+          // Enforce read-only mode unless writes are explicitly enabled.
+          assertQueryAllowed(
+            args.query,
+            validatedConfig.allowWriteOperations ?? false,
+          );
+
           // Get user-requested limit and global response limit
           const requestedLimit = args.limit || 20;
           const globalCharLimit = validatedConfig.maxResponseLength || 12000;
           const minRows = validatedConfig.minRowsInResponse || 1;
 
-          // Execute query with generous limit initially (for dynamic reduction)
-          // Use a reasonable upper bound to avoid excessive data fetching
+          // Fetch one extra row (N+1) so we can detect whether more data is
+          // available than the requested limit. The `take` is appended on a new
+          // line so it doesn't merge into a trailing line comment, and is
+          // skipped for control commands (".show ..."), which don't accept a
+          // piped `| take`. Per Kusto semantics, when the query is sorted the
+          // top rows are returned, so ordering is preserved.
           const initialLimit = requestedLimit;
-          const modifiedQuery = `${args.query} | take ${initialLimit + 1}`;
+          const modifiedQuery = appendRowLimit(args.query, initialLimit + 1);
 
-          // Import the transformation functions here to avoid auto-formatter issues
-          const { executeQueryWithTransformation, transformQueryResult } =
+          // Import the transformation function here to avoid auto-formatter issues
+          const { transformQueryResult } =
             await import('./operations/kusto/index.js');
           const { limitResponseSize } =
             await import('./common/response-limiter.js');

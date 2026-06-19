@@ -2,7 +2,11 @@ import { TokenCredential } from '@azure/identity';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import { Client, KustoConnectionStringBuilder } from 'azure-kusto-data';
 import { createTokenCredential } from '../../auth/token-credentials.js';
-import { KustoConnectionError, KustoQueryError } from '../../common/errors.js';
+import {
+  extractKustoErrorMessage,
+  KustoConnectionError,
+  KustoQueryError,
+} from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import { KustoConfig } from '../../types/config.js';
 import { KustoQueryResult } from '../../types/kusto-interfaces.js';
@@ -86,18 +90,7 @@ export class KustoConnection {
           database: database,
         };
       } catch (error) {
-        let errorMessage =
-          error instanceof Error ? error.message : String(error);
-
-        // Extract detailed error message from Kusto response if available
-        if (error && typeof error === 'object' && 'response' in error) {
-          const response = (error as any).response;
-          if (response?.data?.error?.['@message']) {
-            errorMessage = response.data.error['@message'];
-          } else if (response?.data?.error?.message) {
-            errorMessage = response.data.error.message;
-          }
-        }
+        const errorMessage = extractKustoErrorMessage(error);
 
         criticalLog(`Failed to initialize connection: ${errorMessage}`);
 
@@ -124,7 +117,9 @@ export class KustoConnection {
     return tracer.startActiveSpan('executeQuery', async span => {
       try {
         span.setAttribute('database', database);
-        span.setAttribute('query', query);
+        // Avoid recording raw query text on spans exported to remote collectors
+        // (may contain sensitive values); record only its length.
+        span.setAttribute('query.length', query.length);
 
         if (!this.client) {
           throw new KustoConnectionError('Connection not initialized');
@@ -166,18 +161,7 @@ export class KustoConnection {
 
         return formattedResult;
       } catch (error) {
-        let errorMessage =
-          error instanceof Error ? error.message : String(error);
-
-        // Extract detailed error message from Kusto response if available
-        if (error && typeof error === 'object' && 'response' in error) {
-          const response = (error as any).response;
-          if (response?.data?.error?.['@message']) {
-            errorMessage = response.data.error['@message'];
-          } else if (response?.data?.error?.message) {
-            errorMessage = response.data.error.message;
-          }
-        }
+        const errorMessage = extractKustoErrorMessage(error);
 
         criticalLog(`Failed to execute query: ${errorMessage}`);
 

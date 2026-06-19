@@ -10,7 +10,6 @@ import { showFunction } from '../../../src/operations/kusto/index.js';
 import { showFunctions } from '../../../src/operations/kusto/tables.js';
 import {
   emptyFunctionListResponse,
-  emptyFunctionNameError,
   functionDetailsResponse,
   functionListResponse,
   nonExistentFunctionError,
@@ -131,7 +130,7 @@ describe('Function Operations Unit Tests', () => {
       // Verify the query was called correctly
       expect(mockExecuteQuery).toHaveBeenCalledWith(
         'ContosoSales',
-        '.show function SalesWithParams',
+        ".show function ['SalesWithParams']",
       );
     });
 
@@ -146,23 +145,18 @@ describe('Function Operations Unit Tests', () => {
       // Verify the query was attempted
       expect(mockExecuteQuery).toHaveBeenCalledWith(
         'ContosoSales',
-        '.show function NonExistentFunction123',
+        ".show function ['NonExistentFunction123']",
       );
     });
 
-    test('should handle empty function name', async () => {
-      // Mock error response for empty function name
-      mockExecuteQuery.mockRejectedValue(emptyFunctionNameError);
-
+    test('should reject empty function name before querying', async () => {
+      // An empty/invalid name is rejected by validation and never reaches the
+      // Kusto client.
       await expect(showFunction(connection, '')).rejects.toThrow(
-        KustoQueryError,
+        'Invalid function name',
       );
 
-      // Verify the query was attempted with empty name
-      expect(mockExecuteQuery).toHaveBeenCalledWith(
-        'ContosoSales',
-        '.show function ',
-      );
+      expect(mockExecuteQuery).not.toHaveBeenCalled();
     });
 
     test('should return consistent function details for repeated calls', async () => {
@@ -228,8 +222,16 @@ describe('Function Operations Unit Tests', () => {
       // Verify the query was attempted
       expect(mockExecuteQuery).toHaveBeenCalledWith(
         'ContosoSales',
-        '.show function Function-With-Dashes',
+        ".show function ['Function-With-Dashes']",
       );
+    });
+
+    test('should reject KQL-injection attempts in function name', async () => {
+      await expect(
+        showFunction(connection, 'f); .drop table secrets //'),
+      ).rejects.toThrow('Invalid function name');
+
+      expect(mockExecuteQuery).not.toHaveBeenCalled();
     });
 
     test('should handle case-sensitive function names correctly', async () => {
