@@ -1,3 +1,10 @@
+## [1.10.2](https://github.com/johnib/kusto-mcp/compare/v1.10.1...v1.10.2) (2026-06-19)
+
+
+### Bug Fixes
+
+* harden query safety, fix lint coverage, and clean up security debt ([#146](https://github.com/johnib/kusto-mcp/issues/146)) ([5e29b7c](https://github.com/johnib/kusto-mcp/commit/5e29b7ce5e17cc8380b6d09dfa5f5c701d72b2ae))
+
 ## [1.10.1](https://github.com/johnib/kusto-mcp/compare/v1.10.0...v1.10.1) (2026-03-28)
 
 
