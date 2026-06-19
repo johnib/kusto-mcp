@@ -1,7 +1,6 @@
 import { KustoConnection } from '../../../src/operations/kusto/connection.js';
 import { showTable, showTables } from '../../../src/operations/kusto/tables.js';
 import {
-  emptyTableNameError,
   nonExistentTableError,
   showTableSchemaProcessedResponse,
   showTablesProcessedResponse,
@@ -100,7 +99,7 @@ describe('Table Operations', () => {
     // Verify the executeQuery was called with correct parameters
     expect(mockConnection.executeQuery).toHaveBeenCalledWith(
       'ContosoSales',
-      'SalesFact | getschema',
+      "['SalesFact'] | getschema",
     );
   });
 
@@ -120,26 +119,19 @@ describe('Table Operations', () => {
     // Verify the executeQuery was called with correct parameters
     expect(mockConnection.executeQuery).toHaveBeenCalledWith(
       'ContosoSales',
-      'NonExistentTable123 | getschema',
+      "['NonExistentTable123'] | getschema",
     );
   });
 
-  test('should handle empty table name', async () => {
-    // Arrange: Mock the executeQuery to throw an error for empty table name
-    (mockConnection.executeQuery as jest.Mock).mockRejectedValue(
-      emptyTableNameError,
-    );
-
-    // Act & Assert: Expect the function to throw an error
+  test('should reject empty table name before querying', async () => {
+    // Act & Assert: An empty/invalid name is rejected by validation and never
+    // reaches the Kusto client.
     await expect(showTable(mockConnection, '')).rejects.toThrow(
-      'Query error: Failed to get table schema: Query error: Failed to execute query: Request failed with status code 400',
+      'Invalid table name',
     );
 
-    // Verify the executeQuery was called with correct parameters
-    expect(mockConnection.executeQuery).toHaveBeenCalledWith(
-      'ContosoSales',
-      ' | getschema',
-    );
+    // Verify the executeQuery was never called for an invalid identifier
+    expect(mockConnection.executeQuery).not.toHaveBeenCalled();
   });
 
   test('should validate table schema structure matches expected format', async () => {
@@ -221,8 +213,18 @@ describe('Table Operations', () => {
     // Verify the executeQuery was called with correct parameters
     expect(mockConnection.executeQuery).toHaveBeenCalledWith(
       'ContosoSales',
-      'Table-With-Dashes | getschema',
+      "['Table-With-Dashes'] | getschema",
     );
+  });
+
+  test('should reject KQL-injection attempts in table name', async () => {
+    // A name crafted to break out of the getschema command must be rejected by
+    // validation and never reach the Kusto client.
+    await expect(
+      showTable(mockConnection, 'x | extend p=1); .drop table secrets //'),
+    ).rejects.toThrow('Invalid table name');
+
+    expect(mockConnection.executeQuery).not.toHaveBeenCalled();
   });
 
   // Additional unit test specific validation

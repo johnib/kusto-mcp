@@ -16,7 +16,7 @@ export class PromptManager {
   /**
    * Get list of available prompts with optional pagination
    */
-  listPrompts(cursor?: string): ListPromptsResult {
+  listPrompts(_cursor?: string): ListPromptsResult {
     // For now, we'll return all prompts without pagination
     // In the future, this could be enhanced with actual pagination logic
     const promptList = this.prompts.map(prompt => ({

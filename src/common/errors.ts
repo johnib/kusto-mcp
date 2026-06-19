@@ -93,6 +93,28 @@ export function isKustoMcpError(error: unknown): error is KustoMcpError {
 }
 
 /**
+ * Extract a human-readable message from an error thrown by the Kusto client.
+ * Kusto surfaces the useful detail under `response.data.error['@message']` (or
+ * `.message`); fall back to the plain Error message otherwise.
+ */
+export function extractKustoErrorMessage(error: unknown): string {
+  let errorMessage = error instanceof Error ? error.message : String(error);
+
+  if (error && typeof error === 'object' && 'response' in error) {
+    const response = (error as { response?: unknown }).response as
+      | { data?: { error?: { '@message'?: string; message?: string } } }
+      | undefined;
+    if (response?.data?.error?.['@message']) {
+      errorMessage = response.data.error['@message'];
+    } else if (response?.data?.error?.message) {
+      errorMessage = response.data.error.message;
+    }
+  }
+
+  return errorMessage;
+}
+
+/**
  * Format a Kusto MCP error for display
  */
 export function formatKustoMcpError(error: KustoMcpError): string {

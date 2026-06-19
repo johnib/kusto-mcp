@@ -108,6 +108,23 @@ if (process.env.KUSTO_ENABLE_PROMPTS) {
   criticalLog('MCP prompts enabled by default');
 }
 
+// Determine read-only enforcement from environment variables. Writes are
+// allowed by default; set KUSTO_ALLOW_WRITE_OPERATIONS=false to run read-only.
+let allowWriteOperations = true;
+if (process.env.KUSTO_ALLOW_WRITE_OPERATIONS) {
+  const value = process.env.KUSTO_ALLOW_WRITE_OPERATIONS.toLowerCase();
+  allowWriteOperations = !(
+    value === 'false' ||
+    value === '0' ||
+    value === 'no'
+  );
+}
+criticalLog(
+  allowWriteOperations
+    ? 'Write/management commands enabled (default)'
+    : 'Running in READ-ONLY mode (write/management commands disabled)',
+);
+
 // Create the server configuration from environment variables
 const config: KustoConfig = {
   authMethod: authMethod,
@@ -135,6 +152,7 @@ const config: KustoConfig = {
       : undefined,
   enableQueryStatistics: enableQueryStatistics,
   enablePrompts: enablePrompts,
+  allowWriteOperations: allowWriteOperations,
 };
 
 // Log auto-connection configuration
