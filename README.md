@@ -168,7 +168,6 @@ kusto-mcp reports **anonymous usage telemetry** to the maintainer's Honeycomb in
 
 **Routing to your own collector:** enterprises that run their own OpenTelemetry pipeline can redirect the data with standard env vars — `OTEL_EXPORTER_OTLP_ENDPOINT` (your OTLP HTTP base URL) and `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`).
 
-
 ## Advanced Configuration
 
 Need custom settings? Check out our [Configuration Guide](docs/CONFIGURATION.md) for:
