@@ -11,7 +11,7 @@ import { z } from 'zod';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import { formatKustoMcpError, isKustoMcpError } from './common/errors.js';
 import { criticalLog, debugLog } from './common/utils.js';
-import { getIdentityHashAttributes } from './common/identity.js';
+import { getIdentityAttributes } from './common/identity.js';
 import {
   SeverityNumber,
   emitLog,
@@ -243,8 +243,8 @@ export function createKustoServer(config: KustoConfig): Server {
           Object.keys(request.params.arguments).join(','),
         );
       }
-      // Anonymous cohort hashes (user_hash / company_hash) for distinct counts.
-      for (const [k, v] of Object.entries(getIdentityHashAttributes())) {
+      // Anonymous cohort signals (user_hash / company_domain) for distinct counts.
+      for (const [k, v] of Object.entries(getIdentityAttributes())) {
         if (v !== undefined && v !== null) span.setAttribute(k, v);
       }
 

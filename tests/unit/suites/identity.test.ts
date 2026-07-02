@@ -1,12 +1,12 @@
 /**
- * Anonymous cohort-hash tests: salted one-way hashes of tenant/object-id for
- * distinct company/user counts, user-vs-service-principal distinction, MSA
- * (personal) handling, and the identity opt-out. No raw identifier is ever
- * emitted.
+ * Anonymous cohort tests: raw organization email domain (company_domain) for
+ * distinct company counts, salted one-way hash of the object id (user_hash) for
+ * distinct user counts, user-vs-service-principal distinction, MSA/consumer
+ * (personal) handling, and the identity opt-out.
  */
 
 import {
-  buildIdentityHashes,
+  buildIdentityAttributes,
   captureIdentity,
   clearIdentity,
   decodeJwtClaims,
@@ -24,7 +24,7 @@ function makeJwt(claims: Record<string, unknown>): string {
 const RAW_TID = 'contoso-tenant-guid-1234';
 const RAW_OID = 'alice-object-guid-abcd';
 
-describe('anonymous identity hashes', () => {
+describe('anonymous cohort identity', () => {
   afterEach(() => {
     clearIdentity();
     resetTelemetryModeForTests();
@@ -42,9 +42,9 @@ describe('anonymous identity hashes', () => {
     });
   });
 
-  describe('buildIdentityHashes', () => {
-    test('enterprise user -> company hash from email domain', () => {
-      const a = buildIdentityHashes({
+  describe('buildIdentityAttributes', () => {
+    test('enterprise user -> raw company_domain + hashed user, principal_type=user', () => {
+      const a = buildIdentityAttributes({
         tid: RAW_TID,
         oid: RAW_OID,
         upn: 'alice@contoso.com',
@@ -52,82 +52,88 @@ describe('anonymous identity hashes', () => {
       });
       expect(a['kustomcp.principal_type']).toBe('user');
       expect(a['kustomcp.account_type']).toBe('enterprise');
-      expect(a['kustomcp.user_hash']).toMatch(/^[0-9a-f]{8}$/);
-      expect(a['kustomcp.company_hash']).toMatch(/^[0-9a-f]{8}$/);
+      expect(a['kustomcp.company_domain']).toBe('contoso.com'); // raw
+      expect(a['kustomcp.user_hash']).toMatch(/^[0-9a-f]{8}$/); // hashed
     });
 
-    test('company hash is derived from the domain (same domain -> same hash)', () => {
-      const a = buildIdentityHashes({ oid: 'u1', upn: 'alice@contoso.com' });
-      const b = buildIdentityHashes({ oid: 'u2', upn: 'bob@contoso.com' });
-      const c = buildIdentityHashes({ oid: 'u3', upn: 'carol@fabrikam.com' });
-      expect(a['kustomcp.company_hash']).toBe(b['kustomcp.company_hash']); // same company
-      expect(a['kustomcp.user_hash']).not.toBe(b['kustomcp.user_hash']); // different users
-      expect(a['kustomcp.company_hash']).not.toBe(c['kustomcp.company_hash']); // different company
+    test('company_domain is the raw domain; distinct users share it', () => {
+      const a = buildIdentityAttributes({
+        oid: 'u1',
+        upn: 'alice@contoso.com',
+      });
+      const b = buildIdentityAttributes({ oid: 'u2', upn: 'bob@Contoso.COM' });
+      expect(a['kustomcp.company_domain']).toBe('contoso.com');
+      expect(b['kustomcp.company_domain']).toBe('contoso.com'); // case-normalized
+      expect(a['kustomcp.user_hash']).not.toBe(b['kustomcp.user_hash']);
     });
 
-    test('consumer email domain -> personal, no company hash (even in an org tenant)', () => {
-      const a = buildIdentityHashes({
+    test('consumer email domain -> personal, no company_domain (even in an org tenant)', () => {
+      const a = buildIdentityAttributes({
         tid: RAW_TID, // an enterprise tenant...
         oid: RAW_OID,
         upn: 'bob@gmail.com', // ...but a personal email
         idtyp: 'user',
       });
       expect(a['kustomcp.account_type']).toBe('personal');
-      expect(a['kustomcp.company_hash']).toBeUndefined();
+      expect(a['kustomcp.company_domain']).toBeUndefined();
       expect(a['kustomcp.user_hash']).toBeDefined();
     });
 
-    test('service principal (no domain) -> company hash falls back to tenant id', () => {
-      const a = buildIdentityHashes({
+    test('service principal (no email) -> no company_domain, marked service_principal', () => {
+      const a = buildIdentityAttributes({
         tid: RAW_TID,
         oid: 'sp-oid',
         idtyp: 'app',
       });
       expect(a['kustomcp.principal_type']).toBe('service_principal');
-      expect(a['kustomcp.account_type']).toBe('enterprise');
-      expect(a['kustomcp.company_hash']).toMatch(/^[0-9a-f]{8}$/);
+      expect(a['kustomcp.company_domain']).toBeUndefined();
+      expect(a['kustomcp.user_hash']).toMatch(/^[0-9a-f]{8}$/);
     });
 
-    test('personal (MSA) tenant -> no company hash, account_type=personal', () => {
-      const a = buildIdentityHashes({
+    test('personal (MSA) tenant -> no company_domain, account_type=personal', () => {
+      const a = buildIdentityAttributes({
         tid: MSA_TENANT,
         oid: RAW_OID,
         idtyp: 'user',
       });
       expect(a['kustomcp.account_type']).toBe('personal');
-      expect(a['kustomcp.principal_type']).toBe('user');
+      expect(a['kustomcp.company_domain']).toBeUndefined();
       expect(a['kustomcp.user_hash']).toBeDefined();
-      expect(a['kustomcp.company_hash']).toBeUndefined();
     });
 
-    test('hashes never equal the raw value', () => {
-      const a = buildIdentityHashes({ oid: RAW_OID, upn: 'alice@contoso.com' });
-      for (const v of Object.values(a)) {
-        expect(v).not.toBe(RAW_OID);
-        expect(v).not.toBe('contoso.com');
-      }
+    test('user_hash is one-way (never the raw object id)', () => {
+      const a = buildIdentityAttributes({
+        oid: RAW_OID,
+        upn: 'alice@contoso.com',
+      });
+      expect(a['kustomcp.user_hash']).not.toBe(RAW_OID);
     });
 
     test('distinct users produce distinct hashes', () => {
-      const a = buildIdentityHashes({ oid: 'user-1' });
-      const b = buildIdentityHashes({ oid: 'user-2' });
+      const a = buildIdentityAttributes({ oid: 'user-1' });
+      const b = buildIdentityAttributes({ oid: 'user-2' });
       expect(a['kustomcp.user_hash']).not.toBe(b['kustomcp.user_hash']);
     });
   });
 
   describe('captureIdentity gating', () => {
     const getToken = async () => ({
-      token: makeJwt({ tid: RAW_TID, oid: RAW_OID, idtyp: 'user' }),
+      token: makeJwt({
+        tid: RAW_TID,
+        oid: RAW_OID,
+        upn: 'alice@contoso.com',
+        idtyp: 'user',
+      }),
     });
 
-    test('captures hashes when identity is enabled (default)', async () => {
+    test('captures attributes when identity is enabled (default)', async () => {
       resetTelemetryModeForTests();
       const a = await captureIdentity(
         'https://help.kusto.windows.net',
         getToken,
       );
       expect(a['kustomcp.user_hash']).toBeDefined();
-      expect(a['kustomcp.company_hash']).toBeDefined();
+      expect(a['kustomcp.company_domain']).toBe('contoso.com');
     });
 
     test('emits nothing when KUSTO_MCP_TELEMETRY_IDENTITY=0', async () => {

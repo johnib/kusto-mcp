@@ -4,28 +4,27 @@ import { getTelemetryMode } from './telemetry.js';
 import { debugLog } from './utils.js';
 
 /**
- * Anonymous cohort counters.
+ * Anonymous cohort signals for counting distinct companies and users.
  *
- * We do NOT send any raw identity. Instead we emit one-way salted hashes so the
- * maintainer can count DISTINCT companies and users without storing raw values:
- *   - company_hash: salted hash of the email/UPN DOMAIN (e.g. contoso.com), or
- *     the tenant id when no domain is present (e.g. service principals)
- *   - user_hash:    salted hash of the object id (an opaque GUID)
+ *   - company_domain: the organization's email domain (e.g. contoso.com), sent
+ *     as-is. A company domain is not sensitive and only the maintainer can read
+ *     the telemetry; a hash of a low-entropy domain would be reversible anyway.
+ *     Consumer/personal domains and logins without an email are never sent.
+ *   - user_hash: salted one-way hash of the object id (a random GUID). Hashing
+ *     here is genuine — an oid is not resolvable to a person.
  *
- * Note: a domain is low-entropy, so company_hash is only weakly one-way — with
- * the public salt it can be reversed via a domain dictionary. See README.
- * The salt is a public namespacing constant (this is open source): it can't be
- * secret and still allow cross-install distinct-counting.
+ * The salt (for user_hash) is a public namespacing constant — it can't be secret
+ * and still allow cross-install distinct-counting.
  */
 
-// Bump the version suffix to rotate all hashes.
+// Bump the version suffix to rotate the user hashes.
 const IDENTITY_SALT = 'kusto-mcp:telemetry:v1';
 // Length of the truncated hex digest. 8 = 32 bits; raise if the install base
 // grows past a few thousand distinct users to avoid count collisions.
 const HASH_LEN = 8;
 // The shared consumer/personal Microsoft-account tenant — not a real company.
 const MSA_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
-// Public email providers — not companies; these accounts get no company_hash.
+// Public email providers — not companies; these accounts get no company_domain.
 const CONSUMER_DOMAINS = new Set([
   'gmail.com',
   'googlemail.com',
@@ -72,12 +71,12 @@ export function decodeJwtClaims(token: string): Record<string, unknown> {
   }
 }
 
-/** Build the anonymous hash attributes from Azure token claims. */
-export function buildIdentityHashes(
+/** Build the anonymous cohort attributes from Azure token claims. */
+export function buildIdentityAttributes(
   claims: Record<string, unknown>,
 ): Attributes {
-  const tid = claims.tid as string | undefined;
   const oid = claims.oid as string | undefined;
+  const tid = claims.tid as string | undefined;
   const idtyp = claims.idtyp as string | undefined;
   const upn =
     (claims.upn as string) ||
@@ -102,19 +101,16 @@ export function buildIdentityHashes(
     'kustomcp.principal_type': principalType,
     'kustomcp.account_type': accountType,
   };
-  // Distinct-principal counter (a human user, or the app's identity for an SP).
+  // Distinct-user counter — genuine one-way hash of the opaque object id.
   if (oid) attrs['kustomcp.user_hash'] = hashId(oid);
-  // Company = the email/UPN domain when present (e.g. contoso.com), else the
-  // tenant id (e.g. service principals with no email). Never for personal accounts.
-  if (!isPersonal) {
-    const companySource = domain ?? tid;
-    if (companySource) attrs['kustomcp.company_hash'] = hashId(companySource);
-  }
+  // Company = the raw organization email domain (e.g. contoso.com). Never for
+  // personal accounts or logins without an email (e.g. service principals).
+  if (!isPersonal && domain) attrs['kustomcp.company_domain'] = domain;
   return attrs;
 }
 
-/** Anonymous identity attributes for the current connection. */
-export function getIdentityHashAttributes(): Attributes {
+/** Anonymous cohort attributes for the current connection. */
+export function getIdentityAttributes(): Attributes {
   return identityAttrs;
 }
 
@@ -139,8 +135,10 @@ export async function captureIdentity(
     const origin = new URL(clusterUrl).origin;
     const tokenResponse = await getToken(`${origin}/.default`);
     if (tokenResponse?.token) {
-      identityAttrs = buildIdentityHashes(decodeJwtClaims(tokenResponse.token));
-      debugLog('Telemetry identity hashes captured');
+      identityAttrs = buildIdentityAttributes(
+        decodeJwtClaims(tokenResponse.token),
+      );
+      debugLog('Telemetry identity captured');
     }
   } catch (error) {
     debugLog(
