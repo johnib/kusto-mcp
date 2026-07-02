@@ -6,14 +6,16 @@ import { debugLog } from './utils.js';
 /**
  * Anonymous cohort counters.
  *
- * We do NOT send any raw identity. Instead we emit one-way salted hashes of the
- * two opaque Azure GUIDs — the tenant id (company) and the object id (user) —
- * so the maintainer can count DISTINCT companies and users without being able to
- * identify them. UPN/email are never used (too low-entropy to hash safely).
+ * We do NOT send any raw identity. Instead we emit one-way salted hashes so the
+ * maintainer can count DISTINCT companies and users without storing raw values:
+ *   - company_hash: salted hash of the email/UPN DOMAIN (e.g. contoso.com), or
+ *     the tenant id when no domain is present (e.g. service principals)
+ *   - user_hash:    salted hash of the object id (an opaque GUID)
  *
+ * Note: a domain is low-entropy, so company_hash is only weakly one-way — with
+ * the public salt it can be reversed via a domain dictionary. See README.
  * The salt is a public namespacing constant (this is open source): it can't be
- * secret and still allow cross-install distinct-counting. Hashing an opaque GUID
- * with it is one-way and not bulk-reversible; see README > Telemetry.
+ * secret and still allow cross-install distinct-counting.
  */
 
 // Bump the version suffix to rotate all hashes.
@@ -23,6 +25,30 @@ const IDENTITY_SALT = 'kusto-mcp:telemetry:v1';
 const HASH_LEN = 8;
 // The shared consumer/personal Microsoft-account tenant — not a real company.
 const MSA_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
+// Public email providers — not companies; these accounts get no company_hash.
+const CONSUMER_DOMAINS = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'outlook.com',
+  'hotmail.com',
+  'hotmail.co.uk',
+  'live.com',
+  'msn.com',
+  'yahoo.com',
+  'ymail.com',
+  'icloud.com',
+  'me.com',
+  'mac.com',
+  'aol.com',
+  'proton.me',
+  'protonmail.com',
+  'gmx.com',
+  'mail.com',
+  'zoho.com',
+  'yandex.com',
+  'qq.com',
+  '163.com',
+]);
 
 let identityAttrs: Attributes = {};
 
@@ -53,11 +79,24 @@ export function buildIdentityHashes(
   const tid = claims.tid as string | undefined;
   const oid = claims.oid as string | undefined;
   const idtyp = claims.idtyp as string | undefined;
+  const upn =
+    (claims.upn as string) ||
+    (claims.unique_name as string) ||
+    (claims.preferred_username as string) ||
+    (claims.email as string) ||
+    undefined;
+  const domain =
+    typeof upn === 'string' && upn.includes('@')
+      ? upn.split('@').pop()?.toLowerCase()
+      : undefined;
 
   // Distinguish a human user principal from an app / service principal.
   const principalType = idtyp === 'app' ? 'service_principal' : 'user';
-  // Distinguish a consumer (personal MSA) account from an organization tenant.
-  const accountType = tid === MSA_TENANT ? 'personal' : 'enterprise';
+  // Personal = the shared MSA tenant or a public email provider (not a company).
+  const isPersonal =
+    tid === MSA_TENANT ||
+    (domain !== undefined && CONSUMER_DOMAINS.has(domain));
+  const accountType = isPersonal ? 'personal' : 'enterprise';
 
   const attrs: Attributes = {
     'kustomcp.principal_type': principalType,
@@ -65,10 +104,11 @@ export function buildIdentityHashes(
   };
   // Distinct-principal counter (a human user, or the app's identity for an SP).
   if (oid) attrs['kustomcp.user_hash'] = hashId(oid);
-  // Only count real organizations — every consumer account shares the MSA
-  // tenant, so hashing it would collapse them into one fake "company".
-  if (tid && accountType !== 'personal') {
-    attrs['kustomcp.company_hash'] = hashId(tid);
+  // Company = the email/UPN domain when present (e.g. contoso.com), else the
+  // tenant id (e.g. service principals with no email). Never for personal accounts.
+  if (!isPersonal) {
+    const companySource = domain ?? tid;
+    if (companySource) attrs['kustomcp.company_hash'] = hashId(companySource);
   }
   return attrs;
 }
@@ -83,9 +123,10 @@ export function clearIdentity(): void {
 }
 
 /**
- * Acquire a token, decode only tid/oid/idtyp, and store the salted hashes. Never
- * throws — telemetry must not break a connection. No-op when telemetry or the
- * identity counters are disabled (KUSTO_MCP_TELEMETRY_IDENTITY=0).
+ * Acquire a token, decode its identity claims (tenant, object id, email domain,
+ * principal type), and store the salted hashes. Never throws — telemetry must not
+ * break a connection. No-op when telemetry or the identity counters are disabled
+ * (KUSTO_MCP_TELEMETRY_IDENTITY=0).
  */
 export async function captureIdentity(
   clusterUrl: string,

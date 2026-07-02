@@ -43,10 +43,11 @@ describe('anonymous identity hashes', () => {
   });
 
   describe('buildIdentityHashes', () => {
-    test('enterprise user -> user + company hashes, principal_type=user', () => {
+    test('enterprise user -> company hash from email domain', () => {
       const a = buildIdentityHashes({
         tid: RAW_TID,
         oid: RAW_OID,
+        upn: 'alice@contoso.com',
         idtyp: 'user',
       });
       expect(a['kustomcp.principal_type']).toBe('user');
@@ -55,7 +56,28 @@ describe('anonymous identity hashes', () => {
       expect(a['kustomcp.company_hash']).toMatch(/^[0-9a-f]{8}$/);
     });
 
-    test('service principal is distinguished by principal_type', () => {
+    test('company hash is derived from the domain (same domain -> same hash)', () => {
+      const a = buildIdentityHashes({ oid: 'u1', upn: 'alice@contoso.com' });
+      const b = buildIdentityHashes({ oid: 'u2', upn: 'bob@contoso.com' });
+      const c = buildIdentityHashes({ oid: 'u3', upn: 'carol@fabrikam.com' });
+      expect(a['kustomcp.company_hash']).toBe(b['kustomcp.company_hash']); // same company
+      expect(a['kustomcp.user_hash']).not.toBe(b['kustomcp.user_hash']); // different users
+      expect(a['kustomcp.company_hash']).not.toBe(c['kustomcp.company_hash']); // different company
+    });
+
+    test('consumer email domain -> personal, no company hash (even in an org tenant)', () => {
+      const a = buildIdentityHashes({
+        tid: RAW_TID, // an enterprise tenant...
+        oid: RAW_OID,
+        upn: 'bob@gmail.com', // ...but a personal email
+        idtyp: 'user',
+      });
+      expect(a['kustomcp.account_type']).toBe('personal');
+      expect(a['kustomcp.company_hash']).toBeUndefined();
+      expect(a['kustomcp.user_hash']).toBeDefined();
+    });
+
+    test('service principal (no domain) -> company hash falls back to tenant id', () => {
       const a = buildIdentityHashes({
         tid: RAW_TID,
         oid: 'sp-oid',
@@ -63,11 +85,10 @@ describe('anonymous identity hashes', () => {
       });
       expect(a['kustomcp.principal_type']).toBe('service_principal');
       expect(a['kustomcp.account_type']).toBe('enterprise');
-      expect(a['kustomcp.user_hash']).toMatch(/^[0-9a-f]{8}$/);
       expect(a['kustomcp.company_hash']).toMatch(/^[0-9a-f]{8}$/);
     });
 
-    test('personal (MSA) account -> no company hash, account_type=personal', () => {
+    test('personal (MSA) tenant -> no company hash, account_type=personal', () => {
       const a = buildIdentityHashes({
         tid: MSA_TENANT,
         oid: RAW_OID,
@@ -79,19 +100,15 @@ describe('anonymous identity hashes', () => {
       expect(a['kustomcp.company_hash']).toBeUndefined();
     });
 
-    test('hashes are deterministic and never equal the raw value', () => {
-      const a = buildIdentityHashes({ tid: RAW_TID, oid: RAW_OID });
-      const b = buildIdentityHashes({ tid: RAW_TID, oid: RAW_OID });
-      expect(a['kustomcp.user_hash']).toBe(b['kustomcp.user_hash']);
-      expect(a['kustomcp.company_hash']).toBe(b['kustomcp.company_hash']);
-      // The raw identifiers must never appear.
+    test('hashes never equal the raw value', () => {
+      const a = buildIdentityHashes({ oid: RAW_OID, upn: 'alice@contoso.com' });
       for (const v of Object.values(a)) {
-        expect(v).not.toBe(RAW_TID);
         expect(v).not.toBe(RAW_OID);
+        expect(v).not.toBe('contoso.com');
       }
     });
 
-    test('distinct inputs produce distinct hashes', () => {
+    test('distinct users produce distinct hashes', () => {
       const a = buildIdentityHashes({ oid: 'user-1' });
       const b = buildIdentityHashes({ oid: 'user-2' });
       expect(a['kustomcp.user_hash']).not.toBe(b['kustomcp.user_hash']);
