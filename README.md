@@ -153,6 +153,31 @@ This MCP server provides your AI assistant with tools to:
 
 Results are automatically formatted and sized appropriately for AI context windows, so your assistant gets the data it needs without being overwhelmed.
 
+## Telemetry & Privacy
+
+kusto-mcp sends **pseudonymous usage telemetry** to the maintainer's Honeycomb instance by default, to understand which organizations use the tool and to diagnose failures.
+
+**What is collected** (traces, metrics, and operational logs via OpenTelemetry):
+
+- **Usage:** which tools are called, latency, error types, result row counts, response sizes, and your config/feature-flag settings.
+- **Identity derived from your Azure login** (from the token kusto-mcp already mints to reach Kusto): Azure **tenant ID**, **email domain**, account type, and the **cluster host/name** (organization signals), plus — **by default** — your **object ID** and **UPN** (per-user identifiers).
+- **Environment:** kusto-mcp version, OS/architecture, Node.js version, MCP client name, and a random per-install identifier.
+
+**What is NEVER collected:** your query text, query results, credentials, or access tokens.
+
+**Controls:**
+
+| Environment variable | Values | Default | Effect |
+| --- | --- | --- | --- |
+| `KUSTO_MCP_TELEMETRY` | `0` / `off` to disable | on | `0` disables **all** telemetry (zero network egress). |
+| `KUSTO_MCP_TELEMETRY_IDENTITY` | `off` \| `company` \| `full` | `full` | `full`: per-user (object id + UPN) **and** organization identity. `company`: organization identity only (no per-user). `off`: neither — region + version + tool metrics only. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | URL | Honeycomb | Send to your own OpenTelemetry collector instead. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `key=value,key2=value2` | — | Custom OTLP headers (e.g. your own Honeycomb ingest key). |
+
+Quick opt-outs: disable everything with `KUSTO_MCP_TELEMETRY=0`, or keep anonymous usage metrics only with `KUSTO_MCP_TELEMETRY_IDENTITY=off`.
+
+> **Enterprise note:** by default this sends your Azure tenant, email domain, cluster/database names, and user identifiers to the maintainer. If your organization restricts telemetry egress, set `KUSTO_MCP_TELEMETRY=0` or `KUSTO_MCP_TELEMETRY_IDENTITY=off`.
+
 ## Advanced Configuration
 
 Need custom settings? Check out our [Configuration Guide](docs/CONFIGURATION.md) for:

@@ -8,8 +8,24 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { SpanStatusCode, trace } from '@opentelemetry/api';
 import { formatKustoMcpError, isKustoMcpError } from './common/errors.js';
 import { criticalLog, debugLog } from './common/utils.js';
+import {
+  getIdentityAttributes,
+  getMetricIdentityLabels,
+} from './common/identity.js';
+import {
+  SeverityNumber,
+  emitLog,
+  recordSpanError,
+  responseBytesHistogram,
+  queryRowsHistogram,
+  toolCallsCounter,
+  toolDurationHistogram,
+  toolErrorsCounter,
+  toolNotInitializedCounter,
+} from './common/telemetry.js';
 import { appendRowLimit, assertQueryAllowed } from './common/kql-safety.js';
 import { VERSION } from './common/version.js';
 import {
@@ -57,6 +73,8 @@ const ShowFunctionSchema = z.object({
  * @param config The Kusto configuration
  * @returns A configured MCP server instance
  */
+const serverTracer = trace.getTracer('kusto-mcp-server');
+
 export function createKustoServer(config: KustoConfig): Server {
   // Validate the configuration
   const validatedConfig = validateConfig(config);
@@ -105,6 +123,7 @@ export function createKustoServer(config: KustoConfig): Server {
       const result = await autoConnection.initialize(
         validatedConfig.clusterUrl,
         validatedConfig.defaultDatabase,
+        'auto',
       );
 
       // If successful, store the connection
@@ -208,234 +227,321 @@ export function createKustoServer(config: KustoConfig): Server {
 
   // Register the CallTool request handler
   server.setRequestHandler(CallToolRequestSchema, async request => {
-    try {
-      if (!request.params.arguments) {
-        throw new McpError(ErrorCode.InvalidParams, 'Arguments are required');
+    const toolName = request.params.name;
+    return serverTracer.startActiveSpan(`mcp.tool/${toolName}`, async span => {
+      const startedAt = Date.now();
+      let status = 'ok';
+
+      span.setAttribute('kustomcp.tool.name', toolName);
+      // MCP client (host app) identity — a first-order "who uses this" signal.
+      const clientInfo = server.getClientVersion();
+      if (clientInfo?.name)
+        span.setAttribute('mcp.client.name', clientInfo.name);
+      if (clientInfo?.version)
+        span.setAttribute('mcp.client.version', clientInfo.version);
+      // Argument KEYS only — never values (may contain sensitive data).
+      if (request.params.arguments) {
+        span.setAttribute(
+          'kustomcp.tool.arg_keys',
+          Object.keys(request.params.arguments).join(','),
+        );
+      }
+      // Connection identity (company/user), gated by the identity tier.
+      for (const [k, v] of Object.entries(getIdentityAttributes())) {
+        if (v !== undefined && v !== null) span.setAttribute(k, v);
       }
 
-      switch (request.params.name) {
-        case 'initialize-connection': {
-          const args = InitializeConnectionSchema.parse(
-            request.params.arguments,
-          );
-
-          // Create a new connection each time initialize-connection is called
-          // This will override any existing connection
-          connection = new KustoConnection(validatedConfig);
-
-          // Initialize the connection
-          const result = await connection.initialize(
-            args.cluster_url,
-            args.database,
-          );
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          };
-        }
-
-        case 'show-tables': {
-          ShowTablesSchema.parse(request.params.arguments);
-
-          // Check if the connection is initialized
-          if (!connection) {
-            throw new McpError(
-              ErrorCode.InvalidRequest,
-              'Connection not initialized. Please call initialize-connection first.',
-            );
-          }
-
-          const result = await showTables(connection);
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          };
-        }
-
-        case 'show-table': {
-          const args = ShowTableSchema.parse(request.params.arguments);
-
-          // Check if the connection is initialized
-          if (!connection) {
-            throw new McpError(
-              ErrorCode.InvalidRequest,
-              'Connection not initialized. Please call initialize-connection first.',
-            );
-          }
-
-          const result = await showTable(connection, args.tableName);
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          };
-        }
-
-        case 'show-functions': {
-          ShowFunctionsSchema.parse(request.params.arguments);
-          // Check if the connection is initialized
-          if (!connection) {
-            throw new McpError(
-              ErrorCode.InvalidRequest,
-              'Connection not initialized. Please call initialize-connection first.',
-            );
-          }
-
-          const result = await showFunctions(connection);
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          };
-        }
-
-        case 'execute-query': {
-          const args = ExecuteQuerySchema.parse(request.params.arguments);
-
-          // Check if the connection is initialized
-          if (!connection) {
-            throw new McpError(
-              ErrorCode.InvalidRequest,
-              'Connection not initialized. Please call initialize-connection first.',
-            );
-          }
-
-          // Enforce read-only mode unless writes are explicitly enabled.
-          assertQueryAllowed(
-            args.query,
-            validatedConfig.allowWriteOperations ?? false,
-          );
-
-          // Get user-requested limit and global response limit
-          const requestedLimit = args.limit || 20;
-          const globalCharLimit = validatedConfig.maxResponseLength || 12000;
-          const minRows = validatedConfig.minRowsInResponse || 1;
-
-          // Fetch one extra row (N+1) so we can detect whether more data is
-          // available than the requested limit. The `take` is appended on a new
-          // line so it doesn't merge into a trailing line comment, and is
-          // skipped for control commands (".show ..."), which don't accept a
-          // piped `| take`. Per Kusto semantics, when the query is sorted the
-          // top rows are returned, so ordering is preserved.
-          const initialLimit = requestedLimit;
-          const modifiedQuery = appendRowLimit(args.query, initialLimit + 1);
-
-          // Import the transformation function here to avoid auto-formatter issues
-          const { transformQueryResult } =
-            await import('./operations/kusto/index.js');
-          const { limitResponseSize } =
-            await import('./common/response-limiter.js');
-
-          // Execute the query and get raw results
-          const rawResult = await executeQuery(connection, modifiedQuery);
-
-          // Transform using the proper architecture
-          const transformedResult = transformQueryResult(
-            rawResult,
-            validatedConfig,
-          );
-
-          // Detect if results are partial using N+1 approach
-          const hasMoreDataAvailable =
-            transformedResult.data.length > initialLimit;
-          const availableData = hasMoreDataAvailable
-            ? transformedResult.data.slice(0, initialLimit)
-            : transformedResult.data;
-
-          // Create base response structure with all available data
-          const baseResponse = {
-            name: transformedResult.name,
-            data: availableData,
-            metadata: {
-              rowCount: 0, // Will be updated by response limiter
-              isPartial:
-                hasMoreDataAvailable || availableData.length > requestedLimit,
-              requestedLimit,
-              hasMoreResults:
-                hasMoreDataAvailable || availableData.length > requestedLimit,
-              // Include query statistics in metadata only if enabled and present
-              ...(transformedResult.queryStatistics && {
-                queryStatistics: transformedResult.queryStatistics,
-              }),
-            },
-            message: undefined, // Will be set by response limiter if needed
-          };
-
-          // Determine response format from config
-          const responseFormat = validatedConfig.responseFormat || 'json';
-
-          // Apply global response size limiting with dynamic row reduction
-          const limitResult = limitResponseSize(baseResponse, {
-            maxLength: globalCharLimit,
-            minRows: minRows,
-            format: responseFormat,
-            formatOptions: {
-              maxColumnWidth: validatedConfig.markdownMaxCellLength,
-              showMetadata: true,
-            },
-          });
-
-          debugLog(`Using ${responseFormat} response format`);
-          debugLog(
-            `Global response limiting: ${
-              limitResult.wasReduced ? 'Applied' : 'Not needed'
-            }`,
-          );
-          debugLog(
-            `Optimal row count: ${limitResult.optimalRowCount} / ${limitResult.originalRowCount}`,
-          );
-          debugLog(
-            `Final response size: ${limitResult.finalCharCount} / ${globalCharLimit} chars`,
-          );
-
-          return {
-            content: [
-              {
-                type: 'text',
-                text: limitResult.content,
-              },
-            ],
-          };
-        }
-
-        case 'show-function': {
-          const args = ShowFunctionSchema.parse(request.params.arguments);
-
-          // Check if the connection is initialized
-          if (!connection) {
-            throw new McpError(
-              ErrorCode.InvalidRequest,
-              'Connection not initialized. Please call initialize-connection first.',
-            );
-          }
-
-          const result = await showFunction(connection, args.functionName);
-          return {
-            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-          };
-        }
-
-        default:
+      // Require an initialized connection; records the not_initialized metric.
+      const requireConnection = (): KustoConnection => {
+        if (!connection) {
+          toolNotInitializedCounter.add(1, { tool: toolName });
           throw new McpError(
-            ErrorCode.MethodNotFound,
-            `Unknown tool: ${request.params.name}`,
+            ErrorCode.InvalidRequest,
+            'Connection not initialized. Please call initialize-connection first.',
           );
-      }
-    } catch (error) {
-      criticalLog(`Error handling tool call: ${error}`);
-
-      // Format the error message
-      let errorMessage: string;
-
-      if (error instanceof McpError) {
-        errorMessage = `MCP Error: ${error.message}`;
-      } else if (isKustoMcpError(error)) {
-        errorMessage = formatKustoMcpError(error);
-      } else {
-        errorMessage = `Error: ${
-          error instanceof Error ? error.message : String(error)
-        }`;
-      }
-
-      return {
-        content: [{ type: 'text', text: errorMessage }],
-        isError: true,
+        }
+        return connection;
       };
-    }
+
+      try {
+        const result = await (async () => {
+          if (!request.params.arguments) {
+            throw new McpError(
+              ErrorCode.InvalidParams,
+              'Arguments are required',
+            );
+          }
+
+          switch (request.params.name) {
+            case 'initialize-connection': {
+              const args = InitializeConnectionSchema.parse(
+                request.params.arguments,
+              );
+
+              // Create a new connection each time initialize-connection is
+              // called; this overrides any existing connection.
+              connection = new KustoConnection(validatedConfig);
+
+              const result = await connection.initialize(
+                args.cluster_url,
+                args.database,
+                'manual',
+              );
+              return {
+                content: [
+                  { type: 'text', text: JSON.stringify(result, null, 2) },
+                ],
+              };
+            }
+
+            case 'show-tables': {
+              ShowTablesSchema.parse(request.params.arguments);
+              const result = await showTables(requireConnection());
+              return {
+                content: [
+                  { type: 'text', text: JSON.stringify(result, null, 2) },
+                ],
+              };
+            }
+
+            case 'show-table': {
+              const args = ShowTableSchema.parse(request.params.arguments);
+              const result = await showTable(
+                requireConnection(),
+                args.tableName,
+              );
+              return {
+                content: [
+                  { type: 'text', text: JSON.stringify(result, null, 2) },
+                ],
+              };
+            }
+
+            case 'show-functions': {
+              ShowFunctionsSchema.parse(request.params.arguments);
+              const result = await showFunctions(requireConnection());
+              return {
+                content: [
+                  { type: 'text', text: JSON.stringify(result, null, 2) },
+                ],
+              };
+            }
+
+            case 'execute-query': {
+              const args = ExecuteQuerySchema.parse(request.params.arguments);
+              const conn = requireConnection();
+
+              // Enforce read-only mode unless writes are explicitly enabled.
+              try {
+                assertQueryAllowed(
+                  args.query,
+                  validatedConfig.allowWriteOperations ?? false,
+                );
+              } catch (error) {
+                span.addEvent('read_only_violation');
+                emitLog(SeverityNumber.WARN, 'WARN', 'Read-only violation', {
+                  'kustomcp.tool.name': 'execute-query',
+                  'kustomcp.write_allowed': false,
+                });
+                throw error;
+              }
+
+              // Get user-requested limit and global response limit
+              const requestedLimit = args.limit || 20;
+              const globalCharLimit =
+                validatedConfig.maxResponseLength || 12000;
+              const minRows = validatedConfig.minRowsInResponse || 1;
+
+              // Fetch one extra row (N+1) so we can detect whether more data is
+              // available than the requested limit. The `take` is appended on a
+              // new line so it doesn't merge into a trailing line comment, and is
+              // skipped for control commands (".show ..."), which don't accept a
+              // piped `| take`. Per Kusto semantics, when the query is sorted the
+              // top rows are returned, so ordering is preserved.
+              const initialLimit = requestedLimit;
+              const modifiedQuery = appendRowLimit(
+                args.query,
+                initialLimit + 1,
+              );
+
+              // Import the transformation function here to avoid auto-formatter issues
+              const { transformQueryResult } =
+                await import('./operations/kusto/index.js');
+              const { limitResponseSize } =
+                await import('./common/response-limiter.js');
+
+              // Execute the query and get raw results
+              const rawResult = await executeQuery(conn, modifiedQuery);
+
+              // Transform using the proper architecture
+              const transformedResult = transformQueryResult(
+                rawResult,
+                validatedConfig,
+              );
+
+              // Detect if results are partial using N+1 approach
+              const hasMoreDataAvailable =
+                transformedResult.data.length > initialLimit;
+              const availableData = hasMoreDataAvailable
+                ? transformedResult.data.slice(0, initialLimit)
+                : transformedResult.data;
+
+              const isPartial =
+                hasMoreDataAvailable || availableData.length > requestedLimit;
+
+              // Result-shape telemetry (no row values, only counts/flags).
+              span.setAttribute(
+                'kustomcp.query.requested_limit',
+                requestedLimit,
+              );
+              span.setAttribute(
+                'kustomcp.result.row_count',
+                availableData.length,
+              );
+              span.setAttribute('kustomcp.result.is_partial', isPartial);
+              span.setAttribute(
+                'kustomcp.response.format',
+                validatedConfig.responseFormat || 'json',
+              );
+              span.setAttribute(
+                'kustomcp.write_allowed',
+                validatedConfig.allowWriteOperations ?? false,
+              );
+              queryRowsHistogram.record(availableData.length);
+
+              // Create base response structure with all available data
+              const baseResponse = {
+                name: transformedResult.name,
+                data: availableData,
+                metadata: {
+                  rowCount: 0, // Will be updated by response limiter
+                  isPartial,
+                  requestedLimit,
+                  hasMoreResults: isPartial,
+                  // Include query statistics in metadata only if enabled and present
+                  ...(transformedResult.queryStatistics && {
+                    queryStatistics: transformedResult.queryStatistics,
+                  }),
+                },
+                message: undefined, // Will be set by response limiter if needed
+              };
+
+              // Determine response format from config
+              const responseFormat = validatedConfig.responseFormat || 'json';
+
+              // Apply global response size limiting with dynamic row reduction
+              const limitResult = limitResponseSize(baseResponse, {
+                maxLength: globalCharLimit,
+                minRows: minRows,
+                format: responseFormat,
+                formatOptions: {
+                  maxColumnWidth: validatedConfig.markdownMaxCellLength,
+                  showMetadata: true,
+                },
+              });
+
+              span.setAttribute(
+                'kustomcp.response.was_reduced',
+                limitResult.wasReduced,
+              );
+              debugLog(`Using ${responseFormat} response format`);
+              debugLog(
+                `Global response limiting: ${
+                  limitResult.wasReduced ? 'Applied' : 'Not needed'
+                }`,
+              );
+              debugLog(
+                `Optimal row count: ${limitResult.optimalRowCount} / ${limitResult.originalRowCount}`,
+              );
+              debugLog(
+                `Final response size: ${limitResult.finalCharCount} / ${globalCharLimit} chars`,
+              );
+
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: limitResult.content,
+                  },
+                ],
+              };
+            }
+
+            case 'show-function': {
+              const args = ShowFunctionSchema.parse(request.params.arguments);
+              const result = await showFunction(
+                requireConnection(),
+                args.functionName,
+              );
+              return {
+                content: [
+                  { type: 'text', text: JSON.stringify(result, null, 2) },
+                ],
+              };
+            }
+
+            default:
+              throw new McpError(
+                ErrorCode.MethodNotFound,
+                `Unknown tool: ${request.params.name}`,
+              );
+          }
+        })();
+
+        span.setStatus({ code: SpanStatusCode.OK });
+        // Response size (bytes of the serialized content).
+        try {
+          const bytes = Buffer.byteLength(
+            JSON.stringify(result.content ?? ''),
+            'utf8',
+          );
+          span.setAttribute('kustomcp.response.bytes', bytes);
+          responseBytesHistogram.record(bytes, {
+            tool: toolName,
+            format: validatedConfig.responseFormat || 'json',
+          });
+        } catch {
+          /* ignore sizing errors */
+        }
+        return result;
+      } catch (error) {
+        status = 'error';
+        recordSpanError(span, error);
+        toolErrorsCounter.add(1, {
+          tool: toolName,
+          error_type: error instanceof Error ? error.name : 'unknown',
+        });
+
+        // Format the error message
+        let errorMessage: string;
+        if (error instanceof McpError) {
+          errorMessage = `MCP Error: ${error.message}`;
+        } else if (isKustoMcpError(error)) {
+          errorMessage = formatKustoMcpError(error);
+        } else {
+          errorMessage = `Error: ${
+            error instanceof Error ? error.message : String(error)
+          }`;
+        }
+        criticalLog(`Error handling tool call: ${errorMessage}`);
+
+        return {
+          content: [{ type: 'text', text: errorMessage }],
+          isError: true,
+        };
+      } finally {
+        toolCallsCounter.add(1, {
+          tool: toolName,
+          status,
+          ...getMetricIdentityLabels(),
+        });
+        toolDurationHistogram.record(Date.now() - startedAt, {
+          tool: toolName,
+          status,
+        });
+        span.end();
+      }
+    });
   });
 
   // Trigger auto-connection asynchronously (fire-and-forget)
