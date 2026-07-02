@@ -243,7 +243,7 @@ export function createKustoServer(config: KustoConfig): Server {
           Object.keys(request.params.arguments).join(','),
         );
       }
-      // Anonymous cohort signals (user_hash / company_domain) for distinct counts.
+      // Anonymous cohort hashes (user_hash / company_hash) for distinct counts.
       for (const [k, v] of Object.entries(getIdentityAttributes())) {
         if (v !== undefined && v !== null) span.setAttribute(k, v);
       }

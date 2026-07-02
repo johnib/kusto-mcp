@@ -1,8 +1,7 @@
 /**
- * Anonymous cohort tests: raw organization email domain (company_domain) for
- * distinct company counts, salted one-way hash of the object id (user_hash) for
- * distinct user counts, user-vs-service-principal distinction, MSA/consumer
- * (personal) handling, and the identity opt-out.
+ * Anonymous cohort tests: salted one-way hashes of the tenant id (company_hash)
+ * and object id (user_hash) for distinct company/user counts, user-vs-service-
+ * principal distinction, MSA (personal) handling, and no-raw-value guarantees.
  */
 
 import {
@@ -28,7 +27,7 @@ describe('anonymous cohort identity', () => {
   afterEach(() => {
     clearIdentity();
     resetTelemetryModeForTests();
-    delete process.env.KUSTO_MCP_TELEMETRY_IDENTITY;
+    delete process.env.KUSTO_MCP_TELEMETRY;
   });
 
   describe('decodeJwtClaims', () => {
@@ -43,69 +42,51 @@ describe('anonymous cohort identity', () => {
   });
 
   describe('buildIdentityAttributes', () => {
-    test('enterprise user -> raw company_domain + hashed user, principal_type=user', () => {
+    test('enterprise user -> hashed company + user, principal_type=user', () => {
       const a = buildIdentityAttributes({
         tid: RAW_TID,
         oid: RAW_OID,
-        upn: 'alice@contoso.com',
         idtyp: 'user',
       });
       expect(a['kustomcp.principal_type']).toBe('user');
       expect(a['kustomcp.account_type']).toBe('enterprise');
-      expect(a['kustomcp.company_domain']).toBe('contoso.com'); // raw
-      expect(a['kustomcp.user_hash']).toMatch(/^[0-9a-f]{8}$/); // hashed
+      expect(a['kustomcp.company_hash']).toMatch(/^[0-9a-f]{8}$/);
+      expect(a['kustomcp.user_hash']).toMatch(/^[0-9a-f]{8}$/);
     });
 
-    test('company_domain is the raw domain; distinct users share it', () => {
-      const a = buildIdentityAttributes({
-        oid: 'u1',
-        upn: 'alice@contoso.com',
-      });
-      const b = buildIdentityAttributes({ oid: 'u2', upn: 'bob@Contoso.COM' });
-      expect(a['kustomcp.company_domain']).toBe('contoso.com');
-      expect(b['kustomcp.company_domain']).toBe('contoso.com'); // case-normalized
-      expect(a['kustomcp.user_hash']).not.toBe(b['kustomcp.user_hash']);
+    test('company_hash is derived from the tenant id (same tenant -> same hash)', () => {
+      const a = buildIdentityAttributes({ tid: RAW_TID, oid: 'u1' });
+      const b = buildIdentityAttributes({ tid: RAW_TID, oid: 'u2' });
+      const c = buildIdentityAttributes({ tid: 'fabrikam-tenant', oid: 'u3' });
+      expect(a['kustomcp.company_hash']).toBe(b['kustomcp.company_hash']); // same company
+      expect(a['kustomcp.user_hash']).not.toBe(b['kustomcp.user_hash']); // different users
+      expect(a['kustomcp.company_hash']).not.toBe(c['kustomcp.company_hash']); // different company
     });
 
-    test('consumer email domain -> personal, no company_domain (even in an org tenant)', () => {
-      const a = buildIdentityAttributes({
-        tid: RAW_TID, // an enterprise tenant...
-        oid: RAW_OID,
-        upn: 'bob@gmail.com', // ...but a personal email
-        idtyp: 'user',
-      });
-      expect(a['kustomcp.account_type']).toBe('personal');
-      expect(a['kustomcp.company_domain']).toBeUndefined();
-      expect(a['kustomcp.user_hash']).toBeDefined();
-    });
-
-    test('service principal (no email) -> no company_domain, marked service_principal', () => {
+    test('service principal is distinguished and still gets a company_hash', () => {
       const a = buildIdentityAttributes({
         tid: RAW_TID,
         oid: 'sp-oid',
         idtyp: 'app',
       });
       expect(a['kustomcp.principal_type']).toBe('service_principal');
-      expect(a['kustomcp.company_domain']).toBeUndefined();
-      expect(a['kustomcp.user_hash']).toMatch(/^[0-9a-f]{8}$/);
+      expect(a['kustomcp.company_hash']).toMatch(/^[0-9a-f]{8}$/);
     });
 
-    test('personal (MSA) tenant -> no company_domain, account_type=personal', () => {
+    test('personal (MSA) tenant -> no company_hash, account_type=personal', () => {
       const a = buildIdentityAttributes({
         tid: MSA_TENANT,
         oid: RAW_OID,
         idtyp: 'user',
       });
       expect(a['kustomcp.account_type']).toBe('personal');
-      expect(a['kustomcp.company_domain']).toBeUndefined();
+      expect(a['kustomcp.company_hash']).toBeUndefined();
       expect(a['kustomcp.user_hash']).toBeDefined();
     });
 
-    test('user_hash is one-way (never the raw object id)', () => {
-      const a = buildIdentityAttributes({
-        oid: RAW_OID,
-        upn: 'alice@contoso.com',
-      });
+    test('hashes never equal the raw values', () => {
+      const a = buildIdentityAttributes({ tid: RAW_TID, oid: RAW_OID });
+      expect(a['kustomcp.company_hash']).not.toBe(RAW_TID);
       expect(a['kustomcp.user_hash']).not.toBe(RAW_OID);
     });
 
@@ -116,28 +97,23 @@ describe('anonymous cohort identity', () => {
     });
   });
 
-  describe('captureIdentity gating', () => {
+  describe('captureIdentity', () => {
     const getToken = async () => ({
-      token: makeJwt({
-        tid: RAW_TID,
-        oid: RAW_OID,
-        upn: 'alice@contoso.com',
-        idtyp: 'user',
-      }),
+      token: makeJwt({ tid: RAW_TID, oid: RAW_OID, idtyp: 'user' }),
     });
 
-    test('captures attributes when identity is enabled (default)', async () => {
+    test('captures cohort hashes when telemetry is enabled (default)', async () => {
       resetTelemetryModeForTests();
       const a = await captureIdentity(
         'https://help.kusto.windows.net',
         getToken,
       );
       expect(a['kustomcp.user_hash']).toBeDefined();
-      expect(a['kustomcp.company_domain']).toBe('contoso.com');
+      expect(a['kustomcp.company_hash']).toBeDefined();
     });
 
-    test('emits nothing when KUSTO_MCP_TELEMETRY_IDENTITY=0', async () => {
-      process.env.KUSTO_MCP_TELEMETRY_IDENTITY = '0';
+    test('emits nothing when telemetry is disabled (KUSTO_MCP_TELEMETRY=0)', async () => {
+      process.env.KUSTO_MCP_TELEMETRY = '0';
       resetTelemetryModeForTests();
       const a = await captureIdentity(
         'https://help.kusto.windows.net',

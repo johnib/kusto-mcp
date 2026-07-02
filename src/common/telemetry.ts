@@ -21,11 +21,6 @@ export { SeverityNumber } from '@opentelemetry/api-logs';
 export interface TelemetryMode {
   /** Master switch. When false, the SDK is never started -> zero egress. */
   enabled: boolean;
-  /**
-   * When false, the anonymous user/company hash counters are not attached.
-   * (KUSTO_MCP_TELEMETRY_IDENTITY=0). Everything else still flows.
-   */
-  identityEnabled: boolean;
 }
 
 let _mode: TelemetryMode | undefined;
@@ -37,17 +32,12 @@ function isOff(value: string | undefined): boolean {
 
 /**
  * Resolve telemetry consent from the environment (memoized). Telemetry is on by
- * default and anonymous — no raw personal or organization data is ever collected
- * (only salted one-way hashes for distinct counts; see README > Telemetry).
- * Disable everything with KUSTO_MCP_TELEMETRY=0, or just the identity counters
- * with KUSTO_MCP_TELEMETRY_IDENTITY=0.
+ * default; identity is anonymous (salted one-way hashes only — see identity.ts /
+ * README). Disable all telemetry with KUSTO_MCP_TELEMETRY=0.
  */
 export function getTelemetryMode(): TelemetryMode {
   if (_mode) return _mode;
-  _mode = {
-    enabled: !isOff(process.env.KUSTO_MCP_TELEMETRY),
-    identityEnabled: !isOff(process.env.KUSTO_MCP_TELEMETRY_IDENTITY),
-  };
+  _mode = { enabled: !isOff(process.env.KUSTO_MCP_TELEMETRY) };
   return _mode;
 }
 

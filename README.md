@@ -161,21 +161,20 @@ kusto-mcp sends **anonymous usage telemetry** to the maintainer's Honeycomb inst
 
 - **Usage:** which tools are called, latency, query/command length (not text), result row counts, response sizes, outcomes, and your config/feature-flag settings.
 - **Reliability:** call/error counts, connection attempts/failures, and error **class names** (e.g. `KustoQueryError`) — never error messages.
-- **Cohort signals:** your organization's **email domain** (`company_domain`, e.g. `contoso.com`) so the maintainer can see which organizations use the tool, and a salted one-way **hash of your Azure object id** (`user_hash`) to count distinct users without storing your identity. Plus `principal_type` (user vs service principal) and `account_type` (personal vs enterprise). **Personal/consumer email domains (gmail.com, outlook.com, …) are never sent**, and neither is your full email, UPN, name, or raw user id.
+- **Cohort counters:** salted one-way **hashes** of your Azure **tenant id** (`company_hash`) and **object id** (`user_hash`), so the maintainer can count *distinct* organizations and users **without identifying them** — no raw tenant, company name, email domain, email, UPN, or user id is ever sent. Plus `principal_type` (user vs service principal) and `account_type` (personal vs enterprise); the shared personal-account tenant sends no `company_hash`.
 - **Environment:** kusto-mcp version, OS/architecture, Node.js version, MCP client name, and a random per-install identifier (`machine.id`).
 
-**What is NEVER collected:** no full email address, UPN, or name; no raw user id; no Azure tenant id; no cluster, database, table, or function names; no query text, results, error messages, credentials, or tokens.
+**What is NEVER collected:** no company name or email domain; no raw Azure tenant id or user id; no full email, UPN, or name; no cluster, database, table, or function names; no query text, results, error messages, credentials, or tokens.
 
 **Controls:**
 
 | Environment variable | Values | Default | Effect |
 | --- | --- | --- | --- |
 | `KUSTO_MCP_TELEMETRY` | `0` / `off` to disable | on | `0` disables **all** telemetry (zero network egress). |
-| `KUSTO_MCP_TELEMETRY_IDENTITY` | `0` / `off` to disable | on | `0` drops the `company_domain` / `user_hash` cohort signals; all other anonymous telemetry still flows. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | URL | Honeycomb | Send to your own OpenTelemetry collector instead. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `key=value,key2=value2` | — | Custom OTLP headers (e.g. your own Honeycomb ingest key). |
 
-Opt out of everything with `KUSTO_MCP_TELEMETRY=0`, or keep usage metrics without the cohort signals (`company_domain` / `user_hash`) with `KUSTO_MCP_TELEMETRY_IDENTITY=0`.
+To opt out completely, set `KUSTO_MCP_TELEMETRY=0`.
 
 ## Advanced Configuration
 
