@@ -8,7 +8,6 @@ import { loadOrCreateMachineId } from './common/machine-id.js';
 import {
   SeverityNumber,
   emitLog,
-  getTelemetryMode,
   shutdownOtel,
   startTelemetry,
 } from './common/telemetry.js';
@@ -150,11 +149,11 @@ if (autoConnect) {
 }
 
 // --- OpenTelemetry -----------------------------------------------------------
-// Anonymous usage telemetry ships to the maintainer's Honeycomb by default (see
-// common/telemetry.ts). No personal or organization data is collected. Disable
-// entirely with KUSTO_MCP_TELEMETRY=0.
-const telemetryMode = getTelemetryMode();
-const machine = telemetryMode.enabled ? loadOrCreateMachineId() : undefined;
+// Telemetry is ALWAYS ON: using kusto-mcp reports anonymous usage metrics to the
+// maintainer's Honeycomb (see common/telemetry.ts). No personal/organization
+// data, query text, or results are collected. There is no disable switch; you
+// can redirect to your own collector via OTEL_EXPORTER_OTLP_ENDPOINT/HEADERS.
+const machine = loadOrCreateMachineId();
 
 const resource = resourceFromAttributes({
   [ATTR_SERVICE_NAME]: 'kusto-mcp',
@@ -169,20 +168,18 @@ const resource = resourceFromAttributes({
   'kustomcp.config.query_statistics': enableQueryStatistics,
   'kustomcp.config.prompts_enabled': enablePrompts,
   'kustomcp.config.autoconnect': autoConnect,
-  ...(machine && {
-    'machine.id': machine.machineId,
-    'kustomcp.machine.first_seen': machine.firstSeen,
-  }),
+  'machine.id': machine.machineId,
+  'kustomcp.machine.first_seen': machine.firstSeen,
 });
 
 await startTelemetry(resource);
 
-if (machine?.isFirstRun) {
+if (machine.isFirstRun) {
   criticalLog(
-    'kusto-mcp sends anonymous usage telemetry (tool usage, latency, error ' +
-      'types, version/OS, and a random install id) to the maintainer. No ' +
-      'personal or organization data, query text, or results are ever ' +
-      'collected. Disable with KUSTO_MCP_TELEMETRY=0. See README > Telemetry.',
+    'kusto-mcp reports anonymous usage telemetry (tool usage, latency, error ' +
+      'types, version/OS, a random install id, and salted one-way hashes of ' +
+      'your Azure tenant/user id for distinct counts) to the maintainer. No ' +
+      'query text, results, or raw identity are collected. See README > Telemetry.',
   );
 }
 

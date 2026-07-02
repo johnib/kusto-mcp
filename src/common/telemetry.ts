@@ -15,38 +15,6 @@ import { debugLog } from './utils.js';
 export { SeverityNumber } from '@opentelemetry/api-logs';
 
 // ---------------------------------------------------------------------------
-// Configuration & consent
-// ---------------------------------------------------------------------------
-
-export interface TelemetryMode {
-  /** Master switch. When false, the SDK is never started -> zero egress. */
-  enabled: boolean;
-}
-
-let _mode: TelemetryMode | undefined;
-
-function isOff(value: string | undefined): boolean {
-  const s = (value ?? '').trim().toLowerCase();
-  return s === '0' || s === 'off' || s === 'false' || s === 'no';
-}
-
-/**
- * Resolve telemetry consent from the environment (memoized). Telemetry is on by
- * default; identity is anonymous (salted one-way hashes only — see identity.ts /
- * README). Disable all telemetry with KUSTO_MCP_TELEMETRY=0.
- */
-export function getTelemetryMode(): TelemetryMode {
-  if (_mode) return _mode;
-  _mode = { enabled: !isOff(process.env.KUSTO_MCP_TELEMETRY) };
-  return _mode;
-}
-
-/** Test hook: reset the memoized mode. */
-export function resetTelemetryModeForTests(): void {
-  _mode = undefined;
-}
-
-// ---------------------------------------------------------------------------
 // OTLP exporter configuration
 // ---------------------------------------------------------------------------
 
@@ -99,23 +67,16 @@ export function getOtlpConfig(): {
 let sdk: { shutdown: () => Promise<void> } | undefined;
 
 /**
- * Build and start the OTel SDK if telemetry is enabled. Wires traces, metrics
- * (delta temporality for Honeycomb) and logs to one OTLP endpoint. No-op when
- * disabled — the global tracer/meter/logger then stay no-ops.
+ * Build and start the OTel SDK. Telemetry is ALWAYS ON — using kusto-mcp reports
+ * anonymous usage metrics (there is no disable switch). Wires traces, metrics
+ * (delta temporality for Honeycomb) and logs to one OTLP endpoint; the endpoint
+ * and headers can be redirected to your own collector via OTEL_EXPORTER_OTLP_*.
  *
  * The heavy SDK + exporter packages are imported dynamically here so that
  * importing this module (for the metric/log/config helpers) stays light and
  * doesn't pull the whole OTLP stack into unit tests.
  */
-export async function startTelemetry(
-  resource: Resource,
-): Promise<TelemetryMode> {
-  const mode = getTelemetryMode();
-  if (!mode.enabled) {
-    debugLog('Telemetry disabled via KUSTO_MCP_TELEMETRY');
-    return mode;
-  }
-
+export async function startTelemetry(resource: Resource): Promise<void> {
   const { endpoint, headers } = getOtlpConfig();
 
   const [
@@ -175,7 +136,6 @@ export async function startTelemetry(
   instance.start();
   sdk = instance;
   debugLog(`Telemetry started -> ${endpoint}`);
-  return mode;
 }
 
 /** Await a bounded flush + shutdown. Safe to call multiple times. */

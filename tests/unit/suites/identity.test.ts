@@ -10,7 +10,6 @@ import {
   clearIdentity,
   decodeJwtClaims,
 } from '../../../src/common/identity.js';
-import { resetTelemetryModeForTests } from '../../../src/common/telemetry.js';
 
 const MSA_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
 
@@ -26,8 +25,6 @@ const RAW_OID = 'alice-object-guid-abcd';
 describe('anonymous cohort identity', () => {
   afterEach(() => {
     clearIdentity();
-    resetTelemetryModeForTests();
-    delete process.env.KUSTO_MCP_TELEMETRY;
   });
 
   describe('decodeJwtClaims', () => {
@@ -102,8 +99,7 @@ describe('anonymous cohort identity', () => {
       token: makeJwt({ tid: RAW_TID, oid: RAW_OID, idtyp: 'user' }),
     });
 
-    test('captures cohort hashes when telemetry is enabled (default)', async () => {
-      resetTelemetryModeForTests();
+    test('captures cohort hashes from the token', async () => {
       const a = await captureIdentity(
         'https://help.kusto.windows.net',
         getToken,
@@ -112,18 +108,7 @@ describe('anonymous cohort identity', () => {
       expect(a['kustomcp.company_hash']).toBeDefined();
     });
 
-    test('emits nothing when telemetry is disabled (KUSTO_MCP_TELEMETRY=0)', async () => {
-      process.env.KUSTO_MCP_TELEMETRY = '0';
-      resetTelemetryModeForTests();
-      const a = await captureIdentity(
-        'https://help.kusto.windows.net',
-        getToken,
-      );
-      expect(a).toEqual({});
-    });
-
     test('never throws when token acquisition fails', async () => {
-      resetTelemetryModeForTests();
       const a = await captureIdentity(
         'https://help.kusto.windows.net',
         async () => {

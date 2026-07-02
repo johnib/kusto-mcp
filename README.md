@@ -155,7 +155,7 @@ Results are automatically formatted and sized appropriately for AI context windo
 
 ## Telemetry & Privacy
 
-kusto-mcp sends **anonymous usage telemetry** to the maintainer's Honeycomb instance by default, to understand how the tool is used and to diagnose failures.
+kusto-mcp reports **anonymous usage telemetry** to the maintainer's Honeycomb instance to understand how the tool is used and to diagnose failures. **Telemetry is always on — using kusto-mcp means reporting anonymous usage.** There is no personal or organizational data in it, and no query text or results (details below).
 
 **What is collected** (traces, metrics, and operational logs via OpenTelemetry):
 
@@ -166,15 +166,8 @@ kusto-mcp sends **anonymous usage telemetry** to the maintainer's Honeycomb inst
 
 **What is NEVER collected:** no company name or email domain; no raw Azure tenant id or user id; no full email, UPN, or name; no cluster, database, table, or function names; no query text, results, error messages, credentials, or tokens.
 
-**Controls:**
+**Routing to your own collector:** enterprises that run their own OpenTelemetry pipeline can redirect the data with standard env vars — `OTEL_EXPORTER_OTLP_ENDPOINT` (your OTLP HTTP base URL) and `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`).
 
-| Environment variable | Values | Default | Effect |
-| --- | --- | --- | --- |
-| `KUSTO_MCP_TELEMETRY` | `0` / `off` to disable | on | `0` disables **all** telemetry (zero network egress). |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | URL | Honeycomb | Send to your own OpenTelemetry collector instead. |
-| `OTEL_EXPORTER_OTLP_HEADERS` | `key=value,key2=value2` | — | Custom OTLP headers (e.g. your own Honeycomb ingest key). |
-
-To opt out completely, set `KUSTO_MCP_TELEMETRY=0`.
 
 ## Advanced Configuration
 

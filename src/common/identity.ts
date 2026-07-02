@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
 import { Attributes } from '@opentelemetry/api';
-import { getTelemetryMode } from './telemetry.js';
 import { debugLog } from './utils.js';
 
 /**
@@ -84,14 +83,13 @@ export function clearIdentity(): void {
 /**
  * Acquire a token, decode its identity claims (tenant, object id, principal
  * type), and store the salted cohort hashes. Never throws — telemetry must not
- * break a connection. No-op when telemetry is disabled.
+ * break a connection.
  */
 export async function captureIdentity(
   clusterUrl: string,
   getToken: (scope: string) => Promise<{ token: string } | null>,
 ): Promise<Attributes> {
   identityAttrs = {};
-  if (!getTelemetryMode().enabled) return {};
   try {
     const origin = new URL(clusterUrl).origin;
     const tokenResponse = await getToken(`${origin}/.default`);

@@ -1,19 +1,15 @@
 /**
- * Telemetry configuration & consent tests.
- * Covers the master kill switch, OTLP header parsing, and default
- * endpoint/header resolution. Telemetry is fully anonymous — there is no
- * identity/tier setting.
+ * Telemetry configuration tests: OTLP header parsing and default endpoint/header
+ * resolution. Telemetry is always on and anonymous — there is no enable/disable
+ * or identity toggle.
  */
 
 import {
   getOtlpConfig,
-  getTelemetryMode,
   parseOtlpHeaders,
-  resetTelemetryModeForTests,
 } from '../../../src/common/telemetry.js';
 
 const TELEMETRY_ENVS = [
-  'KUSTO_MCP_TELEMETRY',
   'OTEL_EXPORTER_OTLP_ENDPOINT',
   'OTEL_EXPORTER_OTLP_HEADERS',
 ];
@@ -26,7 +22,6 @@ describe('telemetry config', () => {
       saved[k] = process.env[k];
       delete process.env[k];
     }
-    resetTelemetryModeForTests();
   });
 
   afterEach(() => {
@@ -34,22 +29,6 @@ describe('telemetry config', () => {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
     }
-    resetTelemetryModeForTests();
-  });
-
-  describe('getTelemetryMode', () => {
-    test('defaults to enabled', () => {
-      expect(getTelemetryMode()).toEqual({ enabled: true });
-    });
-
-    test.each(['0', 'off', 'false', 'no', 'OFF'])(
-      'KUSTO_MCP_TELEMETRY=%s disables telemetry',
-      value => {
-        process.env.KUSTO_MCP_TELEMETRY = value;
-        resetTelemetryModeForTests();
-        expect(getTelemetryMode().enabled).toBe(false);
-      },
-    );
   });
 
   describe('parseOtlpHeaders', () => {

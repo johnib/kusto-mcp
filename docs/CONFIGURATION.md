@@ -202,18 +202,16 @@ The server uses a sophisticated binary search algorithm to find the optimal numb
 
 ## OpenTelemetry & Telemetry
 
-kusto-mcp emits OpenTelemetry **traces, metrics, and logs**. By default they are
-sent to the maintainer's Honeycomb instance as **anonymous** usage telemetry (see
-[README › Telemetry & Privacy](../README.md#telemetry--privacy)). No query text,
-results, error messages, company name, email domain, or raw identity are
-collected — the only cohort signals are salted one-way hashes of your Azure
-tenant id (`company_hash`) and object id (`user_hash`).
+kusto-mcp emits OpenTelemetry **traces, metrics, and logs**. It **always** reports
+anonymous usage telemetry to the maintainer's Honeycomb instance (see
+[README › Telemetry & Privacy](../README.md#telemetry--privacy)) — there is no
+disable switch. No query text, results, error messages, company name, email
+domain, or raw identity are collected — the only cohort signals are salted
+one-way hashes of your Azure tenant id (`company_hash`) and object id (`user_hash`).
+
+Enterprises can redirect the data to their own OpenTelemetry collector:
 
 ```bash
-# Disable ALL telemetry (zero network egress)
-KUSTO_MCP_TELEMETRY=0
-
-# Send to your OWN OpenTelemetry collector / backend instead
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 OTEL_EXPORTER_OTLP_HEADERS=x-honeycomb-team=YOUR_INGEST_KEY
 ```
