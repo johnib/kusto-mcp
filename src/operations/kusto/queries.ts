@@ -4,6 +4,7 @@ import {
   KustoQueryError,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
+import { recordSpanError } from '../../common/telemetry.js';
 import { KustoQueryResult } from '../../types/kusto-interfaces.js';
 import { KustoConfig } from '../../types/config.js';
 import { KustoConnection } from './connection.js';
@@ -227,7 +228,6 @@ export async function executeQuery(
       }
 
       const database = connection.getDatabase();
-      span.setAttribute('database', database);
 
       // Execute the query
       const result = await connection.executeQuery(database, query);
@@ -241,10 +241,7 @@ export async function executeQuery(
 
       criticalLog(`Failed to execute query: ${errorMessage}`);
 
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: errorMessage,
-      });
+      recordSpanError(span, error);
 
       throw new KustoQueryError(errorMessage);
     } finally {
@@ -358,10 +355,7 @@ export async function executeQueryWithTransformation(
 
         criticalLog(`Failed to execute and transform query: ${errorMessage}`);
 
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: errorMessage,
-        });
+        recordSpanError(span, error);
 
         // Don't double-wrap if it's already a KustoQueryError from executeQuery
         if (error instanceof KustoQueryError) {
@@ -398,7 +392,6 @@ export async function executeManagementCommand(
       }
 
       const database = connection.getDatabase();
-      span.setAttribute('database', database);
 
       // Execute the command
       const result = await connection.executeQuery(database, command);
@@ -412,10 +405,7 @@ export async function executeManagementCommand(
 
       criticalLog(`Failed to execute management command: ${errorMessage}`);
 
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: errorMessage,
-      });
+      recordSpanError(span, error);
 
       throw new KustoQueryError(errorMessage);
     } finally {

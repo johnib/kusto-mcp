@@ -9,10 +9,6 @@ import {
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
-  captureIdentity,
-  getMetricIdentityLabels,
-} from '../../common/identity.js';
-import {
   SeverityNumber,
   connectionAttemptsCounter,
   connectionFailuresCounter,
@@ -77,16 +73,6 @@ export class KustoConnection {
           `Initializing connection to ${clusterUrl}, database: ${database}`,
         );
 
-        // Capture identity BEFORE the validation query so users who authenticate
-        // but fail to connect (wrong cluster/db, RBAC denied) are still attributed.
-        // Best-effort; never throws.
-        const identity = await captureIdentity(clusterUrl, database, scope =>
-          this.tokenCredential.getToken(scope),
-        );
-        for (const [k, v] of Object.entries(identity)) {
-          if (v !== undefined && v !== null) span.setAttribute(k, v);
-        }
-
         // Create a connection string with the configured authentication method
         let connectionString;
 
@@ -119,7 +105,6 @@ export class KustoConnection {
         span.setStatus({ code: SpanStatusCode.OK });
         emitLog(SeverityNumber.INFO, 'INFO', 'Connection established', {
           'kustomcp.connection.source': source,
-          ...getMetricIdentityLabels(),
         });
 
         return {
@@ -135,11 +120,10 @@ export class KustoConnection {
         connectionFailuresCounter.add(1, {
           error_type: error instanceof Error ? error.name : 'unknown',
         });
-        recordSpanError(span, error, errorMessage);
+        recordSpanError(span, error);
         emitLog(SeverityNumber.ERROR, 'ERROR', 'Connection failed', {
           'kustomcp.error.type':
             error instanceof Error ? error.name : 'unknown',
-          ...getMetricIdentityLabels(),
         });
 
         throw new KustoConnectionError(errorMessage);
@@ -165,7 +149,6 @@ export class KustoConnection {
           ? 'command'
           : 'query';
         const startedAt = Date.now();
-        span.setAttribute('kusto.database', database);
         span.setAttribute('kustomcp.operation', operation);
         // Never record raw query text on exported spans; record only its length.
         span.setAttribute('kustomcp.query.length', query.length);
@@ -213,7 +196,6 @@ export class KustoConnection {
           queriesCounter.add(1, {
             operation,
             outcome: 'success',
-            ...getMetricIdentityLabels(),
           });
           queryDurationHistogram.record(Date.now() - startedAt, {
             operation,
@@ -228,11 +210,10 @@ export class KustoConnection {
           criticalLog(`Failed to execute query: ${errorMessage}`);
 
           span.setAttribute('kustomcp.outcome', outcome);
-          recordSpanError(span, error, errorMessage);
+          recordSpanError(span, error);
           queriesCounter.add(1, {
             operation,
             outcome,
-            ...getMetricIdentityLabels(),
           });
           queryDurationHistogram.record(Date.now() - startedAt, {
             operation,

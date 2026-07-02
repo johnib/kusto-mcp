@@ -1,7 +1,8 @@
 /**
  * Telemetry configuration & consent tests.
- * Covers the master kill switch, the identity tier tri-state, OTLP header
- * parsing, and default endpoint/header resolution.
+ * Covers the master kill switch, OTLP header parsing, and default
+ * endpoint/header resolution. Telemetry is fully anonymous — there is no
+ * identity/tier setting.
  */
 
 import {
@@ -13,7 +14,6 @@ import {
 
 const TELEMETRY_ENVS = [
   'KUSTO_MCP_TELEMETRY',
-  'KUSTO_MCP_TELEMETRY_IDENTITY',
   'OTEL_EXPORTER_OTLP_ENDPOINT',
   'OTEL_EXPORTER_OTLP_HEADERS',
 ];
@@ -38,8 +38,8 @@ describe('telemetry config', () => {
   });
 
   describe('getTelemetryMode', () => {
-    test('defaults to enabled with full identity', () => {
-      expect(getTelemetryMode()).toEqual({ enabled: true, identity: 'full' });
+    test('defaults to enabled', () => {
+      expect(getTelemetryMode()).toEqual({ enabled: true });
     });
 
     test.each(['0', 'off', 'false', 'no', 'OFF'])(
@@ -51,16 +51,8 @@ describe('telemetry config', () => {
       },
     );
 
-    test.each([
-      ['off', 'off'],
-      ['company', 'company'],
-      ['full', 'full'],
-      ['COMPANY', 'company'],
-      ['garbage', 'full'], // unrecognized -> full (opt-out posture)
-    ])('identity=%s resolves to %s', (input, expected) => {
-      process.env.KUSTO_MCP_TELEMETRY_IDENTITY = input;
-      resetTelemetryModeForTests();
-      expect(getTelemetryMode().identity).toBe(expected);
+    test('has no identity/tier field (fully anonymous)', () => {
+      expect(getTelemetryMode()).not.toHaveProperty('identity');
     });
   });
 

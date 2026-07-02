@@ -18,18 +18,9 @@ export { SeverityNumber } from '@opentelemetry/api-logs';
 // Configuration & consent
 // ---------------------------------------------------------------------------
 
-export type IdentityTier = 'off' | 'company' | 'full';
-
 export interface TelemetryMode {
   /** Master switch. When false, the SDK is never started -> zero egress. */
   enabled: boolean;
-  /**
-   * How much identity to attach:
-   * - off:     region + service/os only (no enduser.*, no cluster host/name/db)
-   * - company: + tenant, email domain, account type, cluster host/name, database
-   * - full:    + per-user object id (oid) and UPN  (DEFAULT)
-   */
-  identity: IdentityTier;
 }
 
 let _mode: TelemetryMode | undefined;
@@ -40,20 +31,13 @@ function isOff(value: string | undefined): boolean {
 }
 
 /**
- * Resolve telemetry consent from the environment (memoized).
- * Master switch defaults ON; identity tier defaults to `full` (per-user by
- * default, opt-out) — the maintainer's chosen posture. Downgrade with
- * KUSTO_MCP_TELEMETRY_IDENTITY=company|off, disable all with KUSTO_MCP_TELEMETRY=0.
+ * Resolve telemetry consent from the environment (memoized). Telemetry is on by
+ * default and is fully anonymous — no personal or organization data is ever
+ * collected (see README > Telemetry). Disable entirely with KUSTO_MCP_TELEMETRY=0.
  */
 export function getTelemetryMode(): TelemetryMode {
   if (_mode) return _mode;
-  const enabled = !isOff(process.env.KUSTO_MCP_TELEMETRY);
-  const raw = (process.env.KUSTO_MCP_TELEMETRY_IDENTITY ?? 'full')
-    .trim()
-    .toLowerCase();
-  const identity: IdentityTier =
-    raw === 'off' ? 'off' : raw === 'company' ? 'company' : 'full';
-  _mode = { enabled, identity };
+  _mode = { enabled: !isOff(process.env.KUSTO_MCP_TELEMETRY) };
   return _mode;
 }
 
@@ -156,8 +140,8 @@ export async function startTelemetry(
     resource,
     // Ship ONLY our explicit resource attributes. NodeSDK's default detectors
     // (host/process) would otherwise add host.id (a stable hardware UUID),
-    // host.name, and process.owner (OS username) unconditionally — extra PII
-    // that would bypass the identity tier.
+    // host.name, and process.owner (OS username) — identifying data we never
+    // want to send.
     autoDetectResources: false,
     // Only spanProcessors (NOT traceExporter) — passing both makes sdk-node
     // silently drop the standalone traceExporter.
@@ -190,9 +174,7 @@ export async function startTelemetry(
 
   instance.start();
   sdk = instance;
-  debugLog(
-    `Telemetry started -> ${endpoint} (identity tier: ${mode.identity})`,
-  );
+  debugLog(`Telemetry started -> ${endpoint}`);
   return mode;
 }
 
@@ -244,18 +226,16 @@ export function emitLog(
 // Span helpers
 // ---------------------------------------------------------------------------
 
-/** setStatus(ERROR) + recordException in one call. */
-export function recordSpanError(
-  span: Span,
-  error: unknown,
-  message?: string,
-): void {
-  const err = error instanceof Error ? error : new Error(String(error));
-  span.recordException(err);
-  span.setStatus({
-    code: SpanStatusCode.ERROR,
-    message: message ?? err.message,
-  });
+/**
+ * Mark a span as failed WITHOUT leaking any message. Kusto error messages can
+ * echo identifiers or query fragments, so we record only the error class name
+ * (as `kustomcp.error.type`) — never the raw message or a stack that contains it.
+ */
+export function recordSpanError(span: Span, error: unknown): void {
+  const type = error instanceof Error && error.name ? error.name : 'Error';
+  span.setAttribute('kustomcp.error.type', type);
+  span.recordException({ name: type });
+  span.setStatus({ code: SpanStatusCode.ERROR });
 }
 
 // ---------------------------------------------------------------------------

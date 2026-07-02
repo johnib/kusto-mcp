@@ -203,19 +203,14 @@ The server uses a sophisticated binary search algorithm to find the optimal numb
 ## OpenTelemetry & Telemetry
 
 kusto-mcp emits OpenTelemetry **traces, metrics, and logs**. By default they are
-sent to the maintainer's Honeycomb instance as pseudonymous usage telemetry (see
-[README › Telemetry & Privacy](../README.md#telemetry--privacy)). Query text and
-results are never collected.
+sent to the maintainer's Honeycomb instance as **anonymous** usage telemetry (see
+[README › Telemetry & Privacy](../README.md#telemetry--privacy)). No personal or
+organization data — no user/tenant/cluster/database identity, and no query text,
+results, or error messages — is ever collected.
 
 ```bash
 # Disable ALL telemetry (zero network egress)
 KUSTO_MCP_TELEMETRY=0
-
-# Control how much identity is attached: off | company | full (default: full)
-#   full    = per-user (object id + UPN) + organization identity
-#   company = organization identity only (tenant, email domain, cluster/db)
-#   off     = no org/user identity (region + version + tool metrics only)
-KUSTO_MCP_TELEMETRY_IDENTITY=company
 
 # Send to your OWN OpenTelemetry collector / backend instead
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318

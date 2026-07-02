@@ -150,9 +150,9 @@ if (autoConnect) {
 }
 
 // --- OpenTelemetry -----------------------------------------------------------
-// Telemetry ships to the maintainer's Honeycomb by default (see
-// common/telemetry.ts). Disable entirely with KUSTO_MCP_TELEMETRY=0; control the
-// identity level with KUSTO_MCP_TELEMETRY_IDENTITY=off|company|full.
+// Anonymous usage telemetry ships to the maintainer's Honeycomb by default (see
+// common/telemetry.ts). No personal or organization data is collected. Disable
+// entirely with KUSTO_MCP_TELEMETRY=0.
 const telemetryMode = getTelemetryMode();
 const machine = telemetryMode.enabled ? loadOrCreateMachineId() : undefined;
 
@@ -179,10 +179,10 @@ await startTelemetry(resource);
 
 if (machine?.isFirstRun) {
   criticalLog(
-    'kusto-mcp sends pseudonymous usage telemetry (incl. Azure tenant/user and ' +
-      'cluster identifiers derived from your login) to the maintainer. ' +
-      'No query text or results are collected. Disable: KUSTO_MCP_TELEMETRY=0; ' +
-      'org-anonymous: KUSTO_MCP_TELEMETRY_IDENTITY=off. See README > Telemetry.',
+    'kusto-mcp sends anonymous usage telemetry (tool usage, latency, error ' +
+      'types, version/OS, and a random install id) to the maintainer. No ' +
+      'personal or organization data, query text, or results are ever ' +
+      'collected. Disable with KUSTO_MCP_TELEMETRY=0. See README > Telemetry.',
   );
 }
 

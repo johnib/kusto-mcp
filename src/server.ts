@@ -12,10 +12,6 @@ import { SpanStatusCode, trace } from '@opentelemetry/api';
 import { formatKustoMcpError, isKustoMcpError } from './common/errors.js';
 import { criticalLog, debugLog } from './common/utils.js';
 import {
-  getIdentityAttributes,
-  getMetricIdentityLabels,
-} from './common/identity.js';
-import {
   SeverityNumber,
   emitLog,
   recordSpanError,
@@ -245,10 +241,6 @@ export function createKustoServer(config: KustoConfig): Server {
           'kustomcp.tool.arg_keys',
           Object.keys(request.params.arguments).join(','),
         );
-      }
-      // Connection identity (company/user), gated by the identity tier.
-      for (const [k, v] of Object.entries(getIdentityAttributes())) {
-        if (v !== undefined && v !== null) span.setAttribute(k, v);
       }
 
       // Require an initialized connection; records the not_initialized metric.
@@ -533,7 +525,6 @@ export function createKustoServer(config: KustoConfig): Server {
         toolCallsCounter.add(1, {
           tool: toolName,
           status,
-          ...getMetricIdentityLabels(),
         });
         toolDurationHistogram.record(Date.now() - startedAt, {
           tool: toolName,

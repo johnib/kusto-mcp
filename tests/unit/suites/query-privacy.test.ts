@@ -1,6 +1,8 @@
 /**
- * Privacy regression test: raw query/command text must NEVER appear on an
- * exported span — only its length. Guards the core telemetry data-handling rule.
+ * Privacy regression tests:
+ *  1. Raw query/command text must NEVER appear on an exported span (only length).
+ *  2. No company/user identity attribute (enduser.*, azure.*, kusto.cluster.*,
+ *     kusto.database) may EVER appear on any span — telemetry is anonymous.
  */
 
 import {
@@ -26,6 +28,10 @@ const config: KustoConfig = {
 
 const SENSITIVE = 'StormEvents | where Secret == "p@ssw0rd-DO-NOT-LEAK"';
 
+// Any attribute key that identifies a company or user is forbidden.
+const FORBIDDEN_KEY =
+  /^(enduser\.|azure\.)|^kusto\.cluster\.|^kusto\.database$/;
+
 describe('query telemetry privacy', () => {
   beforeAll(() => {
     provider.register();
@@ -47,9 +53,7 @@ describe('query telemetry privacy', () => {
     expect(querySpan).toBeDefined();
 
     const attrs = querySpan!.attributes;
-    // Length is recorded...
     expect(attrs['kustomcp.query.length']).toBe(SENSITIVE.length);
-    // ...but the text itself is never present, under any key.
     expect(attrs['query.text']).toBeUndefined();
     expect(attrs['command.text']).toBeUndefined();
     expect(attrs['kustomcp.query.text']).toBeUndefined();
@@ -57,6 +61,23 @@ describe('query telemetry privacy', () => {
       if (typeof value === 'string') {
         expect(value).not.toContain('p@ssw0rd');
         expect(value).not.toContain('Secret');
+      }
+    }
+  });
+
+  test('no company/user identity attribute appears on any span', async () => {
+    const connection = new KustoConnection(config);
+    await connection.initialize(
+      'https://contoso.westeurope.kusto.windows.net',
+      'SalesDb',
+    );
+    await connection.executeQuery('SalesDb', 'StormEvents | count');
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans.length).toBeGreaterThan(0);
+    for (const span of spans) {
+      for (const key of Object.keys(span.attributes)) {
+        expect(key).not.toMatch(FORBIDDEN_KEY);
       }
     }
   });

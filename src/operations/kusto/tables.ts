@@ -36,7 +36,6 @@ export async function showTables(
       }
 
       const database = connection.getDatabase();
-      span.setAttribute('database', database);
 
       debugLog(`Listing tables in database: ${database}`);
 
@@ -89,7 +88,7 @@ export async function showTables(
         error instanceof Error ? error.message : String(error);
       criticalLog(`Failed to list tables: ${errorMessage}`);
 
-      recordSpanError(span, error, errorMessage);
+      recordSpanError(span, error);
 
       throw new KustoQueryError(`Failed to list tables: ${errorMessage}`);
     } finally {
@@ -111,10 +110,7 @@ export async function showTable(
 ): Promise<KustoTableSchema> {
   return tracer.startActiveSpan('showTable', async span => {
     try {
-      span.setAttribute('tableName', tableName);
-
       const database = connection.getDatabase();
-      span.setAttribute('database', database);
 
       debugLog(
         `Getting schema for table: ${tableName} in database: ${database}`,
@@ -191,7 +187,7 @@ export async function showTable(
         error instanceof Error ? error.message : String(error);
       criticalLog(`Failed to get table schema: ${errorMessage}`);
 
-      recordSpanError(span, error, errorMessage);
+      recordSpanError(span, error);
 
       if (error instanceof KustoResourceNotFoundError) {
         throw error;
@@ -220,7 +216,6 @@ export async function showFunctions(
       }
 
       const database = connection.getDatabase();
-      span.setAttribute('database', database);
 
       debugLog(`Listing functions in database: ${database}`);
 
@@ -283,7 +278,7 @@ export async function showFunctions(
         error instanceof Error ? error.message : String(error);
       criticalLog(`Failed to list functions: ${errorMessage}`);
 
-      recordSpanError(span, error, errorMessage);
+      recordSpanError(span, error);
 
       throw new KustoQueryError(`Failed to list functions: ${errorMessage}`);
     } finally {
@@ -305,10 +300,7 @@ export async function showFunction(
 ): Promise<KustoFunctionSchema> {
   return tracer.startActiveSpan('showFunction', async span => {
     try {
-      span.setAttribute('functionName', functionName);
-
       const database = connection.getDatabase();
-      span.setAttribute('database', database);
 
       debugLog(
         `Getting details for function: ${functionName} in database: ${database}`,
@@ -390,7 +382,7 @@ export async function showFunction(
         error instanceof Error ? error.message : String(error);
       criticalLog(`Failed to get function details: ${errorMessage}`);
 
-      recordSpanError(span, error, errorMessage);
+      recordSpanError(span, error);
 
       if (error instanceof KustoResourceNotFoundError) {
         throw error;
