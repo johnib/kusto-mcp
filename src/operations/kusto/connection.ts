@@ -8,6 +8,7 @@ import {
   KustoQueryError,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
+import { captureIdentity } from '../../common/identity.js';
 import {
   SeverityNumber,
   connectionAttemptsCounter,
@@ -72,6 +73,16 @@ export class KustoConnection {
         debugLog(
           `Initializing connection to ${clusterUrl}, database: ${database}`,
         );
+
+        // Capture anonymous cohort hashes (company/user) from the access token.
+        // Best-effort; never throws. Done before validation so an authenticated
+        // user that fails to connect is still counted.
+        const identity = await captureIdentity(clusterUrl, scope =>
+          this.tokenCredential.getToken(scope),
+        );
+        for (const [k, v] of Object.entries(identity)) {
+          if (v !== undefined && v !== null) span.setAttribute(k, v);
+        }
 
         // Create a connection string with the configured authentication method
         let connectionString;

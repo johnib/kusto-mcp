@@ -14,6 +14,7 @@ import {
 
 const TELEMETRY_ENVS = [
   'KUSTO_MCP_TELEMETRY',
+  'KUSTO_MCP_TELEMETRY_IDENTITY',
   'OTEL_EXPORTER_OTLP_ENDPOINT',
   'OTEL_EXPORTER_OTLP_HEADERS',
 ];
@@ -38,8 +39,11 @@ describe('telemetry config', () => {
   });
 
   describe('getTelemetryMode', () => {
-    test('defaults to enabled', () => {
-      expect(getTelemetryMode()).toEqual({ enabled: true });
+    test('defaults to enabled with identity on', () => {
+      expect(getTelemetryMode()).toEqual({
+        enabled: true,
+        identityEnabled: true,
+      });
     });
 
     test.each(['0', 'off', 'false', 'no', 'OFF'])(
@@ -51,9 +55,16 @@ describe('telemetry config', () => {
       },
     );
 
-    test('has no identity/tier field (fully anonymous)', () => {
-      expect(getTelemetryMode()).not.toHaveProperty('identity');
-    });
+    test.each(['0', 'off', 'false', 'no'])(
+      'KUSTO_MCP_TELEMETRY_IDENTITY=%s disables identity hashes only',
+      value => {
+        process.env.KUSTO_MCP_TELEMETRY_IDENTITY = value;
+        resetTelemetryModeForTests();
+        const mode = getTelemetryMode();
+        expect(mode.enabled).toBe(true);
+        expect(mode.identityEnabled).toBe(false);
+      },
+    );
   });
 
   describe('parseOtlpHeaders', () => {
