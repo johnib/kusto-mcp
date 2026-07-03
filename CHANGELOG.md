@@ -1,3 +1,10 @@
+## [1.10.3](https://github.com/johnib/kusto-mcp/compare/v1.10.2...v1.10.3) (2026-07-03)
+
+
+### Bug Fixes
+
+* correct reviewer creds (ANTHROPIC_API_KEY), job-level base_url, pin opus-4-8 ([3cfe0c0](https://github.com/johnib/kusto-mcp/commit/3cfe0c024740c0c347490d0fb5a2b0bd3f45dbc9))
+
 ## [1.10.2](https://github.com/johnib/kusto-mcp/compare/v1.10.1...v1.10.2) (2026-06-19)
 
 
