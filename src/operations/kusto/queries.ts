@@ -219,8 +219,6 @@ export async function executeQuery(
 ): Promise<KustoQueryResult> {
   return tracer.startActiveSpan('executeQuery', async span => {
     try {
-      span.setAttribute('kustomcp.query.length', query.length);
-
       debugLog(`Executing query: ${query}`);
 
       if (!connection.isInitialized()) {
@@ -340,8 +338,6 @@ export async function executeQueryWithTransformation(
     'executeQueryWithTransformation',
     async span => {
       try {
-        span.setAttribute('kustomcp.query.length', query.length);
-
         // Execute the raw query
         const rawResult = await executeQuery(connection, query);
 
@@ -383,8 +379,6 @@ export async function executeManagementCommand(
 ): Promise<any> {
   return tracer.startActiveSpan('executeManagementCommand', async span => {
     try {
-      span.setAttribute('kustomcp.command.length', command.length);
-
       debugLog(`Executing management command: ${command}`);
 
       if (!connection.isInitialized()) {
