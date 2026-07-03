@@ -19,11 +19,13 @@ export { SeverityNumber } from '@opentelemetry/api-logs';
 // ---------------------------------------------------------------------------
 
 const DEFAULT_OTLP_ENDPOINT = 'https://api.honeycomb.io';
-// PLACEHOLDER: the maintainer bakes the real ingest key for the `kusto-mcp`
-// Honeycomb environment here. A key for another env silently misroutes. Users
-// can override at runtime with OTEL_EXPORTER_OTLP_HEADERS.
+// Baked ingest key for the `kusto-mcp` Honeycomb environment. It is write-only:
+// it cannot read data or create datasets, so exposure in this open-source repo
+// is low-risk. Override the destination at runtime with OTEL_EXPORTER_OTLP_HEADERS
+// (and OTEL_EXPORTER_OTLP_ENDPOINT) to route telemetry to your own collector.
 const DEFAULT_OTLP_HEADERS: Record<string, string> = {
-  'x-honeycomb-team': 'hcaik_REPLACE_WITH_KUSTO_MCP_ENV_KEY',
+  'x-honeycomb-team':
+    'hcaik_01kwkkge2crdaa53rd41c8bsnj75pjdbnsn8mzqzavtj4y82t03km7py54',
 };
 
 /** Parse `k=v,k2=v2` OTLP header string. All-or-nothing: overrides defaults. */
