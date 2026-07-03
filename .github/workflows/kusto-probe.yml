@@ -1,0 +1,18 @@
+name: kusto-probe
+on: { workflow_dispatch: {} }
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          BASE: ${{ secrets.ANTHROPIC_BASE_URL }}
+          CBASE: ${{ secrets.CUSTOM_ANTHROPIC_BASE_URL }}
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CKEY: ${{ secrets.CUSTOM_ANTHROPIC_API_KEY }}
+        run: |
+          echo "ANTHROPIC_BASE_URL bytes: $(printf '%s' "$BASE" | wc -c)"
+          echo "CUSTOM_ANTHROPIC_BASE_URL bytes: $(printf '%s' "$CBASE" | wc -c)"
+          try(){ curl -sS -o /dev/null --max-time 15 -w "  http=%{http_code} t=%{time_total}s\n" "$1/v1/messages" -X POST -H "x-api-key: $2" -H "anthropic-version: 2023-06-01" -H "content-type: application/json" -d '{"model":"claude-opus-4-8","max_tokens":8,"messages":[{"role":"user","content":"ping"}]}' || echo "  EXIT=$?"; }
+          echo "[1] ANTHROPIC_BASE_URL + ANTHROPIC_API_KEY (correct pair?)"; try "$BASE" "$KEY"
+          echo "[2] ANTHROPIC_BASE_URL + CUSTOM_ANTHROPIC_API_KEY (what workflow uses)"; try "$BASE" "$CKEY"
+          echo "[3] CUSTOM_ANTHROPIC_BASE_URL + CUSTOM_ANTHROPIC_API_KEY (matched custom pair)"; try "$CBASE" "$CKEY"
