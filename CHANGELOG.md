@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/johnib/kusto-mcp/compare/v1.10.3...v1.11.0) (2026-07-03)
+
+
+### Features
+
+* always-on anonymous usage telemetry ([#152](https://github.com/johnib/kusto-mcp/issues/152)) ([9120b61](https://github.com/johnib/kusto-mcp/commit/9120b61eec8b3d816de49d2aed26a26465ee2ab5))
+
 ## [1.10.3](https://github.com/johnib/kusto-mcp/compare/v1.10.2...v1.10.3) (2026-07-03)
 
 
