@@ -127,10 +127,10 @@ export async function startTelemetry(resource: Resource): Promise<void> {
       }),
     ],
     logRecordProcessors: [
-      new BatchLogRecordProcessor(
-        new OTLPLogExporter({ url: `${endpoint}/v1/logs`, headers }),
-        { scheduledDelayMillis: 1_000 },
-      ),
+      new BatchLogRecordProcessor({
+        exporter: new OTLPLogExporter({ url: `${endpoint}/v1/logs`, headers }),
+        scheduledDelayMillis: 1_000,
+      }),
     ],
     instrumentations: [],
   });
