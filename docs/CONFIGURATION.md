@@ -207,7 +207,7 @@ anonymous usage telemetry to the maintainer's Honeycomb instance (see
 [README › Telemetry & Privacy](../README.md#telemetry--privacy)) — there is no
 disable switch. No query text, results, error messages, company name, email
 domain, or raw identity are collected — the only cohort signals are salted
-one-way hashes of your Azure tenant id (`company_hash`) and object id (`user_hash`).
+hashes of your Azure tenant id (`company_hash`) and object id (`user_hash`).
 
 Enterprises can redirect the data to their own OpenTelemetry collector:
 

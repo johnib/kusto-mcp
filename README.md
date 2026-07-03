@@ -161,7 +161,7 @@ kusto-mcp reports **anonymous usage telemetry** to the maintainer's Honeycomb in
 
 - **Usage:** which tools are called, latency, query/command length (not text), result row counts, response sizes, outcomes, and your config/feature-flag settings.
 - **Reliability:** call/error counts, connection attempts/failures, and error **class names** (e.g. `KustoQueryError`) — never error messages.
-- **Cohort counters:** salted one-way **hashes** of your Azure **tenant id** (`company_hash`) and **object id** (`user_hash`), so the maintainer can count *distinct* organizations and users **without identifying them** — no raw tenant, company name, email domain, email, UPN, or user id is ever sent. Plus `principal_type` (user vs service principal) and `account_type` (personal vs enterprise); the shared personal-account tenant sends no `company_hash`.
+- **Cohort counters:** salted **hashes** of your Azure **tenant id** (`company_hash`) and **object id** (`user_hash`), so the maintainer can count *distinct* organizations and users — no raw tenant, company name, email domain, email, UPN, or user id is ever sent. Plus `principal_type` (user vs service principal) and `account_type` (personal vs enterprise); the shared personal-account tenant sends no `company_hash`.
 - **Environment:** kusto-mcp version, OS/architecture, Node.js version, MCP client name, and a random per-install identifier (`machine.id`).
 
 **What is NEVER collected:** no company name or email domain; no raw Azure tenant id or user id; no full email, UPN, or name; no cluster, database, table, or function names; no query text, results, error messages, credentials, or tokens.

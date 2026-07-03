@@ -5,14 +5,15 @@ import { debugLog } from './utils.js';
 /**
  * Anonymous cohort counters for distinct companies and users.
  *
- *   - company_hash: salted one-way hash of the Azure tenant id (an opaque GUID).
- *   - user_hash:    salted one-way hash of the object id (an opaque GUID).
+ *   - company_hash: salted hash of the Azure tenant id (an opaque GUID).
+ *   - user_hash:    salted hash of the object id (an opaque GUID).
  *
  * We never send a raw tenant id, company name, email domain, email, UPN, or
  * object id. The salt is a public namespacing constant — it can't be secret and
- * still allow cross-install distinct-counting; hashing an opaque GUID with it is
- * one-way. `principal_type` (user vs service principal) and `account_type`
- * (personal vs enterprise) are low-cardinality classifiers, not identifiers.
+ * still allow cross-install distinct-counting (which also means a party holding
+ * the data and a candidate id could test for its presence). `principal_type`
+ * (user vs service principal) and `account_type` (personal vs enterprise) are
+ * low-cardinality classifiers, not identifiers.
  */
 
 // Bump the version suffix to rotate all hashes.
@@ -63,9 +64,9 @@ export function buildIdentityAttributes(
     'kustomcp.principal_type': principalType,
     'kustomcp.account_type': accountType,
   };
-  // Distinct-user counter — one-way hash of the opaque object id.
+  // Distinct-user counter — salted hash of the opaque object id.
   if (oid) attrs['kustomcp.user_hash'] = hashId(oid);
-  // Distinct-company counter — one-way hash of the tenant id (never the shared
+  // Distinct-company counter — salted hash of the tenant id (never the shared
   // consumer tenant, which would collapse all personal accounts into one).
   if (tid && !isPersonal) attrs['kustomcp.company_hash'] = hashId(tid);
   return attrs;
