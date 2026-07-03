@@ -212,8 +212,15 @@ async function shutdownAndExit(reason: string, code = 0): Promise<void> {
 async function runServer() {
   // Connect the server to the stdio transport
   const transport = new StdioServerTransport();
-  // Flush telemetry when the MCP client closes the pipe.
-  transport.onclose = () => void shutdownAndExit('transport-close');
+  // Exit when the MCP client disconnects (closes the pipe). We listen on stdin
+  // EOF directly rather than relying solely on transport.onclose: a hung
+  // telemetry export holds a live socket that would otherwise keep the event
+  // loop from draining, so the process must be told to shut down. shutdownAndExit
+  // then force-exits within the bounded flush race regardless of pending sockets.
+  const onDisconnect = () => void shutdownAndExit('client-disconnect');
+  transport.onclose = onDisconnect;
+  process.stdin.once('end', onDisconnect);
+  process.stdin.once('close', onDisconnect);
   await server.connect(transport);
 
   criticalLog('Kusto MCP Server running on stdio');
