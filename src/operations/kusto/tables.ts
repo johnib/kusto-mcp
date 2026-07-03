@@ -8,6 +8,7 @@ import {
   validateEntityName,
 } from '../../common/kql-safety.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
+import { recordSpanError } from '../../common/telemetry.js';
 import {
   KustoFunctionListItem,
   KustoFunctionSchema,
@@ -35,7 +36,6 @@ export async function showTables(
       }
 
       const database = connection.getDatabase();
-      span.setAttribute('database', database);
 
       debugLog(`Listing tables in database: ${database}`);
 
@@ -79,6 +79,7 @@ export async function showTables(
         `Successfully retrieved ${tablesData.length} tables from database ${database}`,
       );
 
+      span.setAttribute('kustomcp.result.count', tablesData.length);
       span.setStatus({ code: SpanStatusCode.OK });
 
       return tablesData;
@@ -87,10 +88,7 @@ export async function showTables(
         error instanceof Error ? error.message : String(error);
       criticalLog(`Failed to list tables: ${errorMessage}`);
 
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: errorMessage,
-      });
+      recordSpanError(span, error);
 
       throw new KustoQueryError(`Failed to list tables: ${errorMessage}`);
     } finally {
@@ -112,10 +110,7 @@ export async function showTable(
 ): Promise<KustoTableSchema> {
   return tracer.startActiveSpan('showTable', async span => {
     try {
-      span.setAttribute('tableName', tableName);
-
       const database = connection.getDatabase();
-      span.setAttribute('database', database);
 
       debugLog(
         `Getting schema for table: ${tableName} in database: ${database}`,
@@ -183,6 +178,7 @@ export async function showTable(
         columns: columns,
       };
 
+      span.setAttribute('kustomcp.result.count', columns.length);
       span.setStatus({ code: SpanStatusCode.OK });
 
       return tableSchema;
@@ -191,10 +187,7 @@ export async function showTable(
         error instanceof Error ? error.message : String(error);
       criticalLog(`Failed to get table schema: ${errorMessage}`);
 
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: errorMessage,
-      });
+      recordSpanError(span, error);
 
       if (error instanceof KustoResourceNotFoundError) {
         throw error;
@@ -223,7 +216,6 @@ export async function showFunctions(
       }
 
       const database = connection.getDatabase();
-      span.setAttribute('database', database);
 
       debugLog(`Listing functions in database: ${database}`);
 
@@ -277,6 +269,7 @@ export async function showFunctions(
         `Successfully retrieved ${functionsData.length} functions from database ${database}`,
       );
 
+      span.setAttribute('kustomcp.result.count', functionsData.length);
       span.setStatus({ code: SpanStatusCode.OK });
 
       return functionsData;
@@ -285,10 +278,7 @@ export async function showFunctions(
         error instanceof Error ? error.message : String(error);
       criticalLog(`Failed to list functions: ${errorMessage}`);
 
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: errorMessage,
-      });
+      recordSpanError(span, error);
 
       throw new KustoQueryError(`Failed to list functions: ${errorMessage}`);
     } finally {
@@ -310,10 +300,7 @@ export async function showFunction(
 ): Promise<KustoFunctionSchema> {
   return tracer.startActiveSpan('showFunction', async span => {
     try {
-      span.setAttribute('functionName', functionName);
-
       const database = connection.getDatabase();
-      span.setAttribute('database', database);
 
       debugLog(
         `Getting details for function: ${functionName} in database: ${database}`,
@@ -386,6 +373,7 @@ export async function showFunction(
         `Successfully retrieved function details for ${functionName} from database ${database}`,
       );
 
+      span.setAttribute('kustomcp.result.count', 1);
       span.setStatus({ code: SpanStatusCode.OK });
 
       return functionSchema;
@@ -394,10 +382,7 @@ export async function showFunction(
         error instanceof Error ? error.message : String(error);
       criticalLog(`Failed to get function details: ${errorMessage}`);
 
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: errorMessage,
-      });
+      recordSpanError(span, error);
 
       if (error instanceof KustoResourceNotFoundError) {
         throw error;

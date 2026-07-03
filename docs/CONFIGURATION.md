@@ -200,16 +200,26 @@ The server uses a sophisticated binary search algorithm to find the optimal numb
 - **Query Guidance**: The system automatically suggests using filters and aggregations for large results
 - **Format Consideration**: Markdown format typically uses more characters than JSON
 
-## OpenTelemetry Integration
+## OpenTelemetry & Telemetry
 
-The server supports OpenTelemetry for monitoring and tracing:
+kusto-mcp emits OpenTelemetry **traces, metrics, and logs**. It **always** reports
+anonymous usage telemetry to the maintainer's Honeycomb instance (see
+[README › Telemetry & Privacy](../README.md#telemetry--privacy)) — there is no
+disable switch. No query text, results, error messages, company name, email
+domain, or raw identity are collected — the only cohort signals are salted
+hashes of your Azure tenant id (`company_hash`) and object id (`user_hash`).
+
+Enterprises can redirect the data to their own OpenTelemetry collector:
 
 ```bash
-# Enable OpenTelemetry tracing
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317/v1/traces
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+OTEL_EXPORTER_OTLP_HEADERS=x-honeycomb-team=YOUR_INGEST_KEY
 ```
 
-When configured, the server will send trace data to your OpenTelemetry collector.
+`OTEL_EXPORTER_OTLP_ENDPOINT` is the OTLP HTTP base URL (the server appends
+`/v1/traces`, `/v1/metrics`, `/v1/logs`). `OTEL_EXPORTER_OTLP_HEADERS` takes
+comma-separated `key=value` pairs and, when set, fully replaces the default
+headers.
 
 ## Platform-Specific Configuration
 

@@ -1,5 +1,5 @@
 import { TokenCredential } from '@azure/identity';
-import { SpanStatusCode, trace } from '@opentelemetry/api';
+import { SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 import { Client, KustoConnectionStringBuilder } from 'azure-kusto-data';
 import { createTokenCredential } from '../../auth/token-credentials.js';
 import {
@@ -8,11 +8,32 @@ import {
   KustoQueryError,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
+import { captureIdentity } from '../../common/identity.js';
+import {
+  SeverityNumber,
+  connectionAttemptsCounter,
+  connectionFailuresCounter,
+  emitLog,
+  queriesCounter,
+  queryDurationHistogram,
+  recordSpanError,
+} from '../../common/telemetry.js';
 import { KustoConfig } from '../../types/config.js';
 import { KustoQueryResult } from '../../types/kusto-interfaces.js';
 
 // Create a tracer for this module
 const tracer = trace.getTracer('kusto-connection');
+
+/** Classify an error into a low-cardinality outcome for query metrics. */
+function classifyQueryOutcome(
+  message: string,
+): 'timeout' | 'throttled' | 'error' {
+  const m = message.toLowerCase();
+  if (m.includes('timed out') || m.includes('timeout')) return 'timeout';
+  if (m.includes('throttl') || m.includes('e_too_many') || m.includes('429'))
+    return 'throttled';
+  return 'error';
+}
 
 /**
  * Class for managing connections to Kusto clusters
@@ -38,20 +59,30 @@ export class KustoConnection {
    *
    * @param clusterUrl The URL of the Kusto cluster
    * @param database The database to connect to
+   * @param source Whether this is a manual (tool) or auto connection
    * @returns A structured connection result
    */
   async initialize(
     clusterUrl: string,
     database: string,
+    source: 'auto' | 'manual' = 'manual',
   ): Promise<{ success: boolean; cluster: string; database: string }> {
-    return tracer.startActiveSpan('initialize', async span => {
+    return tracer.startActiveSpan('mcp.connection.init', async span => {
+      connectionAttemptsCounter.add(1, { source });
       try {
-        span.setAttribute('clusterUrl', clusterUrl);
-        span.setAttribute('database', database);
-
         debugLog(
           `Initializing connection to ${clusterUrl}, database: ${database}`,
         );
+
+        // Capture anonymous cohort hashes (company/user) from the access token.
+        // Best-effort; never throws. Done before validation so an authenticated
+        // user that fails to connect is still counted.
+        const identity = await captureIdentity(clusterUrl, scope =>
+          this.tokenCredential.getToken(scope),
+        );
+        for (const [k, v] of Object.entries(identity)) {
+          if (v !== undefined && v !== null) span.setAttribute(k, v);
+        }
 
         // Create a connection string with the configured authentication method
         let connectionString;
@@ -83,6 +114,9 @@ export class KustoConnection {
 
         debugLog('Connection initialized successfully');
         span.setStatus({ code: SpanStatusCode.OK });
+        emitLog(SeverityNumber.INFO, 'INFO', 'Connection established', {
+          'kustomcp.connection.source': source,
+        });
 
         return {
           success: true,
@@ -94,9 +128,13 @@ export class KustoConnection {
 
         criticalLog(`Failed to initialize connection: ${errorMessage}`);
 
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: errorMessage,
+        connectionFailuresCounter.add(1, {
+          error_type: error instanceof Error ? error.name : 'unknown',
+        });
+        recordSpanError(span, error);
+        emitLog(SeverityNumber.ERROR, 'ERROR', 'Connection failed', {
+          'kustomcp.error.type':
+            error instanceof Error ? error.name : 'unknown',
         });
 
         throw new KustoConnectionError(errorMessage);
@@ -114,70 +152,94 @@ export class KustoConnection {
    * @returns The result of the query
    */
   async executeQuery(database: string, query: string): Promise<any> {
-    return tracer.startActiveSpan('executeQuery', async span => {
-      try {
-        span.setAttribute('database', database);
-        // Avoid recording raw query text on spans exported to remote collectors
-        // (may contain sensitive values); record only its length.
-        span.setAttribute('query.length', query.length);
+    return tracer.startActiveSpan(
+      'kusto.query',
+      { kind: SpanKind.CLIENT },
+      async span => {
+        const operation = query.trimStart().startsWith('.')
+          ? 'command'
+          : 'query';
+        const startedAt = Date.now();
+        span.setAttribute('kustomcp.operation', operation);
+        // Never record raw query text on exported spans; record only its length.
+        span.setAttribute('kustomcp.query.length', query.length);
 
-        if (!this.client) {
-          throw new KustoConnectionError('Connection not initialized');
+        try {
+          if (!this.client) {
+            throw new KustoConnectionError('Connection not initialized');
+          }
+
+          debugLog(`Executing query on database ${database}: ${query}`);
+
+          // Set timeout from config
+          const timeout = this.config.queryTimeout || 60000;
+          span.setAttribute('kustomcp.query.timeout_ms', timeout);
+
+          // Execute the query with timeout, ensuring timeout handle is always cleared
+          let timeoutHandle: NodeJS.Timeout;
+          const queryPromise = this.client.execute(database, query);
+
+          const rawResult = await new Promise((resolve, reject) => {
+            timeoutHandle = setTimeout(() => {
+              reject(new KustoQueryError(`Query timed out after ${timeout}ms`));
+            }, timeout);
+
+            queryPromise
+              .then(result => {
+                clearTimeout(timeoutHandle);
+                resolve(result);
+              })
+              .catch(err => {
+                clearTimeout(timeoutHandle);
+                reject(err);
+              });
+          });
+
+          debugLog(`Raw Kusto Response: ${JSON.stringify(rawResult, null, 2)}`);
+
+          // Convert the result to a JSON-friendly format
+          // Cast the result to KustoQueryResult type
+          const formattedResult = rawResult as KustoQueryResult;
+
+          debugLog('Query executed successfully');
+          span.setAttribute('kustomcp.outcome', 'success');
+          span.setStatus({ code: SpanStatusCode.OK });
+          queriesCounter.add(1, {
+            operation,
+            outcome: 'success',
+          });
+          queryDurationHistogram.record(Date.now() - startedAt, {
+            operation,
+            outcome: 'success',
+          });
+
+          return formattedResult;
+        } catch (error) {
+          const errorMessage = extractKustoErrorMessage(error);
+          const outcome = classifyQueryOutcome(errorMessage);
+
+          criticalLog(`Failed to execute query: ${errorMessage}`);
+
+          span.setAttribute('kustomcp.outcome', outcome);
+          recordSpanError(span, error);
+          queriesCounter.add(1, {
+            operation,
+            outcome,
+          });
+          queryDurationHistogram.record(Date.now() - startedAt, {
+            operation,
+            outcome,
+          });
+
+          // Don't wrap as KustoQueryError here since queries.ts will handle it
+          // Just rethrow with the detailed error message
+          const customError = new Error(errorMessage);
+          throw customError;
+        } finally {
+          span.end();
         }
-
-        debugLog(`Executing query on database ${database}: ${query}`);
-
-        // Set timeout from config
-        const timeout = this.config.queryTimeout || 60000;
-
-        // Execute the query with timeout, ensuring timeout handle is always cleared
-        let timeoutHandle: NodeJS.Timeout;
-        const queryPromise = this.client.execute(database, query);
-
-        const rawResult = await new Promise((resolve, reject) => {
-          timeoutHandle = setTimeout(() => {
-            reject(new KustoQueryError(`Query timed out after ${timeout}ms`));
-          }, timeout);
-
-          queryPromise
-            .then(result => {
-              clearTimeout(timeoutHandle);
-              resolve(result);
-            })
-            .catch(err => {
-              clearTimeout(timeoutHandle);
-              reject(err);
-            });
-        });
-
-        debugLog(`Raw Kusto Response: ${JSON.stringify(rawResult, null, 2)}`);
-
-        // Convert the result to a JSON-friendly format
-        // Cast the result to KustoQueryResult type
-        const formattedResult = rawResult as KustoQueryResult;
-
-        debugLog('Query executed successfully');
-        span.setStatus({ code: SpanStatusCode.OK });
-
-        return formattedResult;
-      } catch (error) {
-        const errorMessage = extractKustoErrorMessage(error);
-
-        criticalLog(`Failed to execute query: ${errorMessage}`);
-
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: errorMessage,
-        });
-
-        // Don't wrap as KustoQueryError here since queries.ts will handle it
-        // Just rethrow with the detailed error message
-        const customError = new Error(errorMessage);
-        throw customError;
-      } finally {
-        span.end();
-      }
-    });
+      },
+    );
   }
 
   /**

@@ -153,6 +153,21 @@ This MCP server provides your AI assistant with tools to:
 
 Results are automatically formatted and sized appropriately for AI context windows, so your assistant gets the data it needs without being overwhelmed.
 
+## Telemetry & Privacy
+
+kusto-mcp reports **anonymous usage telemetry** to the maintainer's Honeycomb instance to understand how the tool is used and to diagnose failures. **Telemetry is always on — using kusto-mcp means reporting anonymous usage.** There is no personal or organizational data in it, and no query text or results (details below).
+
+**What is collected** (traces, metrics, and operational logs via OpenTelemetry):
+
+- **Usage:** which tools are called, latency, query/command length (not text), result row counts, response sizes, outcomes, and your config/feature-flag settings.
+- **Reliability:** call/error counts, connection attempts/failures, and error **class names** (e.g. `KustoQueryError`) — never error messages.
+- **Cohort counters:** salted **hashes** of your Azure **tenant id** (`company_hash`) and **object id** (`user_hash`), so the maintainer can count *distinct* organizations and users — no raw tenant, company name, email domain, email, UPN, or user id is ever sent. Plus `principal_type` (user vs service principal) and `account_type` (personal vs enterprise); the shared personal-account tenant sends no `company_hash`.
+- **Environment:** kusto-mcp version, OS/architecture, Node.js version, MCP client name, and a random per-install identifier (`machine.id`).
+
+**What is NEVER collected:** no company name or email domain; no raw Azure tenant id or user id; no full email, UPN, or name; no cluster, database, table, or function names; no query text, results, error messages, credentials, or tokens.
+
+**Routing to your own collector:** enterprises that run their own OpenTelemetry pipeline can redirect the data with standard env vars — `OTEL_EXPORTER_OTLP_ENDPOINT` (your OTLP HTTP base URL) and `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`).
+
 ## Advanced Configuration
 
 Need custom settings? Check out our [Configuration Guide](docs/CONFIGURATION.md) for:

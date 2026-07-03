@@ -1,46 +1,23 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
-import {
-  BatchSpanProcessor,
-  NodeTracerProvider,
-} from '@opentelemetry/sdk-trace-node';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
+import { randomUUID } from 'node:crypto';
 import { criticalLog, debugLog } from './common/utils.js';
+import { loadOrCreateMachineId } from './common/machine-id.js';
+import {
+  SeverityNumber,
+  emitLog,
+  shutdownOtel,
+  startTelemetry,
+} from './common/telemetry.js';
 import { createKustoServer } from './server.js';
+import { VERSION } from './common/version.js';
 import {
   AuthenticationMethod,
   KustoConfig,
   ResponseFormat,
 } from './types/config.js';
-
-// Configure OpenTelemetry
-const spanProcessors: BatchSpanProcessor[] = [];
-
-// Add OTLP exporter if configured
-if (process.env.OTEL_EXPORTER_OTLP_ENDPOINT) {
-  const exporter = new OTLPTraceExporter({
-    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
-  });
-
-  spanProcessors.push(new BatchSpanProcessor(exporter));
-  debugLog(
-    `OpenTelemetry exporter configured with endpoint: ${process.env.OTEL_EXPORTER_OTLP_ENDPOINT}`,
-  );
-} else {
-  debugLog('OpenTelemetry exporter not configured, skipping');
-}
-
-const provider = new NodeTracerProvider({
-  resource: resourceFromAttributes({
-    [ATTR_SERVICE_NAME]: 'kusto-mcp',
-  }),
-  spanProcessors,
-});
-
-// Register the provider
-provider.register();
 
 // Log startup information
 debugLog('Kusto MCP Server - Starting up');
@@ -156,7 +133,8 @@ const config: KustoConfig = {
 };
 
 // Log auto-connection configuration
-if (config.clusterUrl && config.defaultDatabase) {
+const autoConnect = !!(config.clusterUrl && config.defaultDatabase);
+if (autoConnect) {
   criticalLog(
     `Auto-connection configured: ${config.clusterUrl} -> ${config.defaultDatabase}`,
   );
@@ -170,16 +148,86 @@ if (config.clusterUrl && config.defaultDatabase) {
   );
 }
 
+// --- OpenTelemetry -----------------------------------------------------------
+// Telemetry is ALWAYS ON: using kusto-mcp reports anonymous usage metrics to the
+// maintainer's Honeycomb (see common/telemetry.ts). No personal/organization
+// data, query text, or results are collected. There is no disable switch; you
+// can redirect to your own collector via OTEL_EXPORTER_OTLP_ENDPOINT/HEADERS.
+const machine = loadOrCreateMachineId();
+
+const resource = resourceFromAttributes({
+  [ATTR_SERVICE_NAME]: 'kusto-mcp',
+  'service.version': VERSION,
+  'service.instance.id': randomUUID(),
+  'host.arch': process.arch,
+  'os.type': process.platform,
+  'process.runtime.version': process.version,
+  'kustomcp.config.auth_method': String(authMethod),
+  'kustomcp.config.response_format': String(responseFormat),
+  'kustomcp.config.allow_write': allowWriteOperations,
+  'kustomcp.config.query_statistics': enableQueryStatistics,
+  'kustomcp.config.prompts_enabled': enablePrompts,
+  'kustomcp.config.autoconnect': autoConnect,
+  'machine.id': machine.machineId,
+  'kustomcp.machine.first_seen': machine.firstSeen,
+});
+
+// Telemetry is strictly best-effort — a failure to initialize it (e.g. a broken
+// exporter dep) must never prevent the MCP server from starting.
+try {
+  await startTelemetry(resource);
+} catch (error) {
+  debugLog(
+    `Telemetry init failed (continuing without it): ${
+      error instanceof Error ? error.message : String(error)
+    }`,
+  );
+}
+
+if (machine.isFirstRun) {
+  criticalLog(
+    'kusto-mcp reports anonymous usage telemetry (tool usage, latency, error ' +
+      'types, version/OS, a random install id, and salted one-way hashes of ' +
+      'your Azure tenant/user id for distinct counts) to the maintainer. No ' +
+      'query text, results, or raw identity are collected. See README > Telemetry.',
+  );
+}
+
 // Create the server
 const server = createKustoServer(config);
+
+// Coordinated shutdown that always flushes telemetry before exit. A stdio MCP
+// server is typically killed by the client closing stdin, so buffered spans/
+// metrics/logs would be lost without an awaited flush.
+let shuttingDown = false;
+async function shutdownAndExit(reason: string, code = 0): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  criticalLog(`Shutting down (${reason})`);
+  await shutdownOtel();
+  process.exit(code);
+}
 
 // Run the server
 async function runServer() {
   // Connect the server to the stdio transport
   const transport = new StdioServerTransport();
+  // Exit when the MCP client disconnects (closes the pipe). We listen on stdin
+  // EOF directly rather than relying solely on transport.onclose: a hung
+  // telemetry export holds a live socket that would otherwise keep the event
+  // loop from draining, so the process must be told to shut down. shutdownAndExit
+  // then force-exits within the bounded flush race regardless of pending sockets.
+  const onDisconnect = () => void shutdownAndExit('client-disconnect');
+  transport.onclose = onDisconnect;
+  process.stdin.once('end', onDisconnect);
+  process.stdin.once('close', onDisconnect);
   await server.connect(transport);
 
   criticalLog('Kusto MCP Server running on stdio');
+  emitLog(SeverityNumber.INFO, 'INFO', 'Kusto MCP server started', {
+    'service.version': VERSION,
+    'kustomcp.config.autoconnect': autoConnect,
+  });
 }
 
 // Start the server
@@ -189,25 +237,19 @@ runServer().catch(error => {
       error instanceof Error ? error.message : String(error)
     }`,
   );
-  process.exit(1);
+  void shutdownAndExit('fatal-error', 1);
 });
 
 // Handle process termination
-process.on('SIGINT', () => {
-  criticalLog('Received SIGINT, shutting down');
-  process.exit(0);
-});
+process.on('SIGINT', () => void shutdownAndExit('SIGINT'));
 
-process.on('SIGTERM', () => {
-  criticalLog('Received SIGTERM, shutting down');
-  process.exit(0);
-});
+process.on('SIGTERM', () => void shutdownAndExit('SIGTERM'));
 
 // Handle uncaught exceptions
 process.on('uncaughtException', error => {
   criticalLog(`Uncaught exception: ${error.message}`);
   criticalLog(error.stack || 'No stack trace available');
-  process.exit(1);
+  void shutdownAndExit('uncaughtException', 1);
 });
 
 // Handle unhandled promise rejections
@@ -217,5 +259,5 @@ process.on('unhandledRejection', reason => {
       reason instanceof Error ? reason.message : String(reason)
     }`,
   );
-  process.exit(1);
+  void shutdownAndExit('unhandledRejection', 1);
 });

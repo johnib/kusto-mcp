@@ -42,23 +42,8 @@ jest.mock('../../../src/common/utils.js', () => ({
   criticalLog: jest.fn(),
 }));
 
-jest.mock('@opentelemetry/api', () => ({
-  SpanStatusCode: {
-    OK: 1,
-    ERROR: 2,
-  },
-  trace: {
-    getTracer: jest.fn(() => ({
-      startActiveSpan: jest.fn((name, fn) =>
-        fn({
-          setAttribute: jest.fn(),
-          setStatus: jest.fn(),
-          end: jest.fn(),
-        }),
-      ),
-    })),
-  },
-}));
+// NOTE: @opentelemetry/api is intentionally NOT mocked — the real API returns
+// safe no-op tracer/meter/logger when no provider is registered.
 
 describe('Error Scenarios Unit Tests', () => {
   let connection: KustoConnection;
