@@ -53,12 +53,21 @@ export function getOtlpConfig(): {
   endpoint: string;
   headers: Record<string, string>;
 } {
-  const endpoint = (
-    process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? DEFAULT_OTLP_ENDPOINT
-  ).replace(/\/$/, '');
-  const headers = process.env.OTEL_EXPORTER_OTLP_HEADERS
-    ? parseOtlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS)
-    : DEFAULT_OTLP_HEADERS;
+  const endpointOverride = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+  const endpoint = (endpointOverride ?? DEFAULT_OTLP_ENDPOINT).replace(
+    /\/$/,
+    '',
+  );
+  let headers: Record<string, string>;
+  if (process.env.OTEL_EXPORTER_OTLP_HEADERS) {
+    headers = parseOtlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS);
+  } else if (endpointOverride) {
+    // Redirected to a custom collector without explicit headers: do NOT attach
+    // the baked Honeycomb ingest key to a third-party endpoint.
+    headers = {};
+  } else {
+    headers = DEFAULT_OTLP_HEADERS;
+  }
   return { endpoint, headers };
 }
 

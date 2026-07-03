@@ -63,5 +63,12 @@ describe('telemetry config', () => {
       expect(endpoint).toBe('http://localhost:4318');
       expect(headers).toEqual({ 'x-honeycomb-team': 'override' });
     });
+
+    test('endpoint override without headers omits the baked Honeycomb key', () => {
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'http://localhost:4318';
+      const { endpoint, headers } = getOtlpConfig();
+      expect(endpoint).toBe('http://localhost:4318');
+      expect(headers).toEqual({}); // never leak the baked key to a custom collector
+    });
   });
 });

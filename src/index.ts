@@ -172,7 +172,17 @@ const resource = resourceFromAttributes({
   'kustomcp.machine.first_seen': machine.firstSeen,
 });
 
-await startTelemetry(resource);
+// Telemetry is strictly best-effort — a failure to initialize it (e.g. a broken
+// exporter dep) must never prevent the MCP server from starting.
+try {
+  await startTelemetry(resource);
+} catch (error) {
+  debugLog(
+    `Telemetry init failed (continuing without it): ${
+      error instanceof Error ? error.message : String(error)
+    }`,
+  );
+}
 
 if (machine.isFirstRun) {
   criticalLog(
