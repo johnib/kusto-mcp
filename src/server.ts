@@ -404,7 +404,9 @@ export function createKustoServer(config: KustoConfig): Server {
                 'kustomcp.write_allowed',
                 validatedConfig.allowWriteOperations ?? false,
               );
-              queryRowsHistogram.record(availableData.length);
+              queryRowsHistogram.record(availableData.length, {
+                tool: toolName,
+              });
 
               // Create base response structure with all available data
               const baseResponse = {

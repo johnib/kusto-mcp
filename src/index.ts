@@ -165,6 +165,7 @@ const resource = resourceFromAttributes({
   'host.arch': process.arch,
   'os.type': process.platform,
   'process.runtime.version': process.version,
+  'kustomcp.runtime.node_major': Number(process.versions.node.split('.')[0]),
   'kustomcp.config.auth_method': String(authMethod),
   'kustomcp.config.response_format': String(responseFormat),
   'kustomcp.config.allow_write': allowWriteOperations,
@@ -173,6 +174,7 @@ const resource = resourceFromAttributes({
   'kustomcp.config.autoconnect': autoConnect,
   'machine.id': machine.machineId,
   'kustomcp.machine.first_seen': machine.firstSeen,
+  'kustomcp.install.has_connected': machine.hasConnected,
 });
 
 // Telemetry is strictly best-effort — a failure to initialize it (e.g. a broken

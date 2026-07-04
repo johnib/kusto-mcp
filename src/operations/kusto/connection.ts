@@ -16,6 +16,7 @@ import {
   captureIdentity,
   getIdentityAttributes,
 } from '../../common/identity.js';
+import { markConnected } from '../../common/machine-id.js';
 import {
   SeverityNumber,
   carryErrorRecording,
@@ -151,6 +152,19 @@ function classifyCloud(
 }
 
 /**
+ * Coarse size bucket of a query, derived from its length only (the raw length
+ * already ships; this is strictly coarser). Lets us tell a heavy query from a
+ * systemic slowdown without any query text.
+ */
+function querySizeClass(length: number): 'xs' | 's' | 'm' | 'l' | 'xl' {
+  if (length < 128) return 'xs';
+  if (length < 512) return 's';
+  if (length < 2048) return 'm';
+  if (length < 8192) return 'l';
+  return 'xl';
+}
+
+/**
  * Class for managing connections to Kusto clusters
  */
 export class KustoConnection {
@@ -226,8 +240,13 @@ export class KustoConnection {
           // Best-effort; never throws. Done before validation so an authenticated
           // user that fails to connect is still counted. On failure this also
           // records a bounded classification of WHY (identity_state / auth.*).
+          const tokenStart = Date.now();
           await captureIdentity(clusterUrl, scope =>
             this.tokenCredential.getToken(scope),
+          );
+          span.setAttribute(
+            'kustomcp.connection.token_ms',
+            Date.now() - tokenStart,
           );
           for (const [k, v] of Object.entries(getIdentityAttributes())) {
             if (v !== undefined && v !== null) span.setAttribute(k, v);
@@ -259,7 +278,12 @@ export class KustoConnection {
 
           // Test basic connectivity and authentication with a universal query.
           // This works with regular Kusto clusters and ADX Proxy endpoints.
+          const connectStart = Date.now();
           await tempClient.execute(database, 'print now()', props);
+          span.setAttribute(
+            'kustomcp.connection.connect_ms',
+            Date.now() - connectStart,
+          );
           return tempClient;
         };
 
@@ -270,6 +294,8 @@ export class KustoConnection {
         this.database = database;
 
         debugLog('Connection initialized successfully');
+        // Onboarding funnel: true only on this install's first-ever success.
+        span.setAttribute('kustomcp.connection.first_success', markConnected());
         span.setAttribute('kustomcp.connection.outcome', 'success');
         span.setAttribute('kustomcp.connection.timed_out', false);
         span.setAttribute(
@@ -354,14 +380,23 @@ export class KustoConnection {
           : 'query';
         const startedAt = Date.now();
         span.setAttribute('kustomcp.operation', operation);
-        // Never record raw query text on exported spans; record only its length.
+        // Never record raw query text on exported spans; record only its length
+        // and a coarse size bucket.
         span.setAttribute('kustomcp.query.length', query.length);
+        span.setAttribute(
+          'kustomcp.query.size_class',
+          querySizeClass(query.length),
+        );
         // Stamp the same anonymous cohort hashes carried on the parent tool span,
         // so query outcomes/timeouts are sliceable by user/company without a
         // trace-join. No new information type — these already exist on the trace.
         for (const [k, v] of Object.entries(getIdentityAttributes())) {
           if (v !== undefined && v !== null) span.setAttribute(k, v);
         }
+
+        // Tracks whether OUR client-side timeout fired (vs a server timeout),
+        // without reading the error message.
+        let clientTimedOut = false;
 
         try {
           if (!this.client) {
@@ -380,6 +415,7 @@ export class KustoConnection {
 
           const rawResult = await new Promise((resolve, reject) => {
             timeoutHandle = setTimeout(() => {
+              clientTimedOut = true;
               reject(new KustoQueryError(`Query timed out after ${timeout}ms`));
             }, timeout);
 
@@ -420,6 +456,14 @@ export class KustoConnection {
           criticalLog(`Failed to execute query: ${errorMessage}`);
 
           span.setAttribute('kustomcp.outcome', outcome);
+          if (outcome === 'timeout') {
+            // Our wrapper fired (raise queryTimeout / heavy query) vs the server
+            // reporting its own timeout (cluster-side pressure).
+            span.setAttribute(
+              'kustomcp.query.timeout_kind',
+              clientTimedOut ? 'client' : 'server',
+            );
+          }
           recordSpanError(span, error);
           queriesCounter.add(1, {
             operation,
