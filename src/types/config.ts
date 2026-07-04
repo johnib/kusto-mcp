@@ -29,6 +29,14 @@ export interface KustoConfig {
   queryTimeout?: number;
 
   /**
+   * Timeout for connection initialization (token acquisition + the `print now()`
+   * validation round-trip) in milliseconds. Without this the underlying client
+   * falls back to the library's 270s query default, so a bad cluster URL or a
+   * hung auth can leave the server stuck for minutes.
+   */
+  connectionTimeout?: number;
+
+  /**
    * The response format for query results
    */
   responseFormat?: ResponseFormat;
@@ -83,6 +91,7 @@ export interface KustoConfig {
 export const DEFAULT_CONFIG: Partial<KustoConfig> = {
   authMethod: AuthenticationMethod.AzureIdentity,
   queryTimeout: 60000, // 1 minute
+  connectionTimeout: 20000, // 20s — connection setup should be fast; bound the tail
   responseFormat: ResponseFormat.Json, // Default to JSON for backward compatibility
   markdownMaxCellLength: 1000, // Default to 1000 characters per cell
   maxResponseLength: 12000, // 12K characters - conservative for context windows

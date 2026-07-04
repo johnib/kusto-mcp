@@ -1,6 +1,10 @@
 import { TokenCredential } from '@azure/identity';
 import { SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
-import { Client, KustoConnectionStringBuilder } from 'azure-kusto-data';
+import {
+  Client,
+  ClientRequestProperties,
+  KustoConnectionStringBuilder,
+} from 'azure-kusto-data';
 import { createTokenCredential } from '../../auth/token-credentials.js';
 import {
   extractKustoErrorMessage,
@@ -132,45 +136,74 @@ export class KustoConnection {
     return tracer.startActiveSpan('mcp.connection.init', async span => {
       span.setAttribute('kustomcp.connection.source', source);
       connectionAttemptsCounter.add(1, { source });
+      // Bound the whole init (token acquisition + validation round-trip). Without
+      // it, the client's HTTP default is 270s (see azure-kusto-data
+      // QUERY_TIMEOUT_IN_MILLISECS), so a bad URL or hung auth stalls for minutes.
+      const connectTimeout = this.config.connectionTimeout ?? 20000;
+      let timedOut = false;
+      let deadlineTimer: NodeJS.Timeout | undefined;
       try {
         debugLog(
           `Initializing connection to ${clusterUrl}, database: ${database}`,
         );
 
-        // Capture anonymous cohort hashes (company/user) from the access token.
-        // Best-effort; never throws. Done before validation so an authenticated
-        // user that fails to connect is still counted. On failure this also
-        // records a bounded classification of WHY (identity_state / auth.*).
-        await captureIdentity(clusterUrl, scope =>
-          this.tokenCredential.getToken(scope),
-        );
-        for (const [k, v] of Object.entries(getIdentityAttributes())) {
-          if (v !== undefined && v !== null) span.setAttribute(k, v);
-        }
+        const deadline = new Promise<never>((_, reject) => {
+          deadlineTimer = setTimeout(() => {
+            timedOut = true;
+            reject(
+              new KustoConnectionError(
+                `Connection timed out after ${connectTimeout}ms`,
+              ),
+            );
+          }, connectTimeout);
+          // Don't keep the event loop alive solely for this timer.
+          deadlineTimer.unref?.();
+        });
 
-        // Create a connection string with the configured authentication method
-        let connectionString;
-
-        if (this.config.authMethod === 'azure-cli') {
-          debugLog('Using Azure CLI authentication for connection');
-          connectionString =
-            KustoConnectionStringBuilder.withAzLoginIdentity(clusterUrl);
-        } else {
-          debugLog(
-            'Using Azure Identity (DefaultAzureCredential) for connection',
+        // The connect critical section, raced against the deadline.
+        const connect = async (): Promise<Client> => {
+          // Capture anonymous cohort hashes (company/user) from the access token.
+          // Best-effort; never throws. Done before validation so an authenticated
+          // user that fails to connect is still counted. On failure this also
+          // records a bounded classification of WHY (identity_state / auth.*).
+          await captureIdentity(clusterUrl, scope =>
+            this.tokenCredential.getToken(scope),
           );
-          connectionString = KustoConnectionStringBuilder.withTokenCredential(
-            clusterUrl,
-            this.tokenCredential,
-          );
-        }
+          for (const [k, v] of Object.entries(getIdentityAttributes())) {
+            if (v !== undefined && v !== null) span.setAttribute(k, v);
+          }
 
-        // Create a temporary client for validation, don't set instance variables yet
-        const tempClient = new Client(connectionString);
+          // Create a connection string with the configured authentication method
+          let connectionString;
 
-        // Test basic connectivity and authentication with a universal query
-        // This works with regular Kusto clusters and ADX Proxy endpoints
-        await tempClient.execute(database, 'print now()');
+          if (this.config.authMethod === 'azure-cli') {
+            debugLog('Using Azure CLI authentication for connection');
+            connectionString =
+              KustoConnectionStringBuilder.withAzLoginIdentity(clusterUrl);
+          } else {
+            debugLog(
+              'Using Azure Identity (DefaultAzureCredential) for connection',
+            );
+            connectionString = KustoConnectionStringBuilder.withTokenCredential(
+              clusterUrl,
+              this.tokenCredential,
+            );
+          }
+
+          // Create a temporary client for validation, don't set instance variables yet
+          const tempClient = new Client(connectionString);
+
+          // Bound the HTTP round-trip itself (library default is 270s).
+          const props = new ClientRequestProperties();
+          props.setClientTimeout(connectTimeout);
+
+          // Test basic connectivity and authentication with a universal query.
+          // This works with regular Kusto clusters and ADX Proxy endpoints.
+          await tempClient.execute(database, 'print now()', props);
+          return tempClient;
+        };
+
+        const tempClient = await Promise.race([connect(), deadline]);
 
         // Only set the instance variables after successful validation
         this.client = tempClient;
@@ -192,10 +225,13 @@ export class KustoConnection {
 
         criticalLog(`Failed to initialize connection: ${errorMessage}`);
 
-        const { category, httpStatus } = classifyConnectionFailure(error);
+        const classified = classifyConnectionFailure(error);
+        // A fired deadline is definitively a timeout, regardless of the wrapped
+        // error's shape.
+        const category = timedOut ? 'timeout' : classified.category;
         span.setAttribute('kustomcp.connection.failure_category', category);
-        if (httpStatus !== undefined) {
-          span.setAttribute('kustomcp.http.status_code', httpStatus);
+        if (classified.httpStatus !== undefined) {
+          span.setAttribute('kustomcp.http.status_code', classified.httpStatus);
         }
         connectionFailuresCounter.add(1, {
           source,
@@ -214,6 +250,7 @@ export class KustoConnection {
         carryErrorRecording(error, wrapped);
         throw wrapped;
       } finally {
+        if (deadlineTimer) clearTimeout(deadlineTimer);
         span.end();
       }
     });

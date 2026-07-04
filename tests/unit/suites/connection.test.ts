@@ -19,6 +19,11 @@ jest.mock('azure-kusto-data', () => ({
       clusterUrl => `connection-string-for-${clusterUrl}`,
     ),
   },
+  ClientRequestProperties: class {
+    setClientTimeout() {
+      /* no-op for tests */
+    }
+  },
 }));
 jest.mock('../../../src/auth/token-credentials.js', () => ({
   createTokenCredential: jest.fn(() => ({
@@ -111,7 +116,11 @@ describe('Connection Management Unit Tests', () => {
 
       // Verify the mock calls
       expect(mockExecute).toHaveBeenCalledTimes(1);
-      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', 'print now()');
+      expect(mockExecute).toHaveBeenCalledWith(
+        'ContosoSales',
+        'print now()',
+        expect.anything(),
+      );
 
       // Verify connection state
       expect(connection.isInitialized()).toBe(true);
@@ -221,7 +230,11 @@ describe('Connection Management Unit Tests', () => {
       ).rejects.toThrow(KustoConnectionError);
 
       // Verify connection was attempted
-      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', 'print now()');
+      expect(mockExecute).toHaveBeenCalledWith(
+        'ContosoSales',
+        'print now()',
+        expect.anything(),
+      );
 
       // Verify connection is not initialized
       expect(connection.isInitialized()).toBe(false);
@@ -245,6 +258,7 @@ describe('Connection Management Unit Tests', () => {
       expect(mockExecute).toHaveBeenCalledWith(
         'NonExistentDatabase',
         'print now()',
+        expect.anything(),
       );
 
       // Verify connection is not initialized

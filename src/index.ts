@@ -108,6 +108,9 @@ const config: KustoConfig = {
   queryTimeout: process.env.KUSTO_QUERY_TIMEOUT
     ? parseInt(process.env.KUSTO_QUERY_TIMEOUT)
     : undefined,
+  connectionTimeout: process.env.KUSTO_CONNECTION_TIMEOUT
+    ? parseInt(process.env.KUSTO_CONNECTION_TIMEOUT)
+    : undefined,
   responseFormat: responseFormat,
   markdownMaxCellLength: process.env.KUSTO_MARKDOWN_MAX_CELL_LENGTH
     ? parseInt(process.env.KUSTO_MARKDOWN_MAX_CELL_LENGTH)
