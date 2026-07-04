@@ -141,4 +141,49 @@ describe('connection init is bounded by connectionTimeout (I5)', () => {
       }
     }
   });
+
+  test('failure classification unwraps the axios .cause chain and HTTP status', async () => {
+    const { Client } = require('azure-kusto-data');
+    const cases: Array<[Record<string, unknown>, string]> = [
+      // axios rewrites top-level code to ERR_NETWORK but nests the real cause.
+      [
+        {
+          name: 'AxiosError',
+          code: 'ERR_NETWORK',
+          cause: { code: 'ECONNREFUSED' },
+        },
+        'connection_refused',
+      ],
+      [{ name: 'AxiosError', cause: { code: 'ENOTFOUND' } }, 'dns_resolution'],
+      // HTTP status carried on response even when code is an axios wrapper.
+      [
+        {
+          name: 'AxiosError',
+          code: 'ERR_BAD_REQUEST',
+          response: { status: 403 },
+        },
+        'authz',
+      ],
+      [{ code: 'ERR_NETWORK' }, 'network'],
+    ];
+    for (const [shape, expected] of cases) {
+      exporter.reset();
+      const err = Object.assign(new Error('boom'), shape);
+      Client.mockImplementation(() => ({
+        execute: jest.fn().mockRejectedValue(err),
+      }));
+      const conn = new KustoConnection({
+        authMethod: AuthenticationMethod.AzureCli,
+      });
+      await expect(
+        conn.initialize('https://help.kusto.windows.net', 'db'),
+      ).rejects.toThrow();
+      const span = exporter
+        .getFinishedSpans()
+        .find(s => s.name === 'mcp.connection.init');
+      expect(span?.attributes['kustomcp.connection.failure_category']).toBe(
+        expected,
+      );
+    }
+  });
 });

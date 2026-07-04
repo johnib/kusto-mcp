@@ -72,10 +72,14 @@ function classifyConnectionFailure(error: unknown): {
     name?: string;
     code?: string;
     response?: { status?: number };
+    cause?: { code?: string };
   };
   if (e?.name === 'KustoAuthenticationError') return { category: 'auth' };
   if (e?.name === 'ThrottlingError')
     return { category: 'throttled', httpStatus: 429 };
+  // HTTP status is the most reliable signal for server-side failures. axios may
+  // rewrite the top-level code (e.g. ERR_BAD_REQUEST/ERR_BAD_RESPONSE) while the
+  // status still sits on error.response.
   const status = e?.response?.status;
   if (typeof status === 'number') {
     if (status === 401 || status === 403)
@@ -84,22 +88,28 @@ function classifyConnectionFailure(error: unknown): {
     if (status >= 500) return { category: 'http_5xx', httpStatus: status };
     if (status >= 400) return { category: 'http_4xx', httpStatus: status };
   }
-  switch (e?.code) {
-    case 'ENOTFOUND':
-    case 'EAI_AGAIN':
-      return { category: 'dns_resolution' };
-    case 'ECONNREFUSED':
-      return { category: 'connection_refused' };
-    case 'ETIMEDOUT':
-    case 'ECONNABORTED':
-      return { category: 'timeout' };
-    case 'ERR_NETWORK':
-      return { category: 'network' };
+  // Network-level failures: axios frequently nests the original OS error under
+  // `.cause`, so match the top-level code AND the cause's code.
+  const codes = [e?.code, e?.cause?.code].filter(
+    (c): c is string => typeof c === 'string',
+  );
+  for (const code of codes) {
+    switch (code) {
+      case 'ENOTFOUND':
+      case 'EAI_AGAIN':
+        return { category: 'dns_resolution' };
+      case 'ECONNREFUSED':
+        return { category: 'connection_refused' };
+      case 'ETIMEDOUT':
+      case 'ECONNABORTED':
+        return { category: 'timeout' };
+    }
+    // Node TLS error CODES (e.g. CERT_HAS_EXPIRED,
+    // UNABLE_TO_VERIFY_LEAF_SIGNATURE) — the code, never the message.
+    if (/CERT|_SSL|_SIGN|TLS/i.test(code)) return { category: 'tls' };
   }
-  // Node TLS error CODES (e.g. CERT_HAS_EXPIRED, UNABLE_TO_VERIFY_LEAF_SIGNATURE,
-  // DEPTH_ZERO_SELF_SIGNED_CERT) — the code, never the message.
-  if (e?.code && /CERT|_SSL|_SIGN|TLS/i.test(e.code))
-    return { category: 'tls' };
+  // axios's generic network error, when no more specific code surfaced.
+  if (codes.includes('ERR_NETWORK')) return { category: 'network' };
   return { category: 'unknown' };
 }
 
@@ -294,15 +304,15 @@ export class KustoConnection {
         this.database = database;
 
         debugLog('Connection initialized successfully');
-        // Onboarding funnel: true only on this install's first-ever success.
-        span.setAttribute('kustomcp.connection.first_success', markConnected());
+        // Record duration BEFORE markConnected so its one-time sync I/O (first
+        // success only) isn't folded into the reported connection duration.
+        const elapsedMs = Date.now() - startedAt;
         span.setAttribute('kustomcp.connection.outcome', 'success');
         span.setAttribute('kustomcp.connection.timed_out', false);
-        span.setAttribute(
-          'kustomcp.connection.duration_ms',
-          Date.now() - startedAt,
-        );
-        connectionDurationHistogram.record(Date.now() - startedAt, {
+        span.setAttribute('kustomcp.connection.duration_ms', elapsedMs);
+        // Onboarding funnel: true only on this install's first-ever success.
+        span.setAttribute('kustomcp.connection.first_success', markConnected());
+        connectionDurationHistogram.record(elapsedMs, {
           source,
           outcome: 'success',
         });
@@ -321,11 +331,24 @@ export class KustoConnection {
 
         criticalLog(`Failed to initialize connection: ${errorMessage}`);
 
+        // Debug-only (stderr, never telemetry): the raw fields the classifier
+        // keys on, so the failure_category enum can be validated against real
+        // azure-kusto-data/axios error shapes post-deploy.
+        const rawErr = error as {
+          name?: string;
+          code?: string;
+          cause?: { code?: string };
+          response?: { status?: number };
+        };
+        debugLog(
+          `connection failure shape: name=${rawErr?.name} code=${rawErr?.code} cause=${rawErr?.cause?.code} status=${rawErr?.response?.status}`,
+        );
+
         const classified = classifyConnectionFailure(error);
         // A fired deadline is definitively a timeout, regardless of the wrapped
         // error's shape.
         const category = timedOut ? 'timeout' : classified.category;
-        const outcome = connectionOutcome(classified.category, timedOut);
+        const outcome = connectionOutcome(category, timedOut);
         span.setAttribute('kustomcp.connection.failure_category', category);
         span.setAttribute('kustomcp.connection.outcome', outcome);
         span.setAttribute('kustomcp.connection.timed_out', timedOut);
