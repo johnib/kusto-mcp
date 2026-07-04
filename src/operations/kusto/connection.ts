@@ -8,9 +8,13 @@ import {
   KustoQueryError,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
-import { captureIdentity } from '../../common/identity.js';
+import {
+  captureIdentity,
+  getIdentityAttributes,
+} from '../../common/identity.js';
 import {
   SeverityNumber,
+  carryErrorRecording,
   connectionAttemptsCounter,
   connectionFailuresCounter,
   emitLog,
@@ -33,6 +37,64 @@ function classifyQueryOutcome(
   if (m.includes('throttl') || m.includes('e_too_many') || m.includes('429'))
     return 'throttled';
   return 'error';
+}
+
+/**
+ * Map a connection failure to a bounded, non-identifying category (+ the HTTP
+ * status when present). Reads only the error class name, the network `code`
+ * (ECONNREFUSED / ENOTFOUND / TLS cert codes …) and the numeric HTTP status —
+ * never the error message, which could echo a cluster/db name or identifier.
+ * The returned category is a closed enum safe to use as a span attribute and a
+ * metric label.
+ */
+function classifyConnectionFailure(error: unknown): {
+  category:
+    | 'dns_resolution'
+    | 'connection_refused'
+    | 'tls'
+    | 'timeout'
+    | 'network'
+    | 'http_4xx'
+    | 'http_5xx'
+    | 'authz'
+    | 'auth'
+    | 'throttled'
+    | 'unknown';
+  httpStatus?: number;
+} {
+  const e = error as {
+    name?: string;
+    code?: string;
+    response?: { status?: number };
+  };
+  if (e?.name === 'KustoAuthenticationError') return { category: 'auth' };
+  if (e?.name === 'ThrottlingError')
+    return { category: 'throttled', httpStatus: 429 };
+  const status = e?.response?.status;
+  if (typeof status === 'number') {
+    if (status === 401 || status === 403)
+      return { category: 'authz', httpStatus: status };
+    if (status === 429) return { category: 'throttled', httpStatus: status };
+    if (status >= 500) return { category: 'http_5xx', httpStatus: status };
+    if (status >= 400) return { category: 'http_4xx', httpStatus: status };
+  }
+  switch (e?.code) {
+    case 'ENOTFOUND':
+    case 'EAI_AGAIN':
+      return { category: 'dns_resolution' };
+    case 'ECONNREFUSED':
+      return { category: 'connection_refused' };
+    case 'ETIMEDOUT':
+    case 'ECONNABORTED':
+      return { category: 'timeout' };
+    case 'ERR_NETWORK':
+      return { category: 'network' };
+  }
+  // Node TLS error CODES (e.g. CERT_HAS_EXPIRED, UNABLE_TO_VERIFY_LEAF_SIGNATURE,
+  // DEPTH_ZERO_SELF_SIGNED_CERT) — the code, never the message.
+  if (e?.code && /CERT|_SSL|_SIGN|TLS/i.test(e.code))
+    return { category: 'tls' };
+  return { category: 'unknown' };
 }
 
 /**
@@ -68,6 +130,7 @@ export class KustoConnection {
     source: 'auto' | 'manual' = 'manual',
   ): Promise<{ success: boolean; cluster: string; database: string }> {
     return tracer.startActiveSpan('mcp.connection.init', async span => {
+      span.setAttribute('kustomcp.connection.source', source);
       connectionAttemptsCounter.add(1, { source });
       try {
         debugLog(
@@ -76,11 +139,12 @@ export class KustoConnection {
 
         // Capture anonymous cohort hashes (company/user) from the access token.
         // Best-effort; never throws. Done before validation so an authenticated
-        // user that fails to connect is still counted.
-        const identity = await captureIdentity(clusterUrl, scope =>
+        // user that fails to connect is still counted. On failure this also
+        // records a bounded classification of WHY (identity_state / auth.*).
+        await captureIdentity(clusterUrl, scope =>
           this.tokenCredential.getToken(scope),
         );
-        for (const [k, v] of Object.entries(identity)) {
+        for (const [k, v] of Object.entries(getIdentityAttributes())) {
           if (v !== undefined && v !== null) span.setAttribute(k, v);
         }
 
@@ -128,16 +192,27 @@ export class KustoConnection {
 
         criticalLog(`Failed to initialize connection: ${errorMessage}`);
 
+        const { category, httpStatus } = classifyConnectionFailure(error);
+        span.setAttribute('kustomcp.connection.failure_category', category);
+        if (httpStatus !== undefined) {
+          span.setAttribute('kustomcp.http.status_code', httpStatus);
+        }
         connectionFailuresCounter.add(1, {
+          source,
           error_type: error instanceof Error ? error.name : 'unknown',
+          failure_category: category,
         });
         recordSpanError(span, error);
         emitLog(SeverityNumber.ERROR, 'ERROR', 'Connection failed', {
+          'kustomcp.connection.source': source,
+          'kustomcp.connection.failure_category': category,
           'kustomcp.error.type':
             error instanceof Error ? error.name : 'unknown',
         });
 
-        throw new KustoConnectionError(errorMessage);
+        const wrapped = new KustoConnectionError(errorMessage);
+        carryErrorRecording(error, wrapped);
+        throw wrapped;
       } finally {
         span.end();
       }
@@ -234,6 +309,7 @@ export class KustoConnection {
           // Don't wrap as KustoQueryError here since queries.ts will handle it
           // Just rethrow with the detailed error message
           const customError = new Error(errorMessage);
+          carryErrorRecording(error, customError);
           throw customError;
         } finally {
           span.end();

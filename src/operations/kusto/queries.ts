@@ -4,7 +4,10 @@ import {
   KustoQueryError,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
-import { recordSpanError } from '../../common/telemetry.js';
+import {
+  carryErrorRecording,
+  recordSpanError,
+} from '../../common/telemetry.js';
 import { KustoQueryResult } from '../../types/kusto-interfaces.js';
 import { KustoConfig } from '../../types/config.js';
 import { KustoConnection } from './connection.js';
@@ -241,7 +244,9 @@ export async function executeQuery(
 
       recordSpanError(span, error);
 
-      throw new KustoQueryError(errorMessage);
+      const wrapped = new KustoQueryError(errorMessage);
+      carryErrorRecording(error, wrapped);
+      throw wrapped;
     } finally {
       span.end();
     }
@@ -358,7 +363,9 @@ export async function executeQueryWithTransformation(
           throw error;
         }
 
-        throw new KustoQueryError(errorMessage);
+        const wrapped = new KustoQueryError(errorMessage);
+        carryErrorRecording(error, wrapped);
+        throw wrapped;
       } finally {
         span.end();
       }
@@ -401,7 +408,9 @@ export async function executeManagementCommand(
 
       recordSpanError(span, error);
 
-      throw new KustoQueryError(errorMessage);
+      const wrapped = new KustoQueryError(errorMessage);
+      carryErrorRecording(error, wrapped);
+      throw wrapped;
     } finally {
       span.end();
     }
