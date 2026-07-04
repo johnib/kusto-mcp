@@ -20,6 +20,7 @@ import {
   SeverityNumber,
   carryErrorRecording,
   connectionAttemptsCounter,
+  connectionDurationHistogram,
   connectionFailuresCounter,
   emitLog,
   queriesCounter,
@@ -102,6 +103,54 @@ function classifyConnectionFailure(error: unknown): {
 }
 
 /**
+ * Map a failure category (+ whether our deadline fired) to a coarse connection
+ * outcome used as a metric label. Kept low-cardinality so it is cheap to slice.
+ */
+function connectionOutcome(
+  category: ReturnType<typeof classifyConnectionFailure>['category'],
+  timedOut: boolean,
+):
+  | 'timeout'
+  | 'auth_error'
+  | 'authz_denied'
+  | 'throttled'
+  | 'network_error'
+  | 'error' {
+  if (timedOut || category === 'timeout') return 'timeout';
+  if (category === 'auth') return 'auth_error';
+  if (category === 'authz') return 'authz_denied';
+  if (category === 'throttled') return 'throttled';
+  if (
+    category === 'dns_resolution' ||
+    category === 'connection_refused' ||
+    category === 'tls' ||
+    category === 'network'
+  )
+    return 'network_error';
+  return 'error';
+}
+
+/**
+ * Cloud class from the cluster host SUFFIX only. The org-specific subdomain is
+ * dropped before emit, so the result is one of four fixed, non-identifying
+ * values — never the cluster name.
+ */
+function classifyCloud(
+  clusterUrl: string,
+): 'public' | 'usgov' | 'china' | 'other' {
+  let host: string;
+  try {
+    host = new URL(clusterUrl).hostname.toLowerCase();
+  } catch {
+    return 'other';
+  }
+  if (host.endsWith('.kusto.windows.net')) return 'public';
+  if (host.endsWith('.kusto.usgovcloudapi.net')) return 'usgov';
+  if (host.endsWith('.kusto.chinacloudapi.cn')) return 'china';
+  return 'other';
+}
+
+/**
  * Class for managing connections to Kusto clusters
  */
 export class KustoConnection {
@@ -135,11 +184,22 @@ export class KustoConnection {
   ): Promise<{ success: boolean; cluster: string; database: string }> {
     return tracer.startActiveSpan('mcp.connection.init', async span => {
       span.setAttribute('kustomcp.connection.source', source);
+      span.setAttribute('kustomcp.cloud', classifyCloud(clusterUrl));
+      span.setAttribute(
+        'kustomcp.proxy_configured',
+        !!(
+          process.env.HTTPS_PROXY ||
+          process.env.https_proxy ||
+          process.env.HTTP_PROXY ||
+          process.env.http_proxy
+        ),
+      );
       connectionAttemptsCounter.add(1, { source });
       // Bound the whole init (token acquisition + validation round-trip). Without
       // it, the client's HTTP default is 270s (see azure-kusto-data
       // QUERY_TIMEOUT_IN_MILLISECS), so a bad URL or hung auth stalls for minutes.
       const connectTimeout = this.config.connectionTimeout ?? 20000;
+      const startedAt = Date.now();
       let timedOut = false;
       let deadlineTimer: NodeJS.Timeout | undefined;
       try {
@@ -210,6 +270,16 @@ export class KustoConnection {
         this.database = database;
 
         debugLog('Connection initialized successfully');
+        span.setAttribute('kustomcp.connection.outcome', 'success');
+        span.setAttribute('kustomcp.connection.timed_out', false);
+        span.setAttribute(
+          'kustomcp.connection.duration_ms',
+          Date.now() - startedAt,
+        );
+        connectionDurationHistogram.record(Date.now() - startedAt, {
+          source,
+          outcome: 'success',
+        });
         span.setStatus({ code: SpanStatusCode.OK });
         emitLog(SeverityNumber.INFO, 'INFO', 'Connection established', {
           'kustomcp.connection.source': source,
@@ -229,7 +299,14 @@ export class KustoConnection {
         // A fired deadline is definitively a timeout, regardless of the wrapped
         // error's shape.
         const category = timedOut ? 'timeout' : classified.category;
+        const outcome = connectionOutcome(classified.category, timedOut);
         span.setAttribute('kustomcp.connection.failure_category', category);
+        span.setAttribute('kustomcp.connection.outcome', outcome);
+        span.setAttribute('kustomcp.connection.timed_out', timedOut);
+        span.setAttribute(
+          'kustomcp.connection.duration_ms',
+          Date.now() - startedAt,
+        );
         if (classified.httpStatus !== undefined) {
           span.setAttribute('kustomcp.http.status_code', classified.httpStatus);
         }
@@ -237,6 +314,10 @@ export class KustoConnection {
           source,
           error_type: error instanceof Error ? error.name : 'unknown',
           failure_category: category,
+        });
+        connectionDurationHistogram.record(Date.now() - startedAt, {
+          source,
+          outcome,
         });
         recordSpanError(span, error);
         emitLog(SeverityNumber.ERROR, 'ERROR', 'Connection failed', {
@@ -275,6 +356,12 @@ export class KustoConnection {
         span.setAttribute('kustomcp.operation', operation);
         // Never record raw query text on exported spans; record only its length.
         span.setAttribute('kustomcp.query.length', query.length);
+        // Stamp the same anonymous cohort hashes carried on the parent tool span,
+        // so query outcomes/timeouts are sliceable by user/company without a
+        // trace-join. No new information type — these already exist on the trace.
+        for (const [k, v] of Object.entries(getIdentityAttributes())) {
+          if (v !== undefined && v !== null) span.setAttribute(k, v);
+        }
 
         try {
           if (!this.client) {

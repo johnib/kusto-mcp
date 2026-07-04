@@ -84,4 +84,61 @@ describe('connection init is bounded by connectionTimeout (I5)', () => {
       'timeout',
     );
   });
+
+  test('a successful init stamps cloud, source, outcome=success and duration', async () => {
+    const { Client } = require('azure-kusto-data');
+    const mockExecute = jest.fn().mockResolvedValue({
+      primaryResults: [{ data: [{ now: '2026-01-01T00:00:00Z' }] }],
+    });
+    Client.mockImplementation(() => ({ execute: mockExecute }));
+
+    const connection = new KustoConnection({
+      authMethod: AuthenticationMethod.AzureCli,
+    });
+    await connection.initialize(
+      'https://help.kusto.windows.net',
+      'Samples',
+      'auto',
+    );
+
+    const initSpan = exporter
+      .getFinishedSpans()
+      .find(s => s.name === 'mcp.connection.init');
+    const attrs = initSpan!.attributes;
+    expect(attrs['kustomcp.connection.source']).toBe('auto');
+    expect(attrs['kustomcp.cloud']).toBe('public');
+    expect(attrs['kustomcp.connection.outcome']).toBe('success');
+    expect(attrs['kustomcp.connection.timed_out']).toBe(false);
+    expect(typeof attrs['kustomcp.connection.duration_ms']).toBe('number');
+    // proxy_configured is a boolean, never the proxy value.
+    expect(typeof attrs['kustomcp.proxy_configured']).toBe('boolean');
+  });
+
+  test('classifyCloud maps sovereign-cloud host suffixes without leaking the cluster name', async () => {
+    const { Client } = require('azure-kusto-data');
+    Client.mockImplementation(() => ({
+      execute: jest.fn().mockResolvedValue({ primaryResults: [{ data: [] }] }),
+    }));
+
+    const cases: Array<[string, string]> = [
+      ['https://acme.kusto.usgovcloudapi.net', 'usgov'],
+      ['https://acme.kusto.chinacloudapi.cn', 'china'],
+      ['https://acme.example.com', 'other'],
+    ];
+    for (const [url, expected] of cases) {
+      exporter.reset();
+      const conn = new KustoConnection({
+        authMethod: AuthenticationMethod.AzureCli,
+      });
+      await conn.initialize(url, 'db');
+      const span = exporter
+        .getFinishedSpans()
+        .find(s => s.name === 'mcp.connection.init');
+      expect(span?.attributes['kustomcp.cloud']).toBe(expected);
+      // The org-specific subdomain never appears as an attribute value.
+      for (const v of Object.values(span!.attributes)) {
+        if (typeof v === 'string') expect(v).not.toContain('acme');
+      }
+    }
+  });
 });

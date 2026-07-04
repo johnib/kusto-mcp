@@ -321,6 +321,13 @@ export const queryDurationHistogram = lazyHistogram('kustomcp.query.duration', {
   unit: 'ms',
   description: 'Kusto query execution duration',
 });
+export const connectionDurationHistogram = lazyHistogram(
+  'kustomcp.connection.duration',
+  {
+    unit: 'ms',
+    description: 'Connection initialization duration',
+  },
+);
 export const queryRowsHistogram = lazyHistogram(
   'kustomcp.query.rows_returned',
   {
