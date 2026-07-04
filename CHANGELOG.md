@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/johnib/kusto-mcp/compare/v1.11.0...v1.12.0) (2026-07-04)
+
+
+### Features
+
+* anonymity-preserving connection/auth diagnostics + connection timeout ([#161](https://github.com/johnib/kusto-mcp/issues/161)) ([8f1b93d](https://github.com/johnib/kusto-mcp/commit/8f1b93dc3d3c99b30502a6d871a43a081d91c0fe))
+
 # [1.11.0](https://github.com/johnib/kusto-mcp/compare/v1.10.3...v1.11.0) (2026-07-03)
 
 
