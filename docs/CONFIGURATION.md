@@ -10,6 +10,7 @@ Create a `.env` file based on the provided `.env.example`:
 # Kusto Configuration
 KUSTO_AUTH_METHOD=azure-cli  # Options: azure-identity, azure-cli
 KUSTO_QUERY_TIMEOUT=60000  # Timeout in milliseconds (default: 60000)
+KUSTO_CONNECTION_TIMEOUT=20000  # Connection init timeout in ms (default: 20000)
 KUSTO_RESPONSE_FORMAT=json  # Options: json, markdown (default: json)
 KUSTO_MARKDOWN_MAX_CELL_LENGTH=1000  # Maximum characters per table cell (default: 1000)
 
@@ -293,6 +294,17 @@ This is useful for:
 - Long-running analytical queries
 - Large dataset processing
 - Preventing resource exhaustion
+
+### Connection Timeout
+
+Connection initialization (token acquisition + a `print now()` validation
+round-trip) is bounded separately, so an unreachable cluster or a hung auth
+fails fast instead of inheriting the client library's multi-minute default:
+
+```bash
+# Bound connection setup (default: 20000ms = 20s)
+KUSTO_CONNECTION_TIMEOUT=20000
+```
 
 ## Performance Tuning
 

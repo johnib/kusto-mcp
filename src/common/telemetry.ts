@@ -197,16 +197,55 @@ export function emitLog(
 // Span helpers
 // ---------------------------------------------------------------------------
 
+// Marks an error object whose `exception` event has already been recorded on a
+// span. A Symbol keeps the mark invisible to Object.keys / JSON / for-in, so it
+// never leaks into exported telemetry — it lives only on the in-process error.
+const EXCEPTION_RECORDED = Symbol('kustomcp.exceptionRecorded');
+
 /**
  * Mark a span as failed WITHOUT leaking any message. Kusto error messages can
  * echo identifiers or query fragments, so we record only the error class name
  * (as `kustomcp.error.type`) — never the raw message or a stack that contains it.
+ *
+ * Idempotent per error object: the `exception` event is recorded once, on the
+ * first (innermost / originating) span to see the error. Outer spans that catch
+ * a re-wrapped copy still stamp `kustomcp.error.type` + ERROR status but skip
+ * the duplicate event, so one failure is no longer counted 2-3x across the
+ * nested wrapper spans. Re-wrapping layers must call `carryErrorRecording` so
+ * the mark survives the new error object.
  */
 export function recordSpanError(span: Span, error: unknown): void {
   const type = error instanceof Error && error.name ? error.name : 'Error';
   span.setAttribute('kustomcp.error.type', type);
-  span.recordException({ name: type });
+  const obj =
+    error && typeof error === 'object'
+      ? (error as Record<PropertyKey, unknown>)
+      : undefined;
+  if (!obj?.[EXCEPTION_RECORDED]) {
+    span.recordException({ name: type });
+    if (obj && Object.isExtensible(obj)) obj[EXCEPTION_RECORDED] = true;
+  }
   span.setStatus({ code: SpanStatusCode.ERROR });
+}
+
+/**
+ * Carry the "exception already recorded" mark from a caught error onto a new
+ * error that re-wraps it. Call immediately before re-throwing a freshly
+ * constructed error, so the enclosing span's `recordSpanError` recognises the
+ * failure as already recorded and doesn't emit a duplicate `exception` event.
+ */
+export function carryErrorRecording(from: unknown, to: unknown): void {
+  const f =
+    from && typeof from === 'object'
+      ? (from as Record<PropertyKey, unknown>)
+      : undefined;
+  const t =
+    to && typeof to === 'object'
+      ? (to as Record<PropertyKey, unknown>)
+      : undefined;
+  if (f?.[EXCEPTION_RECORDED] && t && Object.isExtensible(t)) {
+    t[EXCEPTION_RECORDED] = true;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +321,13 @@ export const queryDurationHistogram = lazyHistogram('kustomcp.query.duration', {
   unit: 'ms',
   description: 'Kusto query execution duration',
 });
+export const connectionDurationHistogram = lazyHistogram(
+  'kustomcp.connection.duration',
+  {
+    unit: 'ms',
+    description: 'Connection initialization duration',
+  },
+);
 export const queryRowsHistogram = lazyHistogram(
   'kustomcp.query.rows_returned',
   {

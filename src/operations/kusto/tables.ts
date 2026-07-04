@@ -8,7 +8,10 @@ import {
   validateEntityName,
 } from '../../common/kql-safety.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
-import { recordSpanError } from '../../common/telemetry.js';
+import {
+  carryErrorRecording,
+  recordSpanError,
+} from '../../common/telemetry.js';
 import {
   KustoFunctionListItem,
   KustoFunctionSchema,
@@ -90,7 +93,11 @@ export async function showTables(
 
       recordSpanError(span, error);
 
-      throw new KustoQueryError(`Failed to list tables: ${errorMessage}`);
+      const wrapped = new KustoQueryError(
+        `Failed to list tables: ${errorMessage}`,
+      );
+      carryErrorRecording(error, wrapped);
+      throw wrapped;
     } finally {
       span.end();
     }
@@ -193,7 +200,11 @@ export async function showTable(
         throw error;
       }
 
-      throw new KustoQueryError(`Failed to get table schema: ${errorMessage}`);
+      const wrapped = new KustoQueryError(
+        `Failed to get table schema: ${errorMessage}`,
+      );
+      carryErrorRecording(error, wrapped);
+      throw wrapped;
     } finally {
       span.end();
     }
@@ -280,7 +291,11 @@ export async function showFunctions(
 
       recordSpanError(span, error);
 
-      throw new KustoQueryError(`Failed to list functions: ${errorMessage}`);
+      const wrapped = new KustoQueryError(
+        `Failed to list functions: ${errorMessage}`,
+      );
+      carryErrorRecording(error, wrapped);
+      throw wrapped;
     } finally {
       span.end();
     }
@@ -388,9 +403,11 @@ export async function showFunction(
         throw error;
       }
 
-      throw new KustoQueryError(
+      const wrapped = new KustoQueryError(
         `Failed to get function details: ${errorMessage}`,
       );
+      carryErrorRecording(error, wrapped);
+      throw wrapped;
     } finally {
       span.end();
     }

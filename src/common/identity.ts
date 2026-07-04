@@ -26,6 +26,29 @@ const MSA_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
 
 let identityAttrs: Attributes = {};
 
+/**
+ * Lifecycle of identity capture for the current connection:
+ *   - pre_connect: no connection attempt yet (initial).
+ *   - unavailable: a token acquisition was attempted but no identity resolved
+ *     (auth failed, or the token had no id claims) — makes the "authenticated
+ *     but unidentifiable" cohort countable instead of a silent blank.
+ *   - captured: cohort hashes were derived from a token.
+ */
+type IdentityState = 'pre_connect' | 'captured' | 'unavailable';
+let identityState: IdentityState = 'pre_connect';
+
+// AADSTS codes for conditional-access / MFA-style failures → a stable stage.
+const CONDITIONAL_ACCESS_CODES = new Set([50076, 50079, 50005, 53003, 50158]);
+// Structured OAuth error identifiers (errorResponse.error) → failure stage.
+const OAUTH_ERROR_STAGE: Record<string, string> = {
+  interaction_required: 'interactive_required',
+  consent_required: 'consent_required',
+  invalid_client: 'invalid_client',
+  unauthorized_client: 'invalid_client',
+  invalid_grant: 'invalid_grant',
+  invalid_scope: 'invalid_scope',
+};
+
 /** One-way salted hash, truncated. */
 function hashId(value: string): string {
   return crypto
@@ -74,23 +97,79 @@ export function buildIdentityAttributes(
 
 /** Anonymous cohort attributes for the current connection. */
 export function getIdentityAttributes(): Attributes {
-  return identityAttrs;
+  return { ...identityAttrs, 'kustomcp.identity_state': identityState };
 }
 
 export function clearIdentity(): void {
   identityAttrs = {};
+  identityState = 'pre_connect';
+}
+
+/**
+ * Classify a token-acquisition failure into bounded, non-identifying cohort
+ * attributes. Reads ONLY structured fields — @azure/identity's
+ * `errorResponse.errorCodes` (numeric AADSTS codes) and `.error` (an OAuth error
+ * identifier) — plus the error class name. It never reads any message,
+ * errorDescription, correlationId, traceId, or timestamp, so nothing free-form
+ * or identifying can escape. Cardinality is bounded by the enum/code sets.
+ */
+function classifyAuthError(error: unknown): Attributes {
+  const attrs: Attributes = { 'kustomcp.auth.token_acquired': false };
+  const name = error instanceof Error ? error.name : '';
+
+  // ChainedTokenCredential aggregates each credential's failure; the first
+  // AuthenticationError carries the structured AAD response.
+  const inner =
+    name === 'AggregateAuthenticationError'
+      ? (error as { errors?: unknown[] }).errors?.[0]
+      : error;
+  const resp = (
+    inner as {
+      errorResponse?: { error?: string; errorCodes?: number[] };
+    } | null
+  )?.errorResponse;
+
+  if (resp) {
+    const code = Array.isArray(resp.errorCodes)
+      ? resp.errorCodes[0]
+      : undefined;
+    // A Microsoft-published error code (app/policy state), not tenant identity.
+    if (typeof code === 'number')
+      attrs['kustomcp.auth.aadsts'] = `AADSTS${code}`;
+    attrs['kustomcp.auth.failure_stage'] =
+      (typeof code === 'number' &&
+        CONDITIONAL_ACCESS_CODES.has(code) &&
+        'conditional_access') ||
+      (resp.error && OAUTH_ERROR_STAGE[resp.error]) ||
+      'token_acquire';
+    return attrs;
+  }
+
+  // Credential-unavailable (e.g. Azure CLI not installed / not logged in).
+  // Classified by CLASS only — we intentionally do NOT read its message, so
+  // the granularity is coarse rather than risk echoing environment specifics.
+  if (name === 'CredentialUnavailableError') {
+    attrs['kustomcp.auth.failure_stage'] = 'credential_unavailable';
+    return attrs;
+  }
+
+  attrs['kustomcp.auth.failure_stage'] = 'unknown';
+  return attrs;
 }
 
 /**
  * Acquire a token, decode its identity claims (tenant, object id, principal
  * type), and store the salted cohort hashes. Never throws — telemetry must not
- * break a connection.
+ * break a connection. On failure it records a bounded, non-identifying
+ * classification of WHY (see classifyAuthError) instead of a silent blank.
  */
 export async function captureIdentity(
   clusterUrl: string,
   getToken: (scope: string) => Promise<{ token: string } | null>,
 ): Promise<Attributes> {
   identityAttrs = {};
+  // A token acquisition is being attempted; downgraded to 'captured' on success.
+  identityState = 'unavailable';
   try {
     const origin = new URL(clusterUrl).origin;
     const tokenResponse = await getToken(`${origin}/.default`);
@@ -98,11 +177,15 @@ export async function captureIdentity(
       identityAttrs = buildIdentityAttributes(
         decodeJwtClaims(tokenResponse.token),
       );
+      identityState = 'captured';
       debugLog('Telemetry identity captured');
     }
   } catch (error) {
+    identityAttrs = classifyAuthError(error);
     debugLog(
-      `Telemetry identity capture skipped: ${error instanceof Error ? error.message : String(error)}`,
+      `Telemetry identity capture failed: stage=${String(
+        identityAttrs['kustomcp.auth.failure_stage'],
+      )}`,
     );
   }
   return identityAttrs;

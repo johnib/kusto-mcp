@@ -9,6 +9,7 @@ import {
   captureIdentity,
   clearIdentity,
   decodeJwtClaims,
+  getIdentityAttributes,
 } from '../../../src/common/identity.js';
 
 const MSA_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
@@ -106,16 +107,72 @@ describe('anonymous cohort identity', () => {
       );
       expect(a['kustomcp.user_hash']).toBeDefined();
       expect(a['kustomcp.company_hash']).toBeDefined();
+      // identity_state is exposed via getIdentityAttributes, not the raw return.
+      expect(getIdentityAttributes()['kustomcp.identity_state']).toBe(
+        'captured',
+      );
     });
 
-    test('never throws when token acquisition fails', async () => {
+    test('never throws when token acquisition fails; classifies the failure', async () => {
       const a = await captureIdentity(
         'https://help.kusto.windows.net',
         async () => {
           throw new Error('token failed');
         },
       );
-      expect(a).toEqual({});
+      // No cohort hashes when no token resolves...
+      expect(a['kustomcp.user_hash']).toBeUndefined();
+      expect(a['kustomcp.company_hash']).toBeUndefined();
+      // ...but the failure is classified (bounded, non-identifying).
+      expect(a['kustomcp.auth.token_acquired']).toBe(false);
+      expect(a['kustomcp.auth.failure_stage']).toBe('unknown');
+      expect(getIdentityAttributes()['kustomcp.identity_state']).toBe(
+        'unavailable',
+      );
+    });
+
+    test('extracts AADSTS code + failure_stage from a structured AAD error, never a message', async () => {
+      // Shape mirrors @azure/identity AuthenticationError.errorResponse.
+      const authError = Object.assign(new Error('should NOT be read'), {
+        name: 'AuthenticationError',
+        errorResponse: {
+          error: 'interaction_required',
+          errorDescription: 'AADSTS50076: secret tenant detail here',
+          errorCodes: [50076],
+          correlationId: 'do-not-read',
+        },
+      });
+      const a = await captureIdentity(
+        'https://help.kusto.windows.net',
+        async () => {
+          throw authError;
+        },
+      );
+      expect(a['kustomcp.auth.aadsts']).toBe('AADSTS50076');
+      expect(a['kustomcp.auth.failure_stage']).toBe('conditional_access');
+      expect(a['kustomcp.auth.token_acquired']).toBe(false);
+      // No hashes, and nothing echoes the message/description/correlationId.
+      for (const v of Object.values(a)) {
+        if (typeof v === 'string') {
+          expect(v).not.toContain('secret tenant detail');
+          expect(v).not.toContain('do-not-read');
+        }
+      }
+    });
+
+    test('classifies credential-unavailable by class only (no message read)', async () => {
+      const credErr = Object.assign(
+        new Error('Azure CLI not installed / az login required — env specific'),
+        { name: 'CredentialUnavailableError' },
+      );
+      const a = await captureIdentity(
+        'https://help.kusto.windows.net',
+        async () => {
+          throw credErr;
+        },
+      );
+      expect(a['kustomcp.auth.failure_stage']).toBe('credential_unavailable');
+      expect(a['kustomcp.auth.aadsts']).toBeUndefined();
     });
   });
 });

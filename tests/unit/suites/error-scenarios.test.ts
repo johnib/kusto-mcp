@@ -26,6 +26,11 @@ jest.mock('azure-kusto-data', () => ({
       clusterUrl => `connection-string-for-${clusterUrl}`,
     ),
   },
+  ClientRequestProperties: class {
+    setClientTimeout() {
+      /* no-op for tests */
+    }
+  },
 }));
 
 jest.mock('../../../src/auth/token-credentials.js', () => ({
@@ -279,7 +284,11 @@ describe('Error Scenarios Unit Tests', () => {
       ).rejects.toThrow('ENOTFOUND');
 
       // Verify connection attempt was made with new validation query
-      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', 'print now()');
+      expect(mockExecute).toHaveBeenCalledWith(
+        'ContosoSales',
+        'print now()',
+        expect.anything(),
+      );
     });
 
     test('should handle database connection errors', async () => {
@@ -299,6 +308,7 @@ describe('Error Scenarios Unit Tests', () => {
       expect(mockExecute).toHaveBeenCalledWith(
         'NonExistentDatabase123',
         'print now()',
+        expect.anything(),
       );
     });
 
@@ -330,7 +340,11 @@ describe('Error Scenarios Unit Tests', () => {
         ),
       ).rejects.toThrow('Network error');
 
-      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', 'print now()');
+      expect(mockExecute).toHaveBeenCalledWith(
+        'ContosoSales',
+        'print now()',
+        expect.anything(),
+      );
     });
   });
 
@@ -415,7 +429,11 @@ describe('Error Scenarios Unit Tests', () => {
       ).rejects.toThrow(KustoConnectionError);
 
       // Verify the query was attempted with empty database name
-      expect(mockExecute).toHaveBeenCalledWith('', 'print now()');
+      expect(mockExecute).toHaveBeenCalledWith(
+        '',
+        'print now()',
+        expect.anything(),
+      );
     });
 
     test('should handle invalid parameter types gracefully', async () => {

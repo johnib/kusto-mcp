@@ -83,11 +83,28 @@ jest.mock('azure-kusto-data', () => {
     }
   }
 
+  class MockClientRequestProperties {
+    private clientTimeout?: number;
+    setClientTimeout(timeoutMillis: number) {
+      this.clientTimeout = timeoutMillis;
+    }
+    getClientTimeout() {
+      return this.clientTimeout;
+    }
+    setOption() {
+      /* no-op for tests */
+    }
+    toJSON() {
+      return {};
+    }
+  }
+
   return {
     Client: MockClient,
     KustoConnectionStringBuilder: MockKustoConnectionStringBuilder,
     KustoResultTable: MockKustoResultTable,
     KustoResultColumn: MockKustoResultColumn,
+    ClientRequestProperties: MockClientRequestProperties,
   };
 });
 
