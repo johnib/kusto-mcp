@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/johnib/kusto-mcp/compare/v1.12.0...v1.13.0) (2026-07-05)
+
+
+### Features
+
+* add report-issue tool for filing GitHub issues via pre-filled URL ([#162](https://github.com/johnib/kusto-mcp/issues/162)) ([feb460b](https://github.com/johnib/kusto-mcp/commit/feb460bdd71692d6bace3abf156e019ee3446938))
+
 # [1.12.0](https://github.com/johnib/kusto-mcp/compare/v1.11.0...v1.12.0) (2026-07-04)
 
 
