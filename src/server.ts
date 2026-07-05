@@ -33,6 +33,7 @@ import {
   showTables,
 } from './operations/kusto/index.js';
 import { showFunctions } from './operations/kusto/tables.js';
+import { buildReportIssueUrl } from './operations/github/index.js';
 import { PromptManager } from './operations/prompts/index.js';
 import { KustoConfig, validateConfig } from './types/config.js';
 
@@ -62,6 +63,31 @@ const ShowFunctionSchema = z.object({
   functionName: z
     .string()
     .describe('The name of the function to get details for'),
+});
+
+const ReportIssueSchema = z.object({
+  title: z
+    .string()
+    .min(1)
+    .max(256)
+    .describe('Short summary line for the GitHub issue'),
+  body: z
+    .string()
+    .optional()
+    .describe(
+      'Full description (Markdown): what happened, expected vs actual behavior, and steps to reproduce.',
+    ),
+  labels: z
+    .array(z.string())
+    .optional()
+    .describe("Labels to pre-select, e.g. ['bug'] or ['enhancement']."),
+  includeDiagnostics: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe(
+      'Append non-sensitive environment info (kusto-mcp/node/OS/MCP-client versions, connection state, response format, write mode). Never includes cluster URL, database, identity, query text, or results.',
+    ),
 });
 
 /**
@@ -173,6 +199,12 @@ export function createKustoServer(config: KustoConfig): Server {
           description:
             'Show details of a specific function, including its code and parameters',
           inputSchema: z.toJSONSchema(ShowFunctionSchema),
+        },
+        {
+          name: 'report-issue',
+          description:
+            'Report a bug or request a feature for kusto-mcp on GitHub. Returns a pre-filled GitHub issue link you open in your browser and submit under your own GitHub account — no GitHub token is used or stored, and no Kusto connection is required.',
+          inputSchema: z.toJSONSchema(ReportIssueSchema),
         },
       ],
     };
@@ -476,6 +508,82 @@ export function createKustoServer(config: KustoConfig): Server {
                 content: [
                   { type: 'text', text: JSON.stringify(result, null, 2) },
                 ],
+              };
+            }
+
+            case 'report-issue': {
+              const args = ReportIssueSchema.parse(request.params.arguments);
+
+              // Whitelisted, low-sensitivity diagnostics only. Never the
+              // cluster URL, database, identity, query text, or results.
+              const diagnostics = {
+                'kusto-mcp': VERSION,
+                node: process.version,
+                os: `${process.platform}/${process.arch}`,
+                'mcp client': clientInfo?.name
+                  ? `${clientInfo.name} ${clientInfo.version ?? ''}`.trim()
+                  : 'unknown',
+                'kusto connected': connection ? 'yes' : 'no',
+                'response format': validatedConfig.responseFormat ?? 'json',
+                'write mode':
+                  (validatedConfig.allowWriteOperations ?? true) ? 'on' : 'off',
+              };
+
+              const report = buildReportIssueUrl({
+                title: args.title,
+                body: args.body,
+                labels: args.labels,
+                diagnostics,
+                includeDiagnostics: args.includeDiagnostics,
+              });
+
+              // Privacy-safe telemetry: counts/flags only, never the text.
+              span.setAttribute(
+                'kustomcp.report.body_len',
+                (args.body ?? '').length,
+              );
+              span.setAttribute(
+                'kustomcp.report.label_count',
+                args.labels?.length ?? 0,
+              );
+              span.setAttribute(
+                'kustomcp.report.url_truncated',
+                report.bodyTruncated,
+              );
+              span.setAttribute(
+                'kustomcp.report.diagnostics_included',
+                report.diagnosticsIncluded,
+              );
+
+              const notes: string[] = [];
+              if (report.bodyTruncated) {
+                notes.push(
+                  'Note: the body was truncated to fit GitHub’s URL length limit — you can paste any missing detail after opening the link.',
+                );
+              }
+              if (
+                args.includeDiagnostics !== false &&
+                !report.diagnosticsIncluded
+              ) {
+                notes.push(
+                  'Note: the environment footer was dropped to fit the URL length limit.',
+                );
+              }
+
+              const text = [
+                `[Open a pre-filled GitHub issue for kusto-mcp](${report.url})`,
+                '',
+                'Open this link in a browser where you are signed in to GitHub, review the pre-filled title and body, then click **Submit new issue**. Nothing is filed automatically — this server holds no GitHub token and creates nothing on your behalf.',
+                ...(notes.length > 0 ? ['', ...notes] : []),
+                '',
+                'If the link is not clickable, copy this URL:',
+                '```',
+                report.url,
+                '```',
+              ].join('\n');
+
+              return {
+                content: [{ type: 'text', text }],
               };
             }
 
