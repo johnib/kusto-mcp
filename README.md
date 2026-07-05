@@ -43,7 +43,8 @@ Add this to your `cline_mcp_settings.json` file:
         "initialize-connection",
         "show-tables",
         "show-table",
-        "execute-query"
+        "execute-query",
+        "report-issue"
       ]
     }
   }
@@ -150,8 +151,19 @@ This MCP server provides your AI assistant with tools to:
 - Browse database tables and schemas
 - Execute KQL queries with intelligent result limiting
 - Handle authentication securely through Azure CLI
+- Report a bug or request a feature on GitHub (`report-issue`)
 
 Results are automatically formatted and sized appropriately for AI context windows, so your assistant gets the data it needs without being overwhelmed.
+
+## Reporting a Problem
+
+Hit a bug or want a feature? Ask your AI assistant to **"report a kusto-mcp issue about …"** and it will call the `report-issue` tool.
+
+The tool returns a **pre-filled GitHub issue link** — open it in a browser where you're signed in to GitHub, review the title and body, and click **Submit new issue**. A few things worth knowing:
+
+- **No GitHub token is needed or stored.** The server never files anything on your behalf; the issue is created under your own GitHub account when you submit the form. (You do need a GitHub account to submit.)
+- **Works even when the connection is broken** — it doesn't require an active Kusto connection, so it's the right tool for reporting connection problems.
+- By default a small, non-sensitive **environment footer** (kusto-mcp/Node/OS/MCP-client versions, whether a connection is active, response format, write mode) is appended to help triage. Pass `includeDiagnostics: false` to omit it. It never includes your cluster URL, database, identity, query text, or results.
 
 ## Telemetry & Privacy
 
