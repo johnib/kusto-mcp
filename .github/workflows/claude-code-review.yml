@@ -7,7 +7,12 @@ on:
 
 jobs:
   claude-review:
-    if: github.actor != 'dependabot[bot]'
+    # Skip fork PRs: they run without the base repo's secrets/OIDC, so the
+    # reviewer can't authenticate and the job fails. Review external
+    # contributions on demand by commenting `@claude` (see claude.yml).
+    if: >-
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     # ANTHROPIC_BASE_URL must be job-level: a `uses:` step's env block does not
     # reach the composite action's `${{ env.* }}` context, so a step-level value
