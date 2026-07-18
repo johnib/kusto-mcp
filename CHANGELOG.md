@@ -1,3 +1,10 @@
+## [1.13.1](https://github.com/johnib/kusto-mcp/compare/v1.13.0...v1.13.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* **ci:** repair [@claude](https://github.com/claude) workflow auth and restrict trigger to owner ([#175](https://github.com/johnib/kusto-mcp/issues/175)) ([685ed4d](https://github.com/johnib/kusto-mcp/commit/685ed4d04280576727421571ea330d0fa6bbe2b8))
+
 # [1.13.0](https://github.com/johnib/kusto-mcp/compare/v1.12.0...v1.13.0) (2026-07-05)
 
 
