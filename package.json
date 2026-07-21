@@ -84,7 +84,7 @@
     "node": ">=18.0.0"
   },
   "overrides": {
-    "body-parser": "^2.2.1",
+    "body-parser": "^2.3.0",
     "glob": "^11.0.0",
     "undici": "^6.23.0"
   },
