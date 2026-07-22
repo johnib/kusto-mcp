@@ -12,6 +12,7 @@ import {
   startTelemetry,
 } from './common/telemetry.js';
 import { createKustoServer } from './server.js';
+import { installStdioLifecycle } from './common/lifecycle.js';
 import { VERSION } from './common/version.js';
 import {
   AuthenticationMethod,
@@ -222,10 +223,12 @@ async function runServer() {
   // telemetry export holds a live socket that would otherwise keep the event
   // loop from draining, so the process must be told to shut down. shutdownAndExit
   // then force-exits within the bounded flush race regardless of pending sockets.
+  //
+  // Both a clean close ('end'/'close') AND an abrupt broken pipe ('error') must
+  // trigger shutdown — the latter is how a killed client/wrapper disconnect shows
+  // up on Windows, and without it the server is left running as an orphan.
   const onDisconnect = () => void shutdownAndExit('client-disconnect');
-  transport.onclose = onDisconnect;
-  process.stdin.once('end', onDisconnect);
-  process.stdin.once('close', onDisconnect);
+  installStdioLifecycle({ transport, stdin: process.stdin, onDisconnect });
   await server.connect(transport);
 
   criticalLog('Kusto MCP Server running on stdio');
