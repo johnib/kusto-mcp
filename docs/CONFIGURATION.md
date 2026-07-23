@@ -21,9 +21,39 @@ KUSTO_MIN_RESPONSE_ROWS=1  # Minimum rows to return when data exists (default: 1
 # Safety
 KUSTO_ALLOW_WRITE_OPERATIONS=true  # Allow write/management commands (default: true). Set false for read-only.
 
+# Orphan / disconnect handling (Windows)
+KUSTO_ENABLE_PARENT_WATCHDOG=true        # Enable the orphan watchdog (default: true). Set false to disable.
+KUSTO_PARENT_WATCHDOG_INTERVAL_MS=60000  # Ancestor liveness poll interval in ms (default: 60000, min: 1000).
+
 # OpenTelemetry Configuration (optional)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317/v1/traces
 ```
+
+## Orphan / Disconnect Handling
+
+A stdio MCP server is meant to exit when the client closes its stdin. On
+Windows the client usually launches the server through intermediary processes
+(e.g. `cmd /c npx -y kusto-mcp@latest`, which spawns another `cmd` + `node`).
+Those intermediaries inherit and hold the write end of the server's stdin, so
+when the client exits the pipe is never closed — stdin never reaches EOF, the
+disconnect handlers never fire, and the server is orphaned, spinning on the
+half-dead pipe and consuming CPU indefinitely.
+
+To prevent this, the server runs a **best-effort watchdog** (Windows only; on
+POSIX stdin EOF is reliable): it snapshots its ancestor process chain at startup
+and, every `KUSTO_PARENT_WATCHDOG_INTERVAL_MS`, checks that each ancestor still
+exists. If any ancestor has exited — which is what happens when the client or
+editor closes — the server shuts down cleanly, releasing the wedged
+intermediaries with it.
+
+- Set `KUSTO_ENABLE_PARENT_WATCHDOG=false` to disable it.
+- It never blocks startup: if the process table can't be read, the watchdog
+  simply stays off.
+- Tradeoffs (accepted by design): liveness is keyed on PID against the startup
+  snapshot, so a PID reused within the poll window can be missed (the orphan
+  lingers, no worse than without the watchdog), and force-killing an ancestor
+  *above* the client (e.g. the editor host) while the client survives will also
+  stop the server. Use the disable switch if that matters for your setup.
 
 ## Read-Only Mode
 

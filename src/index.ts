@@ -12,6 +12,7 @@ import {
   startTelemetry,
 } from './common/telemetry.js';
 import { createKustoServer } from './server.js';
+import { startParentWatchdog } from './common/parent-watchdog.js';
 import { VERSION } from './common/version.js';
 import {
   AuthenticationMethod,
@@ -226,6 +227,10 @@ async function runServer() {
   transport.onclose = onDisconnect;
   process.stdin.once('end', onDisconnect);
   process.stdin.once('close', onDisconnect);
+  // Defence-in-depth: a broken stdin pipe surfaces as an 'error' on some
+  // platforms. Harmless to treat as a disconnect; not a substitute for the
+  // watchdog below (the Windows orphan case leaves the pipe *healthy*).
+  process.stdin.once('error', onDisconnect);
   await server.connect(transport);
 
   criticalLog('Kusto MCP Server running on stdio');
@@ -233,6 +238,15 @@ async function runServer() {
     'service.version': VERSION,
     'kustomcp.config.autoconnect': autoConnect,
   });
+
+  // Windows-safe orphan detection. On Windows the client launches us through
+  // intermediary processes (cmd/npx) that inherit and hold stdin's write end,
+  // so when the client dies the handlers above never fire, the server is
+  // orphaned, and it spins on the half-dead pipe burning CPU indefinitely.
+  // Watch the ancestor PID chain and shut down if any link (i.e. the client)
+  // vanishes. Armed AFTER connect so the (async) process-table snapshot never
+  // delays the MCP handshake. See common/parent-watchdog.ts for the rationale.
+  await startParentWatchdog(() => void shutdownAndExit('parent-exited'));
 }
 
 // Start the server
