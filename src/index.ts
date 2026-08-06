@@ -3,7 +3,11 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
 import { randomUUID } from 'node:crypto';
-import { criticalLog, debugLog } from './common/utils.js';
+import {
+  criticalLog,
+  debugLog,
+  installStderrErrorGuard,
+} from './common/utils.js';
 import { loadOrCreateMachineId } from './common/machine-id.js';
 import {
   SeverityNumber,
@@ -18,6 +22,10 @@ import {
   KustoConfig,
   ResponseFormat,
 } from './types/config.js';
+
+// Guard stderr before anything can write to it: once the client disconnects,
+// an unguarded EPIPE here spins the process at ~100% CPU forever (#180, #196).
+installStderrErrorGuard();
 
 // Log startup information
 debugLog('Kusto MCP Server - Starting up');
