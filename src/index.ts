@@ -12,6 +12,7 @@ import { loadOrCreateMachineId } from './common/machine-id.js';
 import {
   SeverityNumber,
   emitLog,
+  recordProcessFatal,
   shutdownOtel,
   startTelemetry,
 } from './common/telemetry.js';
@@ -260,6 +261,7 @@ process.on('SIGTERM', () => void shutdownAndExit('SIGTERM'));
 
 // Handle uncaught exceptions
 process.on('uncaughtException', error => {
+  recordProcessFatal('uncaughtException', error);
   criticalLog(`Uncaught exception: ${error.message}`);
   criticalLog(error.stack || 'No stack trace available');
   void shutdownAndExit('uncaughtException', 1);
@@ -267,6 +269,7 @@ process.on('uncaughtException', error => {
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', reason => {
+  recordProcessFatal('unhandledRejection', reason);
   criticalLog(
     `Unhandled promise rejection: ${
       reason instanceof Error ? reason.message : String(reason)

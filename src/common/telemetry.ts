@@ -312,6 +312,11 @@ export const connectionFailuresCounter = lazyCounter(
   'kustomcp.connection.failures',
   { unit: '{failure}', description: 'Connection initialization failures' },
 );
+export const processFatalCounter = lazyCounter('kustomcp.process.fatal', {
+  unit: '{error}',
+  description:
+    'Uncaught exceptions / unhandled rejections that ended the process',
+});
 
 export const toolDurationHistogram = lazyHistogram('kustomcp.tool.duration', {
   unit: 'ms',
@@ -339,3 +344,44 @@ export const responseBytesHistogram = lazyHistogram('kustomcp.response.bytes', {
   unit: 'By',
   description: 'Serialized MCP tool response size',
 });
+
+/**
+ * Record a process-ending failure before shutdown.
+ *
+ * The orphaned-server spin (#180, #196) burned a CPU core on thousands of
+ * machines and left no trace here at all — the crash handlers only wrote to
+ * stderr, and the spin starved the exporters. Two users had to count orphans
+ * with `ps` because we gave them no other way to see it. This makes that class
+ * of failure countable.
+ *
+ * Anonymity follows `recordSpanError`: the error *class* and, when present, the
+ * Node error `code` (`EPIPE`, `ECONNRESET`, ...). Never the message or stack —
+ * both can echo query text or identifiers.
+ *
+ * Never throws: this runs on the crash path, where a second failure is exactly
+ * what turned a clean exit into an infinite loop last time.
+ */
+export function recordProcessFatal(
+  kind: 'uncaughtException' | 'unhandledRejection',
+  error: unknown,
+): void {
+  try {
+    const attributes: Attributes = {
+      'kustomcp.fatal.kind': kind,
+      'kustomcp.error.type':
+        error instanceof Error && error.name ? error.name : 'Error',
+    };
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (typeof code === 'string') attributes['kustomcp.error.code'] = code;
+
+    processFatalCounter.add(1, attributes);
+    emitLog(
+      SeverityNumber.ERROR,
+      'ERROR',
+      'Process terminating on fatal error',
+      attributes,
+    );
+  } catch {
+    /* telemetry must never make a crash worse */
+  }
+}
