@@ -18,7 +18,10 @@
   permanently. Export `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:9999` before
   running the server or e2e locally.
 - Before analysing the Honeycomb `kusto-mcp` environment, read
-  `docs/telemetry-semantics.md` — it holds the counting conventions and query gotchas.
+  `docs/telemetry-semantics.md` if you have it — it holds the counting conventions and
+  query gotchas. It is maintainer-local and deliberately untracked, so it is absent from
+  a fresh clone and from CI; without it, derive conventions from the code rather than
+  assuming span volume means anything.
 
 ## Tests and CI
 
@@ -38,7 +41,8 @@
 ## Repo
 
 - `docs/` and `.proto/` hold untracked internal planning material and are not
-  gitignored. Stage per file; never `git add docs/`.
+  gitignored — only `CONFIGURATION.md`, `DEVELOPER.md` and `pre-commit-hooks.md` are
+  tracked. Stage per file; never `git add docs/`.
 - Releases are semantic-release on merge to `master`, squash-merged — so the **PR title**
   carries the semantic prefix. Only `fix:` and `feat:` publish; use `chore:`/`docs:` for
   changes that must not release.
