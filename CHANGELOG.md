@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/johnib/kusto-mcp/compare/v1.13.2...v1.14.0) (2026-08-07)
+
+
+### Features
+
+* **telemetry:** record uncaught exceptions and unhandled rejections ([#217](https://github.com/johnib/kusto-mcp/issues/217)) ([7d0be88](https://github.com/johnib/kusto-mcp/commit/7d0be88596afa79050040b3dd2d080eca578d659)), closes [#180](https://github.com/johnib/kusto-mcp/issues/180) [#196](https://github.com/johnib/kusto-mcp/issues/196)
+
 ## [1.13.2](https://github.com/johnib/kusto-mcp/compare/v1.13.1...v1.13.2) (2026-08-07)
 
 
