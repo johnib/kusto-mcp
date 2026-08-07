@@ -1,3 +1,10 @@
+## [1.13.2](https://github.com/johnib/kusto-mcp/compare/v1.13.1...v1.13.2) (2026-08-07)
+
+
+### Bug Fixes
+
+* exit instead of spinning at 100% CPU when the MCP client dies ([#210](https://github.com/johnib/kusto-mcp/issues/210)) ([5394868](https://github.com/johnib/kusto-mcp/commit/53948683fd70bc176449b1f24cd9adff3ddbb8ca)), closes [#196](https://github.com/johnib/kusto-mcp/issues/196) [#180](https://github.com/johnib/kusto-mcp/issues/180)
+
 ## [1.13.1](https://github.com/johnib/kusto-mcp/compare/v1.13.0...v1.13.1) (2026-07-18)
 
 
