@@ -27,10 +27,11 @@
 
 - CI runs the **unit** project only; `tests/e2e` never runs there (it needs `az login`
   and a live cluster). Any regression guard that must hold goes in `tests/unit`.
-- CI order is lint → test → build, so `dist/` does not exist while unit tests run.
-- Nothing lints or typechecks `tests/`: every lint script is `eslint src` and
-  `tsconfig.json` includes only `src/**/*`. A type error in a new test surfaces only
-  when jest executes that line.
+- CI order is lint → typecheck → test → build, so `dist/` does not exist while unit tests run.
+- `npm run typecheck` (`tsc -p tsconfig.test.json`) typechecks `src/` and all of
+  `tests/`, e2e included, and CI runs it before the unit tests. It is the only type
+  gate on tests: ts-jest does not fail a run on type errors. Nothing
+  lints `tests/` — every lint script is `eslint src`.
 - `npm run format` is scoped to `src/**/*.ts`. Never `prettier --write` README.md or
   `docs/*.md` — it reflows unrelated lines into the diff.
 - CI is `ubuntu-latest` only, but Windows is ~75% of the fleet. A platform-specific fix

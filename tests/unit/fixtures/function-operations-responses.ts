@@ -3,11 +3,17 @@
  * Recorded responses from E2E tests for use in unit tests
  */
 
+import type { KustoQueryResult } from '../../../src/types/kusto-interfaces.js';
+
+// Rows live in `_rows`, as azure-kusto-data populates them; src reads
+// `_rows || data`, so the type-required `data` is left empty.
+
 // Response for successful function listing
 export const functionListResponse = {
   primaryResults: [
     {
       name: 'PrimaryResult',
+      data: [],
       _rows: [
         ['SalesWithParams', 'Query from SalesTable with parameters'],
         ['SummarizeWithParams', ''],
@@ -28,13 +34,14 @@ export const functionListResponse = {
     },
   ],
   tables: [],
-};
+} satisfies KustoQueryResult;
 
 // Response for successful function details
 export const functionDetailsResponse = {
   primaryResults: [
     {
       name: 'Table_0',
+      data: [],
       _rows: [
         [
           'SalesWithParams',
@@ -47,7 +54,7 @@ export const functionDetailsResponse = {
     },
   ],
   tables: [],
-};
+} satisfies KustoQueryResult;
 
 // Mock error for non-existent function
 export const nonExistentFunctionError = new Error(
@@ -147,11 +154,12 @@ export const emptyFunctionListResponse = {
   primaryResults: [
     {
       name: 'PrimaryResult',
+      data: [],
       _rows: [],
     },
   ],
   tables: [],
-};
+} satisfies KustoQueryResult;
 
 // Error response structure for tool calls
 export const errorToolResponse = {
