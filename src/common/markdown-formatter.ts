@@ -44,9 +44,26 @@ export interface MarkdownTableOptions {
 }
 
 /**
+ * Escape `|` so it cannot split a GFM table row into extra columns.
+ *
+ * GFM parsers treat `\\` as an escaped backslash, so a `|` that already
+ * follows backslashes in the data (e.g. a literal `\|`) would still act as a
+ * delimiter if we only prefixed it. Doubling the backslash run that precedes a
+ * pipe keeps the round trip exact; backslashes not adjacent to a pipe are left
+ * alone so JSON escapes and Windows paths stay readable.
+ */
+function escapeTableCell(text: string): string {
+  return text.replace(/(\\*)\|/g, '$1$1\\|');
+}
+
+/**
  * Format a value for display in a markdown table cell
  */
 function formatCellValue(value: unknown): string {
+  return escapeTableCell(stringifyCellValue(value));
+}
+
+function stringifyCellValue(value: unknown): string {
   if (value === null || value === undefined) {
     return '';
   }
@@ -183,7 +200,7 @@ export function formatAsMarkdownTable(
 
   // Prepare table data with truncation: header row + data rows
   const tableData = [
-    columns, // Header row (no truncation needed)
+    columns.map(escapeTableCell), // Header row (no truncation needed)
     ...data.map(row =>
       columns.map(col => {
         const value = formatCellValue(row[col]);
