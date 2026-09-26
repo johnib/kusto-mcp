@@ -3,11 +3,69 @@
  * Tests for formatting query results, including dynamic column handling
  */
 
+import { execFileSync } from 'child_process';
+import path from 'path';
+import { markdownTable } from 'markdown-table';
 import {
   formatAsMarkdownTable,
   formatQueryResult,
   QueryResult,
 } from '../../../src/common/markdown-formatter.js';
+
+/**
+ * Split a GFM table row into cells the way cmark-gfm does: a backslash
+ * escapes the next character (so `\\|` is an escaped backslash followed by a
+ * delimiter), and only an unescaped `|` separates cells.
+ */
+function splitGfmRow(line: string): string[] {
+  const cells: string[] = [];
+  let current = '';
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '\\' && i + 1 < line.length) {
+      current += ch + line[i + 1];
+      i++;
+    } else if (ch === '|') {
+      cells.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  cells.push(current);
+  // Drop the empty strings outside the leading and trailing pipes
+  return cells.slice(1, -1).map(c => c.trim());
+}
+
+/** GFM cell unescaping: `\|` -> `|` first, then inline `\\` -> `\`. */
+function unescapeGfmCell(cell: string): string {
+  return cell.replace(/\\\|/g, '|').replace(/\\\\/g, '\\');
+}
+
+/**
+ * tests/unit/setup.ts replaces markdown-table with a naive joiner, and the real
+ * package is ESM-only so jest's CJS runtime cannot requireActual it. Render the
+ * rows the formatter handed to the mock with the real library in a child Node
+ * process instead.
+ */
+function renderWithRealMarkdownTable(rows: string[][]): string {
+  const script = [
+    "import { markdownTable } from 'markdown-table';",
+    "import { readFileSync } from 'fs';",
+    'const rows = JSON.parse(readFileSync(0, "utf8"));',
+    'process.stdout.write(markdownTable(rows, { padding: true, alignDelimiters: true }));',
+  ].join('\n');
+  return execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: path.resolve(__dirname, '../../..'),
+    input: JSON.stringify(rows),
+    encoding: 'utf8',
+  });
+}
+
+function lastTableDataPassedToMarkdownTable(): string[][] {
+  const calls = (markdownTable as unknown as jest.Mock).mock.calls;
+  return calls[calls.length - 1][0] as string[][];
+}
 
 // Since formatCellValue is not exported, we'll test it indirectly through formatAsMarkdownTable
 
@@ -201,6 +259,126 @@ describe('Markdown Formatter Unit Tests', () => {
 
       const result = formatAsMarkdownTable(testData);
       expect(result).toContain('*No results returned*');
+    });
+  });
+
+  describe('Pipe escaping in markdown cells', () => {
+    const tableLines = (markdown: string): string[] =>
+      markdown.split('\n').filter(line => line.startsWith('|'));
+
+    test('string containing | is escaped and keeps the column count', () => {
+      const testData = createTestQueryResult([{ Text: 'a|b', Id: 1 }]);
+
+      const result = formatAsMarkdownTable(testData);
+
+      expect(result).toContain('a\\|b');
+      const [header, , row] = tableLines(result);
+      expect(splitGfmRow(header)).toHaveLength(2);
+      expect(splitGfmRow(row)).toEqual(['a\\|b', '1']);
+    });
+
+    test('dynamic object whose JSON contains | is escaped', () => {
+      const testData = createTestQueryResult([
+        { Payload: { s: 'x|y\nz' }, Id: 1 },
+      ]);
+
+      const result = formatAsMarkdownTable(testData);
+
+      expect(result).toContain('{"s":"x\\|y\\nz"}');
+      const [, , row] = tableLines(result);
+      expect(splitGfmRow(row)).toEqual(['{"s":"x\\|y\\nz"}', '1']);
+    });
+
+    test('array JSON containing | is escaped', () => {
+      const testData = createTestQueryResult([{ Tags: ['a|b', 'c'] }]);
+
+      const result = formatAsMarkdownTable(testData);
+
+      expect(result).toContain('["a\\|b","c"]');
+    });
+
+    test('String() fallback for non-serializable values is escaped', () => {
+      const weird = {
+        toJSON() {
+          throw new Error('not serializable');
+        },
+        toString() {
+          return 'p|q';
+        },
+      };
+      const testData = createTestQueryResult([{ Col: weird, Id: 1 }]);
+
+      const result = formatAsMarkdownTable(testData);
+
+      const [, , row] = tableLines(result);
+      expect(splitGfmRow(row)).toEqual(['p\\|q', '1']);
+    });
+
+    test('column name containing | is escaped', () => {
+      const testData = createTestQueryResult([{ 'a|b': 1, c: 2 }]);
+
+      const result = formatAsMarkdownTable(testData);
+
+      const [header, , row] = tableLines(result);
+      expect(splitGfmRow(header)).toEqual(['a\\|b', 'c']);
+      expect(splitGfmRow(row)).toHaveLength(2);
+    });
+
+    test('pre-existing backslashes before | round-trip unambiguously', () => {
+      const raw = ['x\\|y', 'x\\\\|y', 'C:\\path\\to'];
+      const testData = createTestQueryResult([
+        { A: raw[0], B: raw[1], C: raw[2] },
+      ]);
+
+      const result = formatAsMarkdownTable(testData);
+
+      const [, , row] = tableLines(result);
+      const cells = splitGfmRow(row);
+      expect(cells).toHaveLength(3);
+      expect(cells.map(unescapeGfmCell)).toEqual(raw);
+      // Backslashes not adjacent to a pipe are left untouched
+      expect(cells[2]).toBe('C:\\path\\to');
+    });
+
+    test('real markdown-table output keeps the header column count', () => {
+      formatAsMarkdownTable(
+        createTestQueryResult([
+          { Payload: { s: 'x|y\nz' }, 'Na|me': 'a\\|b', Id: 1 },
+        ]),
+      );
+
+      const rendered = renderWithRealMarkdownTable(
+        lastTableDataPassedToMarkdownTable(),
+      );
+
+      const lines = tableLines(rendered);
+      expect(lines).toHaveLength(3);
+      for (const line of lines) {
+        expect(splitGfmRow(line)).toHaveLength(3);
+      }
+      expect(splitGfmRow(lines[0]).map(unescapeGfmCell)).toEqual([
+        'Payload',
+        'Na|me',
+        'Id',
+      ]);
+      expect(splitGfmRow(lines[2]).map(unescapeGfmCell)).toEqual([
+        '{"s":"x|y\\nz"}',
+        'a\\|b',
+        '1',
+      ]);
+    });
+
+    test('JSON format output keeps raw | (no escaping)', () => {
+      const testData = createTestQueryResult([
+        { Text: 'a|b', Payload: { s: 'x|y' } },
+      ]);
+
+      const result = formatQueryResult(testData, 'json');
+
+      expect(result).not.toContain('\\|');
+      const parsed = JSON.parse(result);
+      expect(parsed.data[0].Text).toBe('a|b');
+      expect(parsed.data[0].Payload.s).toBe('x|y');
     });
   });
 

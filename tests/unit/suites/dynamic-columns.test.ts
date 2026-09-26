@@ -217,25 +217,21 @@ describe('Kusto dynamic column values', () => {
       expect(lines[2]).toContain('\\n');
     });
 
-    // BUG (src/common/markdown-formatter.ts formatCellValue): `|` inside a
-    // dynamic value is not escaped, so the data row splits into more cells
-    // than the header has. markdown-table 3.x does not escape it either.
-    test.failing(
-      'a pipe inside a dynamic value does not break the row structure',
-      async () => {
-        const text = await callExecuteQuery(
-          { responseFormat: ResponseFormat.Markdown },
-          pipeAndNewlineResponse,
-        );
+    // markdown-table 3.x does not escape `|`, so formatCellValue escapes it
+    // as `\|`; otherwise the data row would split into extra cells.
+    test('a pipe inside a dynamic value does not break the row structure', async () => {
+      const text = await callExecuteQuery(
+        { responseFormat: ResponseFormat.Markdown },
+        pipeAndNewlineResponse,
+      );
 
-        const lines = tableLinesOf(text);
-        const header = cellsOf(lines[0]);
-        const dataRow = cellsOf(lines[2]);
-        expect(header).toStrictEqual(['Payload', 'Id']);
-        expect(dataRow).toHaveLength(header.length);
-        expect(dataRow[1]).toBe('1');
-      },
-    );
+      const lines = tableLinesOf(text);
+      const header = cellsOf(lines[0]);
+      const dataRow = cellsOf(lines[2]);
+      expect(header).toStrictEqual(['Payload', 'Id']);
+      expect(dataRow).toHaveLength(header.length);
+      expect(dataRow[1]).toBe('1');
+    });
   });
 
   describe('execute-query JSON output', () => {
