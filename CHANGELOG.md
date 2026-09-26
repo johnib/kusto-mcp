@@ -1,3 +1,10 @@
+## [1.14.1](https://github.com/johnib/kusto-mcp/compare/v1.14.0...v1.14.1) (2026-09-26)
+
+
+### Bug Fixes
+
+* **deps:** resolve npm audit findings, refresh in-range deps, prune stale overrides ([#280](https://github.com/johnib/kusto-mcp/issues/280)) ([5ca4c3b](https://github.com/johnib/kusto-mcp/commit/5ca4c3b91eba63c3f189522cc4f3aeef4d930e35))
+
 # [1.14.0](https://github.com/johnib/kusto-mcp/compare/v1.13.2...v1.14.0) (2026-08-07)
 
 
