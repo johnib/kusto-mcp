@@ -1,4 +1,5 @@
-# managed-by: github-policies
+# Locally owned: the "managed-by: github-policies" marker was removed so the daily
+# github-policies sync does not overwrite the typescript ignore rule below.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -6,6 +7,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    ignore:
+      # ts-jest 29.x peers on typescript ">=4.3 <7", so a TS major bump fails
+      # `npm ci` with ERESOLVE. Remove once ts-jest supports the next major.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
