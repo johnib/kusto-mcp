@@ -61,8 +61,10 @@ export async function showTables(
         );
       }
 
-      // The Kusto client library uses '_rows' for the actual row data
-      const rowsData = (primaryResult as any)._rows || primaryResult.data;
+      // The Kusto client library uses '_rows' for the actual row data; rows
+      // are read positionally below.
+      const rowsData = (primaryResult._rows || primaryResult.data) as
+        unknown[][] | undefined;
 
       if (!rowsData || !Array.isArray(rowsData)) {
         throw new KustoQueryError(
@@ -72,11 +74,11 @@ export async function showTables(
 
       // Convert array rows to objects with proper column names
       // Based on .show tables schema: TableName, DatabaseName, Folder, DocString
-      const tablesData = rowsData.map((row: any[]) => ({
-        TableName: row[0],
-        DatabaseName: row[1],
-        Folder: row[2],
-        DocString: row[3],
+      const tablesData = rowsData.map((row: unknown[]) => ({
+        TableName: row[0] as string,
+        DatabaseName: row[1] as string,
+        Folder: row[2] as string | null,
+        DocString: row[3] as string | null,
       }));
       debugLog(
         `Successfully retrieved ${tablesData.length} tables from database ${database}`,
@@ -147,9 +149,9 @@ export async function showTable(
       // Find the primary result that contains actual data (not metadata)
       const primaryResult =
         result.primaryResults.find(
-          (pr: any) =>
+          pr =>
             ((pr.data && pr.data.length > 0) ||
-              ((pr as any)._rows && (pr as any)._rows.length > 0)) &&
+              (pr._rows && pr._rows.length > 0)) &&
             pr.name !== 'QueryStatus' &&
             !pr.name.startsWith('@'),
         ) || result.primaryResults[0];
@@ -160,8 +162,10 @@ export async function showTable(
         );
       }
 
-      // The Kusto client library uses '_rows' for the actual row data
-      const rowsData = (primaryResult as any)._rows || primaryResult.data;
+      // The Kusto client library uses '_rows' for the actual row data; rows
+      // are read positionally below.
+      const rowsData = (primaryResult._rows || primaryResult.data) as
+        unknown[][] | undefined;
 
       if (!rowsData || !Array.isArray(rowsData)) {
         throw new KustoQueryError(
@@ -171,9 +175,9 @@ export async function showTable(
 
       // Convert array rows to objects with proper column names
       // For TableName | getschema, the structure is: ColumnName, ColumnOrdinal, DataType, CslType
-      const columns = rowsData.map((row: any[], index: number) => ({
-        name: row[0], // Column name
-        type: row[3], // Use CSL type (row[3]) as it's more appropriate for Kusto
+      const columns = rowsData.map((row: unknown[], index: number) => ({
+        name: row[0] as string, // Column name
+        type: row[3] as string, // Use CSL type (row[3]) as it's more appropriate for Kusto
         ordinal: index,
         isNullable: true, // Default assumption
       }));
@@ -247,9 +251,9 @@ export async function showFunctions(
       // Find the primary result that contains actual data (not metadata)
       const primaryResult =
         result.primaryResults.find(
-          (pr: any) =>
+          pr =>
             ((pr.data && pr.data.length > 0) ||
-              ((pr as any)._rows && (pr as any)._rows.length > 0)) &&
+              (pr._rows && pr._rows.length > 0)) &&
             pr.name !== 'QueryStatus' &&
             !pr.name.startsWith('@'),
         ) || result.primaryResults[0];
@@ -260,8 +264,10 @@ export async function showFunctions(
         );
       }
 
-      // The Kusto client library uses '_rows' for the actual row data
-      const rowsData = (primaryResult as any)._rows || primaryResult.data;
+      // The Kusto client library uses '_rows' for the actual row data; rows
+      // are read positionally below.
+      const rowsData = (primaryResult._rows || primaryResult.data) as
+        unknown[][] | undefined;
 
       if (!rowsData || !Array.isArray(rowsData)) {
         throw new KustoQueryError(
@@ -271,9 +277,9 @@ export async function showFunctions(
 
       // Convert array rows to objects with proper column names
       // Based on .show functions | project Name, DocString schema: Name, DocString
-      const functionsData = rowsData.map((row: any[]) => ({
-        Name: row[0], // Function name
-        DocString: row[1], // Function docstring
+      const functionsData = rowsData.map((row: unknown[]) => ({
+        Name: row[0] as string, // Function name
+        DocString: row[1] as string | undefined, // Function docstring
       }));
 
       debugLog(
@@ -345,9 +351,9 @@ export async function showFunction(
       // Find the primary result that contains actual data (not metadata)
       const primaryResult =
         result.primaryResults.find(
-          (pr: any) =>
+          pr =>
             ((pr.data && pr.data.length > 0) ||
-              ((pr as any)._rows && (pr as any)._rows.length > 0)) &&
+              (pr._rows && pr._rows.length > 0)) &&
             pr.name !== 'QueryStatus' &&
             !pr.name.startsWith('@'),
         ) || result.primaryResults[0];
@@ -358,8 +364,10 @@ export async function showFunction(
         );
       }
 
-      // The Kusto client library uses '_rows' for the actual row data
-      const rowsData = (primaryResult as any)._rows || primaryResult.data;
+      // The Kusto client library uses '_rows' for the actual row data; rows
+      // are read positionally below.
+      const rowsData = (primaryResult._rows || primaryResult.data) as
+        unknown[][] | undefined;
 
       if (!rowsData || !Array.isArray(rowsData)) {
         throw new KustoQueryError(
@@ -377,11 +385,11 @@ export async function showFunction(
       // Based on .show function schema: Name, Parameters, Body, Folder, DocString
       const functionRow = rowsData[0];
       const functionSchema: KustoFunctionSchema = {
-        Name: functionRow[0], // Function name
-        Parameters: functionRow[1] || '', // Function parameters
-        Body: functionRow[2] || '', // Function body
-        Folder: functionRow[3] || '', // Folder (optional)
-        DocString: functionRow[4] || '', // DocString (optional)
+        Name: functionRow[0] as string, // Function name
+        Parameters: (functionRow[1] as string) || '', // Function parameters
+        Body: (functionRow[2] as string) || '', // Function body
+        Folder: (functionRow[3] as string) || '', // Folder (optional)
+        DocString: (functionRow[4] as string) || '', // DocString (optional)
       };
 
       debugLog(

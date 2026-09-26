@@ -393,7 +393,10 @@ export class KustoConnection {
    * @param query The query to execute
    * @returns The result of the query
    */
-  async executeQuery(database: string, query: string): Promise<any> {
+  async executeQuery(
+    database: string,
+    query: string,
+  ): Promise<KustoQueryResult> {
     return tracer.startActiveSpan(
       'kusto.query',
       { kind: SpanKind.CLIENT },

@@ -8,21 +8,45 @@ import {
   carryErrorRecording,
   recordSpanError,
 } from '../../common/telemetry.js';
-import { KustoQueryResult } from '../../types/kusto-interfaces.js';
+import {
+  KustoQueryResult,
+  KustoRawResultColumn,
+} from '../../types/kusto-interfaces.js';
 import { KustoConfig } from '../../types/config.js';
 import { KustoConnection } from './connection.js';
 
 export interface TransformedQueryResult {
   name?: string;
-  data: Array<Record<string, any>>;
+  data: Array<Record<string, unknown>>;
   rawResult: KustoQueryResult;
   queryStatistics?: {
     totalCpu?: string;
     executionTime?: string;
     extentsTotal?: number;
     extentsScanned?: number;
-    resourceUsage?: Record<string, any>;
+    resourceUsage?: Record<string, unknown>;
   };
+}
+
+/**
+ * An azure-kusto-data result table as extractQueryStatistics reads it: rows
+ * are positional arrays, on `_rows` or copied onto `data`.
+ */
+interface KustoRawResultTable {
+  name?: string;
+  data?: unknown[][];
+  _rows?: unknown[][];
+  columns?: KustoRawResultColumn[];
+}
+
+/**
+ * The fields of azure-kusto-data's KustoResponseDataSet that
+ * extractQueryStatistics probes but KustoQueryResult does not model.
+ */
+interface KustoRawResponse {
+  statusTable?: KustoRawResultTable;
+  tables?: KustoRawResultTable[];
+  dataSetCompletion?: unknown;
 }
 
 // Create a tracer for this module
@@ -39,21 +63,21 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
   executionTime?: string;
   extentsTotal?: number;
   extentsScanned?: number;
-  resourceUsage?: Record<string, any>;
+  resourceUsage?: Record<string, unknown>;
 } {
   const statistics: {
     totalCpu?: string;
     executionTime?: string;
     extentsTotal?: number;
     extentsScanned?: number;
-    resourceUsage?: Record<string, any>;
+    resourceUsage?: Record<string, unknown>;
   } = {};
 
   try {
-    const rawAny = rawResult as any;
+    const rawAny = rawResult as unknown as KustoRawResponse;
 
     // Try different data access patterns for QueryCompletionInformation
-    let queryCompletionTable = null;
+    let queryCompletionTable: KustoRawResultTable | null = null;
 
     // Check statusTable first
     if (
@@ -78,7 +102,7 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
     if (!queryCompletionTable) {
       const allTables = rawAny.tables || [];
       const foundTable = allTables.find(
-        (table: any) => table.name === 'QueryCompletionInformation',
+        table => table.name === 'QueryCompletionInformation',
       );
       if (foundTable) {
         // Try _rows if data is empty
@@ -105,31 +129,33 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
       const columns = queryCompletionTable.columns || [];
 
       // Convert raw array rows to objects using column metadata
-      const convertedRows = queryCompletionTable.data.map((rowArray: any[]) => {
-        const obj: any = {};
-        if (columns && columns.length > 0) {
-          columns.forEach((column: any, columnIndex: number) => {
-            const columnName =
-              column.ColumnName || column.name || `Column${columnIndex}`;
-            obj[columnName] = rowArray[columnIndex];
-          });
-        } else {
-          // Fallback: use generic column names
-          rowArray.forEach((value: any, colIndex: number) => {
-            obj[`Column${colIndex}`] = value;
-          });
-        }
-        return obj;
-      });
+      const convertedRows = queryCompletionTable.data.map(
+        (rowArray: unknown[]) => {
+          const obj: Record<string, unknown> = {};
+          if (columns && columns.length > 0) {
+            columns.forEach((column, columnIndex: number) => {
+              const columnName =
+                column.ColumnName || column.name || `Column${columnIndex}`;
+              obj[columnName] = rowArray[columnIndex];
+            });
+          } else {
+            // Fallback: use generic column names
+            rowArray.forEach((value: unknown, colIndex: number) => {
+              obj[`Column${colIndex}`] = value;
+            });
+          }
+          return obj;
+        },
+      );
 
       // Look for the row with EventTypeName: "QueryResourceConsumption"
       const resourceConsumptionRow = convertedRows.find(
-        (row: any) => row.EventTypeName === 'QueryResourceConsumption',
+        row => row.EventTypeName === 'QueryResourceConsumption',
       );
 
       if (resourceConsumptionRow && resourceConsumptionRow.Payload) {
         try {
-          const payload = JSON.parse(resourceConsumptionRow.Payload);
+          const payload = JSON.parse(resourceConsumptionRow.Payload as string);
 
           if (payload.resource_usage) {
             const resourceUsage = payload.resource_usage;
@@ -276,26 +302,26 @@ export function transformQueryResult(
   }
 
   const primaryResult = rawResult.primaryResults[0];
-  const rawRows = (primaryResult as any)._rows || [];
-  const columns = (primaryResult as any).columns || [];
+  const rawRows = primaryResult._rows || [];
+  const columns = primaryResult.columns || [];
 
   debugLog(`Found ${rawRows.length} rows and ${columns.length} columns`);
   debugLog(`Columns: ${JSON.stringify(columns)}`);
 
   // Transform raw array data to objects using ONLY column metadata
-  const transformedRows = rawRows.map((row: any[]) => {
-    const obj: any = {};
+  const transformedRows = rawRows.map((row: unknown[]) => {
+    const obj: Record<string, unknown> = {};
 
     if (columns && columns.length > 0) {
       // Use column metadata - this is the CORRECT approach
-      columns.forEach((column: any, columnIndex: number) => {
+      columns.forEach((column, columnIndex: number) => {
         const columnName =
           column.ColumnName || column.name || `Column${columnIndex}`;
         obj[columnName] = row[columnIndex];
       });
     } else {
       // Fallback: use generic column names when no metadata available
-      row.forEach((value: any, index: number) => {
+      row.forEach((value: unknown, index: number) => {
         obj[`Column${index}`] = value;
       });
     }
@@ -383,7 +409,7 @@ export async function executeQueryWithTransformation(
 export async function executeManagementCommand(
   connection: KustoConnection,
   command: string,
-): Promise<any> {
+): Promise<KustoQueryResult> {
   return tracer.startActiveSpan('executeManagementCommand', async span => {
     try {
       debugLog(`Executing management command: ${command}`);
