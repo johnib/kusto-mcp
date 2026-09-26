@@ -1,3 +1,10 @@
+## [1.14.2](https://github.com/johnib/kusto-mcp/compare/v1.14.1...v1.14.2) (2026-09-26)
+
+
+### Bug Fixes
+
+* start the server when prompts are disabled ([#283](https://github.com/johnib/kusto-mcp/issues/283)) ([82e75cc](https://github.com/johnib/kusto-mcp/commit/82e75cc47b4449d88fd259fa0aced16f18bbdc2f))
+
 ## [1.14.1](https://github.com/johnib/kusto-mcp/compare/v1.14.0...v1.14.1) (2026-09-26)
 
 
