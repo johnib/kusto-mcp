@@ -22,9 +22,15 @@ const server = spawn('node', ['dist/index.js'], {
     ...process.env,
     KUSTO_CLUSTER_URL: 'https://help.kusto.windows.net',
     KUSTO_DEFAULT_DATABASE: 'ContosoSales',
-    KUSTO_LOG_LEVEL: 'debug',
+    DEBUG_SERVER: '1', // Enables the server's debug logging on stderr
     KUSTO_RESPONSE_FORMAT: 'markdown',
-    KUSTO_ENABLE_QUERY_STATISTICS: 'true'  // Feature flag example - modify as needed
+    KUSTO_ENABLE_QUERY_STATISTICS: 'true', // Feature flag example - modify as needed
+    // Telemetry is always on and, by default, exports to the production
+    // Honeycomb dataset. Point it at a local sink instead so test runs never
+    // pollute production data. Set OTEL_EXPORTER_OTLP_ENDPOINT in your shell
+    // to send the spans to your own collector.
+    OTEL_EXPORTER_OTLP_ENDPOINT:
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://127.0.0.1:9999'
   },
   stdio: ['pipe', 'pipe', 'pipe']
 });

@@ -4,16 +4,23 @@ This project uses [Husky](https://typicode.github.io/husky/) and [lint-staged](h
 
 ## What happens on commit
 
-When you run `git commit`, the following checks are automatically executed on staged files:
+When you run `git commit`, `.husky/pre-commit` runs `npx lint-staged`, which checks staged files:
 
-### For TypeScript/JavaScript files (`*.{ts,js}`)
+### For TypeScript source files (`src/**/*.ts`)
 
 1. **ESLint with auto-fix**: Runs `eslint --fix` to catch and automatically fix linting issues
 2. **Prettier formatting**: Runs `prettier --write` to ensure consistent code formatting
 
-### For JSON/Markdown files (`*.{json,md}`)
+This matches the scope of `npm run lint` (`eslint src`) and `npm run format` (`src/**/*.ts`).
+No other files are touched. Markdown and JSON files are deliberately left out, because
+running Prettier on `README.md` or `docs/*.md` reflows unrelated lines into the diff.
+Files under `tests/` are not linted or formatted by the hook either.
 
-1. **Prettier formatting**: Runs `prettier --write` to ensure consistent formatting
+## Installation
+
+The hook is installed by the `prepare` script (`husky`), which `npm install` and `npm ci`
+run automatically. It sets `core.hooksPath` to `.husky/_`. If you cloned before this was
+added, run `npm install` once (or `npx husky`) to activate the hook.
 
 ## Behavior
 
@@ -62,7 +69,7 @@ git commit -m "Add example code"
 
 The pre-commit hook configuration is in:
 
-- **Husky**: `.husky/pre-commit` - defines which command runs on commit
+- **Husky**: `.husky/pre-commit` - defines which command runs on commit (`npx lint-staged`)
 - **lint-staged**: `package.json` `lint-staged` section - defines which tools run on which files
 
 ## Benefits

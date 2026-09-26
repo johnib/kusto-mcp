@@ -34,17 +34,29 @@ npm run build
 node test-mcp-client.js
 ```
 
+> **Telemetry:** the server always exports telemetry, and by default it goes to the
+> production Honeycomb dataset. The test client sets
+> `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:9999` on the server it spawns, so its
+> spans go to a local sink that nothing listens on. To send them to your own collector,
+> export `OTEL_EXPORTER_OTLP_ENDPOINT` before running the script. Do not remove this
+> override when you customize the script. If you run `node dist/index.js` yourself,
+> export the same variable first.
+
 ### 2. Environment Configuration
 
 **Agents should modify the environment variables in the script directly** to test different configurations:
 
 ```javascript
 env: {
+  ...process.env,
   KUSTO_CLUSTER_URL: 'https://help.kusto.windows.net',
   KUSTO_DEFAULT_DATABASE: 'ContosoSales',
-  KUSTO_LOG_LEVEL: 'debug',
+  DEBUG_SERVER: '1',  // Enables the server's debug logging on stderr
   KUSTO_RESPONSE_FORMAT: 'markdown',  // or 'json'
-  KUSTO_ENABLE_QUERY_STATISTICS: 'true'  // Feature flag example - modify as needed
+  KUSTO_ENABLE_QUERY_STATISTICS: 'true',  // Feature flag example - modify as needed
+  // Keep this: sends telemetry to a local sink instead of production
+  OTEL_EXPORTER_OTLP_ENDPOINT:
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://127.0.0.1:9999'
 }
 ```
 
@@ -114,13 +126,17 @@ The script follows this sequence:
 
 ### Error Response Example
 
+Tool errors come back as a `result` with `isError: true`. The text depends on where the
+call failed. With the script's default env, auto-connection is configured, so a query
+sent after the connection failed returns the lower-level Kusto error:
+
 ```json
 {
   "result": {
     "content": [
       {
         "type": "text",
-        "text": "Error: Connection not initialized. Please call initialize-connection first."
+        "text": "Kusto Query Error: Connection not initialized"
       }
     ],
     "isError": true
@@ -130,12 +146,16 @@ The script follows this sequence:
 }
 ```
 
+With no connection configured at all (no `KUSTO_CLUSTER_URL` and no
+`initialize-connection` call), the text is instead
+`MCP Error: Connection not initialized. Please call initialize-connection first.`
+
 ## Customizing Tests for Your Feature
 
 ### Modify the Test Query
 
 ```javascript
-// Change line 77-81 to test specific scenarios
+// Edit the execute-query call to test specific scenarios
 sendMcpMessage({
   jsonrpc: '2.0',
   id: 3,
@@ -153,7 +173,7 @@ sendMcpMessage({
 ### Test Different Response Formats
 
 ```javascript
-// Change line 13 for different formats
+// Change KUSTO_RESPONSE_FORMAT in the spawn env for different formats
 KUSTO_RESPONSE_FORMAT: 'json'  // or 'markdown'
 ```
 
@@ -257,9 +277,13 @@ setTimeout(() => {
 
 ### Pre-commit Testing
 
+The repository's own pre-commit hook is managed by Husky and only lints and formats
+staged files (see `docs/pre-commit-hooks.md`). It does not run this test client, because
+the test needs `az login` and a live cluster. You can run the check below by hand:
+
 ```bash
 #!/bin/bash
-# Add to .git/hooks/pre-commit
+# Run manually before committing (needs az login)
 
 echo "Running MCP integration test..."
 npm run build
@@ -329,12 +353,7 @@ function validateResponse(response) {
 **Cause**: MCP server process not responding
 **Solution**: Kill existing processes: `pkill -f "node dist/index.js"`
 
-#### 4. Port Already in Use
-
-**Cause**: Previous test run didn't clean up
-**Solution**: Wait a few seconds or restart terminal
-
-#### 5. Authentication Errors
+#### 4. Authentication Errors
 
 **Cause**: Azure CLI not logged in or expired
 **Solution**: Run `az login` and retry
