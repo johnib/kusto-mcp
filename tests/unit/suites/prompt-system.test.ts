@@ -5,6 +5,16 @@
 import { PromptManager } from '../../../src/operations/prompts/prompt-manager.js';
 import { renderPrompt } from '../../../src/operations/prompts/prompt-renderer.js';
 import { getAllPrompts, getPromptByName, refreshPromptDefinitions } from '../../../src/operations/prompts/prompt-definitions.js';
+import type { GetPromptResult } from '@modelcontextprotocol/sdk/types.js';
+
+// Prompt message content is a union (text, image, audio, resource...); narrow
+// to the text variant so `.text` typechecks and a non-text message fails loudly.
+function textOf(message: GetPromptResult['messages'][number]): string {
+  if (message.content.type !== 'text') {
+    throw new Error(`expected text content, got ${message.content.type}`);
+  }
+  return message.content.text;
+}
 
 describe('Prompt System Unit Tests', () => {
   let promptManager: PromptManager;
@@ -69,7 +79,7 @@ describe('Prompt System Unit Tests', () => {
       const message = result.messages[0];
       expect(message.role).toBe('user');
       expect(message.content.type).toBe('text');
-      expect(message.content.text).toContain('TestTable | count');
+      expect(textOf(message)).toContain('TestTable | count');
     });
 
     test('should get prompt with required arguments', () => {
@@ -78,8 +88,8 @@ describe('Prompt System Unit Tests', () => {
       });
 
       const message = result.messages[0];
-      expect(message.content.text).toContain('TestTable | count');
-      expect(message.content.text).toContain('performance');
+      expect(textOf(message)).toContain('TestTable | count');
+      expect(textOf(message)).toContain('performance');
     });
 
     test('should throw error for missing required argument', () => {

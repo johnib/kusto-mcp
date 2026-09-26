@@ -1,0 +1,16 @@
+{
+  // Typecheck-only config covering src/ and tests/ (unit + e2e). Run via
+  // `npm run typecheck`. Module settings are inherited from tsconfig.json
+  // (NodeNext): with "type": "module" this resolves imports exactly as ts-jest
+  // does (moduleResolution nodenext, `.js` suffixes on relative imports). tsc
+  // rejects ts-jest's inline `module: ESNext` + `moduleResolution: nodenext`
+  // pair (TS5110), so it cannot be mirrored verbatim here.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["jest", "node"]
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -17,7 +17,7 @@ import {
 import { createMockError } from '../setup.js';
 
 // Mock the azure-kusto-data client execute method
-const mockExecuteQuery = jest.fn<any, any>();
+const mockExecuteQuery = jest.fn<KustoConnection['executeQuery']>();
 
 // Mock the KustoConnection
 jest.mock('../../../src/operations/kusto/connection.js', () => ({
