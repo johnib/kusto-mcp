@@ -210,49 +210,13 @@ export function createKustoServer(config: KustoConfig): Server {
     };
   });
 
-  // Register the ListPrompts request handler
-  server.setRequestHandler(ListPromptsRequestSchema, async request => {
-    if (!validatedConfig.enablePrompts || !promptManager) {
-      throw new McpError(ErrorCode.MethodNotFound, 'Prompts are disabled');
-    }
-
-    try {
-      const cursor = request.params?.cursor;
-      const result = promptManager.listPrompts(cursor);
-      return result;
-    } catch (error) {
-      criticalLog(`Error listing prompts: ${error}`);
-      throw new McpError(
-        ErrorCode.InternalError,
-        `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  });
-
-  // Register the GetPrompt request handler
-  server.setRequestHandler(GetPromptRequestSchema, async request => {
-    if (!validatedConfig.enablePrompts || !promptManager) {
-      throw new McpError(ErrorCode.MethodNotFound, 'Prompts are disabled');
-    }
-
-    try {
-      const name = request.params.name;
-      const arguments_ = request.params.arguments || {};
-      const result = promptManager.getPrompt(name, arguments_);
-      return result;
-    } catch (error) {
-      criticalLog(`Error getting prompt: ${error}`);
-
-      if (error instanceof Error && error.message.includes('not found')) {
-        throw new McpError(ErrorCode.InvalidParams, error.message);
-      }
-
-      throw new McpError(
-        ErrorCode.InternalError,
-        `Failed to get prompt: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  });
+  // Register the prompt handlers only when prompts are enabled. The MCP SDK
+  // refuses to register a handler for a capability the server did not
+  // declare, so registering them unconditionally crashes startup when
+  // prompts are disabled.
+  if (promptManager) {
+    registerPromptHandlers(server, promptManager);
+  }
 
   // Register the CallTool request handler
   server.setRequestHandler(CallToolRequestSchema, async request => {
@@ -661,4 +625,45 @@ export function createKustoServer(config: KustoConfig): Server {
   });
 
   return server;
+}
+
+function registerPromptHandlers(
+  server: Server,
+  promptManager: PromptManager,
+): void {
+  // Register the ListPrompts request handler
+  server.setRequestHandler(ListPromptsRequestSchema, async request => {
+    try {
+      const cursor = request.params?.cursor;
+      const result = promptManager.listPrompts(cursor);
+      return result;
+    } catch (error) {
+      criticalLog(`Error listing prompts: ${error}`);
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  });
+
+  // Register the GetPrompt request handler
+  server.setRequestHandler(GetPromptRequestSchema, async request => {
+    try {
+      const name = request.params.name;
+      const arguments_ = request.params.arguments || {};
+      const result = promptManager.getPrompt(name, arguments_);
+      return result;
+    } catch (error) {
+      criticalLog(`Error getting prompt: ${error}`);
+
+      if (error instanceof Error && error.message.includes('not found')) {
+        throw new McpError(ErrorCode.InvalidParams, error.message);
+      }
+
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Failed to get prompt: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  });
 }
