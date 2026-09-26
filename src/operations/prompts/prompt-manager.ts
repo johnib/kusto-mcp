@@ -39,7 +39,7 @@ export class PromptManager {
   /**
    * Get a specific prompt with rendered content
    */
-  getPrompt(name: string, args: Record<string, any> = {}): GetPromptResult {
+  getPrompt(name: string, args: Record<string, string> = {}): GetPromptResult {
     const prompt = getPromptByName(name);
     if (!prompt) {
       throw new Error(`Prompt not found: ${name}`);

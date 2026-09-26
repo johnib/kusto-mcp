@@ -6,7 +6,7 @@ import {
 
 export function renderPrompt(
   prompt: PromptDefinition,
-  args: Record<string, any> = {},
+  args: Record<string, string> = {},
 ): GetPromptResult {
   // Validate required arguments
   if (prompt.arguments) {

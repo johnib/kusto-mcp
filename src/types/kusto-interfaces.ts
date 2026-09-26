@@ -108,9 +108,10 @@ export interface KustoTableSchema {
  */
 export interface KustoQueryResultRow {
   /**
-   * The row data as a key-value map
+   * The row data as a key-value map. Values are `unknown` because Kusto
+   * `dynamic` cells hold arbitrary objects and arrays, not only scalars.
    */
-  [key: string]: string | number | boolean | null | undefined | Date;
+  [key: string]: unknown;
 }
 
 /**
@@ -143,7 +144,25 @@ export interface KustoQueryResult {
   primaryResults: {
     name: string;
     data: KustoQueryResultRow[];
+
+    /**
+     * Positional row arrays, as azure-kusto-data's KustoResultTable stores them
+     */
+    _rows?: unknown[][];
+
+    /**
+     * Column metadata, as azure-kusto-data's KustoResultTable carries it
+     */
+    columns?: KustoRawResultColumn[];
   }[];
+}
+
+/**
+ * Column metadata as carried by an azure-kusto-data result table at runtime.
+ */
+export interface KustoRawResultColumn {
+  ColumnName?: string;
+  name?: string | null;
 }
 
 /**
