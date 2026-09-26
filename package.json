@@ -84,9 +84,9 @@
     "node": ">=18.0.0"
   },
   "overrides": {
-    "body-parser": "^2.3.0",
-    "glob": "^11.0.0",
-    "undici": "^6.23.0"
+    "azure-kusto-data": {
+      "uuid": "^11.1.1"
+    }
   },
   "lint-staged": {
     "*.{ts,js}": [
