@@ -39,8 +39,8 @@ node test-mcp-client.js
 > `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:9999` on the server it spawns, so its
 > spans go to a local sink that nothing listens on. To send them to your own collector,
 > export `OTEL_EXPORTER_OTLP_ENDPOINT` before running the script. Do not remove this
-> override when you customize the script. If you run `node dist/index.js` or
-> `npm run test:e2e` yourself, export the same variable first.
+> override when you customize the script. If you run `node dist/index.js` yourself,
+> export the same variable first.
 
 ### 2. Environment Configuration
 
@@ -126,6 +126,10 @@ The script follows this sequence:
 
 ### Error Response Example
 
+Tool errors come back as a `result` with `isError: true`. The text depends on where the
+call failed. With the script's default env, auto-connection is configured, so a query
+sent after the connection failed returns the lower-level Kusto error:
+
 ```json
 {
   "result": {
@@ -141,6 +145,10 @@ The script follows this sequence:
   "id": 3
 }
 ```
+
+With no connection configured at all (no `KUSTO_CLUSTER_URL` and no
+`initialize-connection` call), the text is instead
+`MCP Error: Connection not initialized. Please call initialize-connection first.`
 
 ## Customizing Tests for Your Feature
 
