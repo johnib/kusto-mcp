@@ -4,7 +4,6 @@ module.exports = {
   verbose: true,
   collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts'],
   coverageReporters: ['text', 'lcov', 'html'],
-  transformIgnorePatterns: ['node_modules/(?!(@azure|azure-|markdown-table))'],
   maxWorkers: '100%', // Enable parallel project execution
   testTimeout: 30000, // 30 second timeout for all tests
 
@@ -59,11 +58,7 @@ module.exports = {
             },
           },
         ],
-        '^.+\\.js$': 'babel-jest',
       },
-      transformIgnorePatterns: [
-        'node_modules/(?!(azure-kusto-data|azure-kusto-ingest|@azure|markdown-table)/)',
-      ],
       moduleNameMapper: {
         '^(\\.{1,2}/.*)\\.js$': '$1',
       },
