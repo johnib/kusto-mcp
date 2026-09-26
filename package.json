@@ -36,7 +36,8 @@
     "lint:fix": "eslint src --fix",
     "format": "prettier --config .prettierrc.json --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
-    "format:fix": "prettier --config .prettierrc.json --write 'src/**/*.ts'"
+    "format:fix": "prettier --config .prettierrc.json --write 'src/**/*.ts'",
+    "prepare": "husky"
   },
   "dependencies": {
     "@azure/identity": "^4.10.0",
@@ -89,11 +90,8 @@
     "undici": "^6.23.0"
   },
   "lint-staged": {
-    "*.{ts,js}": [
+    "src/**/*.ts": [
       "eslint --fix",
-      "prettier --write"
-    ],
-    "*.{json,md}": [
       "prettier --write"
     ]
   }
