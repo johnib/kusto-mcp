@@ -4,7 +4,7 @@ This document contains technical information for developers who want to contribu
 
 ## Prerequisites
 
-- Node.js 16.x or higher
+- Node.js 22.x or higher
 - npm 8.x or higher
 - Access to an Azure Data Explorer (Kusto) cluster
 - Azure CLI or Azure Identity for authentication
