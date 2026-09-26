@@ -27,7 +27,7 @@
 
 - CI runs the **unit** project only; `tests/e2e` never runs there (it needs `az login`
   and a live cluster). Any regression guard that must hold goes in `tests/unit`.
-- CI order is lint → test → build, so `dist/` does not exist while unit tests run.
+- CI order is lint → typecheck → test → build, so `dist/` does not exist while unit tests run.
 - `npm run typecheck` (`tsc -p tsconfig.test.json`) typechecks `src/` and all of
   `tests/`, e2e included, and CI runs it before the unit tests. It is the only type
   gate on tests: jest/ts-jest ran with these errors present and still passed. Nothing
