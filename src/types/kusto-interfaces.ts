@@ -108,9 +108,10 @@ export interface KustoTableSchema {
  */
 export interface KustoQueryResultRow {
   /**
-   * The row data as a key-value map
+   * The row data as a key-value map. Values are `unknown` because Kusto
+   * `dynamic` cells hold arbitrary objects and arrays, not only scalars.
    */
-  [key: string]: string | number | boolean | null | undefined | Date;
+  [key: string]: unknown;
 }
 
 /**
