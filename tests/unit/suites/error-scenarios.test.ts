@@ -225,7 +225,7 @@ describe('Error Scenarios Unit Tests', () => {
       );
 
       // Verify limit was respected
-      expect(result.primaryResults[0]._rows.length).toBe(2);
+      expect(result.primaryResults[0]._rows).toHaveLength(2);
       expect(mockExecute).toHaveBeenCalledWith(
         'ContosoSales',
         expect.stringContaining('range i from 1 to 100000'),
