@@ -1,3 +1,10 @@
+## [1.14.3](https://github.com/johnib/kusto-mcp/compare/v1.14.2...v1.14.3) (2026-09-26)
+
+
+### Bug Fixes
+
+* escape pipes in markdown table cells ([#284](https://github.com/johnib/kusto-mcp/issues/284)) ([f4e87c6](https://github.com/johnib/kusto-mcp/commit/f4e87c622b12eda5b608f13f72081f8751ab30a9)), closes [#282](https://github.com/johnib/kusto-mcp/issues/282)
+
 ## [1.14.2](https://github.com/johnib/kusto-mcp/compare/v1.14.1...v1.14.2) (2026-09-26)
 
 
