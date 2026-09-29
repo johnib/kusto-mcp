@@ -24,6 +24,9 @@ import {
   toolNotInitializedCounter,
 } from './common/telemetry.js';
 import { appendRowLimit, assertQueryAllowed } from './common/kql-safety.js';
+import { coercePurpose, QUERY_PURPOSES } from './common/query-purpose.js';
+import { classifyQueryShape } from './common/query-shape.js';
+import { SessionTracker } from './common/session-tracker.js';
 import { VERSION } from './common/version.js';
 import {
   executeQuery,
@@ -51,6 +54,15 @@ const ShowTableSchema = z.object({
 });
 
 const ExecuteQuerySchema = z.object({
+  // Declared first so models fill it before writing the query. An off-list value
+  // is dropped (never rejected): analytics metadata must not fail a query.
+  purpose: z
+    .enum(QUERY_PURPOSES)
+    .optional()
+    .catch(undefined)
+    .describe(
+      `Optional analytics hint: why you are running this query. One of ${QUERY_PURPOSES.join(', ')}. Omit if unsure. Never put query text, names or free text here.`,
+    ),
   query: z.string().describe('The query to execute'),
   limit: z
     .number()
@@ -119,6 +131,9 @@ export function createKustoServer(config: KustoConfig): Server {
   // Declare a variable to store the connection when it's initialized
   let connection: KustoConnection | null = null;
 
+  // Bounded per-process behavior signals (previous tool, retry class, ...).
+  const session = new SessionTracker();
+
   // Initialize the prompt manager
   const promptManager = validatedConfig.enablePrompts
     ? new PromptManager()
@@ -186,7 +201,7 @@ export function createKustoServer(config: KustoConfig): Server {
         {
           name: 'execute-query',
           description:
-            'Runs KQL queries and returns results. By default, limits results to 20 rows to prevent context overflow. Use the "limit" parameter to specify a different maximum. If results are marked as partial, consider revising your query to use aggregations, filters, or summarizations.',
+            'Runs KQL queries and returns results. By default, limits results to 20 rows to prevent context overflow. Use the "limit" parameter to specify a different maximum. If results are marked as partial, consider revising your query to use aggregations, filters, or summarizations. Optionally set "purpose" to the closest intent.',
           inputSchema: z.toJSONSchema(ExecuteQuerySchema),
         },
         {
@@ -224,6 +239,9 @@ export function createKustoServer(config: KustoConfig): Server {
     return serverTracer.startActiveSpan(`mcp.tool/${toolName}`, async span => {
       const startedAt = Date.now();
       let status = 'ok';
+      // Facts about an execute-query call, fed to the session tracker in finally.
+      let queryFacts: { limit: number; partial: boolean } | undefined;
+      let queryReduced = false;
 
       span.setAttribute('kustomcp.tool.name', toolName);
       // MCP client (host app) identity — a first-order "who uses this" signal.
@@ -341,6 +359,16 @@ export function createKustoServer(config: KustoConfig): Server {
 
               // Get user-requested limit and global response limit
               const requestedLimit = args.limit || 20;
+
+              // Closed-vocabulary intent/shape/behavior telemetry. Never any
+              // query text, names or free text (see README "What is NEVER
+              // collected"); each helper is failure-safe.
+              span.setAttribute(
+                'kustomcp.declared.purpose',
+                coercePurpose(args.purpose),
+              );
+              span.setAttributes(classifyQueryShape(args.query));
+              span.setAttributes(session.beforeQuery(requestedLimit));
               const globalCharLimit =
                 validatedConfig.maxResponseLength || 12000;
               const minRows = validatedConfig.minRowsInResponse || 1;
@@ -439,6 +467,8 @@ export function createKustoServer(config: KustoConfig): Server {
                 'kustomcp.response.was_reduced',
                 limitResult.wasReduced,
               );
+              queryFacts = { limit: requestedLimit, partial: isPartial };
+              queryReduced = limitResult.wasReduced;
               debugLog(`Using ${responseFormat} response format`);
               debugLog(
                 `Global response limiting: ${
@@ -601,6 +631,12 @@ export function createKustoServer(config: KustoConfig): Server {
           isError: true,
         };
       } finally {
+        session.recordCall(toolName, {
+          status,
+          limit: queryFacts?.limit,
+          partial: queryFacts?.partial,
+          reduced: queryReduced,
+        });
         toolCallsCounter.add(1, {
           tool: toolName,
           status,
