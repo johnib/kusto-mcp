@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  coercePurpose,
+  classifyPurpose,
   QUERY_PURPOSES,
 } from '../../../src/common/query-purpose.js';
 import {
@@ -96,34 +96,58 @@ describe('SessionTracker', () => {
 });
 
 describe('purpose', () => {
-  test('coercePurpose accepts only the fixed list', () => {
-    for (const p of QUERY_PURPOSES) expect(coercePurpose(p)).toBe(p);
+  test('known labels pass through, case/hyphen-insensitive', () => {
+    for (const p of QUERY_PURPOSES) {
+      expect(classifyPurpose(p)).toEqual({ purpose: p });
+    }
+    expect(classifyPurpose(' Schema-Discovery ')).toEqual({
+      purpose: 'schema_discovery',
+    });
+  });
+
+  test('absent or non-string is unspecified', () => {
+    for (const v of [undefined, null, 42, {}, [], '', '   ']) {
+      expect(classifyPurpose(v)).toEqual({ purpose: 'unspecified' });
+    }
+  });
+
+  test('unlisted short snake_case labels are captured as other + label', () => {
+    expect(classifyPurpose('fraud_review')).toEqual({
+      purpose: 'other',
+      unlisted: 'fraud_review',
+    });
+    expect(classifyPurpose('Capacity-Planning')).toEqual({
+      purpose: 'other',
+      unlisted: 'capacity_planning',
+    });
+  });
+
+  test('sentences and odd or long strings are never captured', () => {
     for (const bad of [
-      undefined,
-      null,
-      42,
-      {},
-      '',
-      'SELECT secret FROM customers',
-      'schema_discovery ',
+      'SELECT secrets FROM customers',
+      'find the failed payments for Acme',
+      'a_b_c_d_e_f',
       'x'.repeat(10_000),
+      'has.dot',
+      "drop'table",
+      '1starts_with_digit',
     ]) {
-      expect(coercePurpose(bad)).toBe('unspecified');
+      expect(classifyPurpose(bad)).toEqual({ purpose: 'other' });
     }
   });
 
   test('a bad purpose never fails argument parsing', () => {
     const schema = z.object({
-      purpose: z.enum(QUERY_PURPOSES).optional().catch(undefined),
+      purpose: z.string().optional().catch(undefined),
       query: z.string(),
     });
-    expect(schema.parse({ query: 'T', purpose: 'garbage' })).toEqual({
+    expect(schema.parse({ query: 'T', purpose: 42 })).toEqual({
       query: 'T',
       purpose: undefined,
     });
     expect(schema.parse({ query: 'T' }).purpose).toBeUndefined();
-    expect(schema.parse({ query: 'T', purpose: 'bulk_extract' }).purpose).toBe(
-      'bulk_extract',
+    expect(schema.parse({ query: 'T', purpose: 'anything goes' }).purpose).toBe(
+      'anything goes',
     );
   });
 });

@@ -63,7 +63,10 @@ describe('execute-query intent/shape/session telemetry', () => {
     try {
       await client.callTool({
         name: 'initialize-connection',
-        arguments: { cluster_url: 'https://x.kusto.windows.net', database: 'd' },
+        arguments: {
+          cluster_url: 'https://x.kusto.windows.net',
+          database: 'd',
+        },
       });
       // The mocked connection can't list tables, so this call errors; it still
       // counts as a schema lookup for the session signals.
@@ -75,7 +78,7 @@ describe('execute-query intent/shape/session telemetry', () => {
       });
       expect(r1.isError).toBeFalsy();
 
-      // Off-list purpose must not fail the call.
+      // A free-text purpose must neither fail the call nor be recorded.
       const r2 = await client.callTool({
         name: 'execute-query',
         arguments: {
@@ -86,7 +89,24 @@ describe('execute-query intent/shape/session telemetry', () => {
       });
       expect(r2.isError).toBeFalsy();
 
-      const [first, second] = toolSpans();
+      // An unlisted but identifier-shaped label is captured for discovery.
+      const r3 = await client.callTool({
+        name: 'execute-query',
+        arguments: { purpose: 'fraud_review', query: 'T | take 1' },
+      });
+      expect(r3.isError).toBeFalsy();
+
+      // The tool schema must not constrain purpose (no enum) — never interfere.
+      const { tools } = await client.listTools();
+      const props = (
+        tools.find(t => t.name === 'execute-query')!.inputSchema as {
+          properties: Record<string, { type?: string; enum?: unknown }>;
+        }
+      ).properties;
+      expect(props.purpose.type).toBe('string');
+      expect(props.purpose.enum).toBeUndefined();
+
+      const [first, second, third] = toolSpans();
       const a1 = first.attributes;
       expect(a1['kustomcp.declared.purpose']).toBe('bulk_extract');
       expect(a1['kustomcp.query.stmt_kind']).toBe('query');
@@ -98,11 +118,17 @@ describe('execute-query intent/shape/session telemetry', () => {
       expect(a1['kustomcp.query.retry_class']).toBe('first');
 
       const a2 = second.attributes;
-      expect(a2['kustomcp.declared.purpose']).toBe('unspecified');
+      expect(a2['kustomcp.declared.purpose']).toBe('other');
+      expect(a2['kustomcp.declared.purpose_unlisted']).toBeUndefined();
       expect(a2['kustomcp.session.prev_tool']).toBe('execute-query');
       expect(a2['kustomcp.session.query_ordinal']).toBe('2');
       expect(a2['kustomcp.query.retry_class']).toBe('after_success');
       expect(a2['kustomcp.query.limit_escalation']).toBe('raised');
+
+      expect(third.attributes['kustomcp.declared.purpose']).toBe('other');
+      expect(third.attributes['kustomcp.declared.purpose_unlisted']).toBe(
+        'fraud_review',
+      );
 
       for (const span of exporter.getFinishedSpans()) {
         const dump = JSON.stringify(span.attributes);

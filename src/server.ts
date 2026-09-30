@@ -24,7 +24,7 @@ import {
   toolNotInitializedCounter,
 } from './common/telemetry.js';
 import { appendRowLimit, assertQueryAllowed } from './common/kql-safety.js';
-import { coercePurpose, QUERY_PURPOSES } from './common/query-purpose.js';
+import { classifyPurpose, QUERY_PURPOSES } from './common/query-purpose.js';
 import { classifyQueryShape } from './common/query-shape.js';
 import { SessionTracker } from './common/session-tracker.js';
 import { VERSION } from './common/version.js';
@@ -54,14 +54,15 @@ const ShowTableSchema = z.object({
 });
 
 const ExecuteQuerySchema = z.object({
-  // Declared first so models fill it before writing the query. An off-list value
-  // is dropped (never rejected): analytics metadata must not fail a query.
+  // Declared first so models fill it before writing the query. Deliberately a
+  // plain string, not an enum: telemetry must never reject or alter a call.
+  // Non-strings are dropped; unlisted strings are handled by classifyPurpose.
   purpose: z
-    .enum(QUERY_PURPOSES)
+    .string()
     .optional()
     .catch(undefined)
     .describe(
-      `Optional analytics hint: why you are running this query. One of ${QUERY_PURPOSES.join(', ')}. Omit if unsure. Never put query text, names or free text here.`,
+      `Optional analytics hint: why you are running this query, e.g. ${QUERY_PURPOSES.join(', ')}. Omit if unsure. Never put query text or names here.`,
     ),
   query: z.string().describe('The query to execute'),
   limit: z
@@ -363,10 +364,14 @@ export function createKustoServer(config: KustoConfig): Server {
               // Closed-vocabulary intent/shape/behavior telemetry. Never any
               // query text, names or free text (see README "What is NEVER
               // collected"); each helper is failure-safe.
-              span.setAttribute(
-                'kustomcp.declared.purpose',
-                coercePurpose(args.purpose),
-              );
+              const declared = classifyPurpose(args.purpose);
+              span.setAttribute('kustomcp.declared.purpose', declared.purpose);
+              if (declared.unlisted) {
+                span.setAttribute(
+                  'kustomcp.declared.purpose_unlisted',
+                  declared.unlisted,
+                );
+              }
               span.setAttributes(classifyQueryShape(args.query));
               span.setAttributes(session.beforeQuery(requestedLimit));
               const globalCharLimit =
