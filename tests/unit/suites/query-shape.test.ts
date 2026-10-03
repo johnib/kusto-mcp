@@ -43,7 +43,9 @@ function assertInVocabulary(attrs: Record<string, unknown>): void {
 
 describe('classifyQueryShape', () => {
   test('simple pipeline', () => {
-    const a = shape('StormEvents | where State == "TX" | summarize count() by X');
+    const a = shape(
+      'StormEvents | where State == "TX" | summarize count() by X',
+    );
     expect(a[`${P}stmt_kind`]).toBe('query');
     expect(a[`${P}operators`]).toEqual(['summarize', 'where']);
     expect(a[`${P}pipe_count`]).toBe(2);
@@ -99,8 +101,21 @@ describe('classifyQueryShape', () => {
     expect(shape('.drop table T')[`${P}stmt_kind`]).toBe('control_drop');
   });
 
+  test('standalone operators that start a statement are classified', () => {
+    expect(shape('search "timeout"')[`${P}operators`]).toEqual(['search']);
+    expect(shape('find where x == 1')[`${P}operators`]).toEqual(['find']);
+    expect(shape('externaldata (a:string) [h@"u"]')[`${P}operators`]).toEqual([
+      'externaldata',
+    ]);
+    expect(shape('evaluate plugin()')[`${P}operators`]).toEqual(['evaluate']);
+    // A table that merely shares an operator's name is still not counted.
+    expect(shape('join | take 1')[`${P}operators`]).toEqual(['take']);
+  });
+
   test('hyphenated operators map to their family', () => {
-    const a = shape('T | project-away A | mv-expand B | make-series c=count() on t');
+    const a = shape(
+      'T | project-away A | mv-expand B | make-series c=count() on t',
+    );
     expect(a[`${P}operators`]).toEqual(['make_series', 'mv_expand', 'project']);
   });
 
@@ -136,7 +151,12 @@ describe('classifyQueryShape', () => {
     });
 
     test('unterminated string, bracket or fence -> unparsed', () => {
-      for (const q of ['T | where a == "oops', "T | where a == 'x", 'T | [x', '```abc']) {
+      for (const q of [
+        'T | where a == "oops',
+        "T | where a == 'x",
+        'T | [x',
+        '```abc',
+      ]) {
         expect(shape(q)).toEqual({ [`${P}stmt_kind`]: 'unparsed' });
       }
     });
@@ -182,12 +202,40 @@ describe('classifyQueryShape', () => {
 
   test('fuzz: every emitted value is in a frozen vocabulary', () => {
     const alphabet = [
-      '|', ' ', '\n', ';', '(', ')', '"', "'", '`', '[', ']', '@', '.', '-',
-      '//', 'join', 'union', 'let', 'where', 'ago', '7d', 'datetime', 'foo',
-      'bar_baz', '.show', 'tables', '.create', '1', '=', ',',
+      '|',
+      ' ',
+      '\n',
+      ';',
+      '(',
+      ')',
+      '"',
+      "'",
+      '`',
+      '[',
+      ']',
+      '@',
+      '.',
+      '-',
+      '//',
+      'join',
+      'union',
+      'let',
+      'where',
+      'ago',
+      '7d',
+      'datetime',
+      'foo',
+      'bar_baz',
+      '.show',
+      'tables',
+      '.create',
+      '1',
+      '=',
+      ',',
     ];
     let seed = 12345;
-    const rand = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+    const rand = () =>
+      (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
     for (let i = 0; i < 2000; i++) {
       let q = '';
       const len = Math.floor(rand() * 40);

@@ -219,7 +219,19 @@ describe('execute-query intent/shape/session telemetry', () => {
         });
         expect(ok.isError).toBeFalsy();
 
-        const [, second] = toolSpans();
+        // The failed call's own span carries the input-derived dimensions.
+        const [failedSpan, second] = toolSpans();
+        expect(failedSpan.status.code).toBe(2); // ERROR
+        expect(failedSpan.attributes['kustomcp.declared.purpose']).toBe(
+          'unspecified',
+        );
+        expect(failedSpan.attributes['kustomcp.query.requested_limit']).toBe(
+          100,
+        );
+        expect(failedSpan.attributes['kustomcp.query.stmt_kind']).toBeDefined();
+        expect(failedSpan.attributes['kustomcp.session.query_ordinal']).toBe(
+          '1',
+        );
         expect(second.attributes['kustomcp.query.retry_class']).toBe(
           'after_error',
         );
@@ -323,7 +335,10 @@ describe('execute-query intent/shape/session telemetry', () => {
         });
         expect(res.isError).toBe(true);
         const [span] = toolSpans();
-        expect(span.attributes['kustomcp.declared.purpose']).toBeUndefined();
+        expect(span.attributes['kustomcp.declared.purpose']).toBe(
+          'unspecified',
+        );
+        expect(span.attributes['kustomcp.query.requested_limit']).toBe(20);
       } finally {
         await close();
       }

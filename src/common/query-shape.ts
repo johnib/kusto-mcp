@@ -64,6 +64,15 @@ const OPERATOR_FAMILY: ReadonlyMap<string, string> = new Map([
   ['serialize', 'serialize'],
 ]);
 
+// Operators that may start a statement without a leading `|`.
+const STATEMENT_START_OPERATORS: ReadonlySet<string> = new Set([
+  'union',
+  'search',
+  'find',
+  'externaldata',
+  'evaluate',
+]);
+
 export const QUERY_OPERATOR_VOCAB: readonly string[] = [
   ...new Set(OPERATOR_FAMILY.values()),
   'other',
@@ -313,9 +322,12 @@ export function classifyQueryShape(query: string): Attributes {
           if (family === 'union') unions++;
         } else if (atStatementStart) {
           if (tk.v === 'let') lets++;
-          else if (tk.v === 'union') {
-            unions++;
-            operators.add('union');
+          else if (STATEMENT_START_OPERATORS.has(tk.v)) {
+            // Only operators that can legally begin a statement; any other
+            // word here is a table name (e.g. a table called `join`).
+            const family = OPERATOR_FAMILY.get(tk.v) ?? 'other';
+            operators.add(family);
+            if (family === 'union') unions++;
           }
         }
         expectOperator = false;

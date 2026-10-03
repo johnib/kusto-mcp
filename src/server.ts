@@ -341,9 +341,30 @@ export function createKustoServer(config: KustoConfig): Server {
 
             case 'execute-query': {
               const args = ExecuteQuerySchema.parse(request.params.arguments);
-              // Record the limit before any check that can throw (connection,
-              // read-only, execution) so failed calls still report it.
-              queryFacts = { limit: args.limit || 20, partial: false };
+              const requestedLimit = args.limit || 20;
+              // Record the limit and stamp the input-derived attributes before
+              // any check that can throw (connection, read-only, execution), so
+              // failed calls carry the same intent/session dimensions.
+              queryFacts = { limit: requestedLimit, partial: false };
+
+              // Closed-vocabulary intent/shape/behavior telemetry. Never any
+              // query text, names or free text (see README "What is NEVER
+              // collected"); each helper is failure-safe.
+              span.setAttribute(
+                'kustomcp.query.requested_limit',
+                requestedLimit,
+              );
+              const declared = classifyPurpose(args.purpose);
+              span.setAttribute('kustomcp.declared.purpose', declared.purpose);
+              if (declared.unlisted) {
+                span.setAttribute(
+                  'kustomcp.declared.purpose_unlisted',
+                  declared.unlisted,
+                );
+              }
+              span.setAttributes(classifyQueryShape(args.query));
+              span.setAttributes(session.beforeQuery(requestedLimit));
+
               const conn = requireConnection();
 
               // Enforce read-only mode unless writes are explicitly enabled.
@@ -361,22 +382,7 @@ export function createKustoServer(config: KustoConfig): Server {
                 throw error;
               }
 
-              // Get user-requested limit and global response limit
-              const requestedLimit = args.limit || 20;
-
-              // Closed-vocabulary intent/shape/behavior telemetry. Never any
-              // query text, names or free text (see README "What is NEVER
-              // collected"); each helper is failure-safe.
-              const declared = classifyPurpose(args.purpose);
-              span.setAttribute('kustomcp.declared.purpose', declared.purpose);
-              if (declared.unlisted) {
-                span.setAttribute(
-                  'kustomcp.declared.purpose_unlisted',
-                  declared.unlisted,
-                );
-              }
-              span.setAttributes(classifyQueryShape(args.query));
-              span.setAttributes(session.beforeQuery(requestedLimit));
+              // Global response limit
               const globalCharLimit =
                 validatedConfig.maxResponseLength || 12000;
               const minRows = validatedConfig.minRowsInResponse || 1;
@@ -419,10 +425,6 @@ export function createKustoServer(config: KustoConfig): Server {
                 hasMoreDataAvailable || availableData.length > requestedLimit;
 
               // Result-shape telemetry (no row values, only counts/flags).
-              span.setAttribute(
-                'kustomcp.query.requested_limit',
-                requestedLimit,
-              );
               span.setAttribute(
                 'kustomcp.result.row_count',
                 availableData.length,
