@@ -11,6 +11,7 @@ import {
 } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { createKustoServer } from '../../../src/server.js';
+import { KustoConfig } from '../../../src/types/config.js';
 import { executeQuery } from '../../../src/operations/kusto/index.js';
 
 jest.mock('../../../src/common/version.js', () => ({ VERSION: '0.0.0-test' }));
@@ -38,8 +39,8 @@ const provider = new NodeTracerProvider({
 const SECRET_QUERY =
   'AcmeSecretTable | where Pw == "p@ssw0rd-DO-NOT-LEAK" and t > ago(2d) | summarize count() by Region';
 
-async function connect() {
-  const server = createKustoServer({});
+async function connect(config: KustoConfig = {}) {
+  const server = createKustoServer(config);
   const client = new Client({ name: 'unit-test', version: '0.0.0' });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(st), client.connect(ct)]);
@@ -174,6 +175,62 @@ describe('execute-query intent/shape/session telemetry', () => {
       await close();
     }
   });
+
+  test.each([
+    [
+      'blocked by read-only mode',
+      async (client: Client) => {
+        await client.callTool({
+          name: 'initialize-connection',
+          arguments: {
+            cluster_url: 'https://x.kusto.windows.net',
+            database: 'd',
+          },
+        });
+        return { query: '.drop table T', limit: 100 };
+      },
+    ],
+    [
+      'connection not initialized',
+      async () => ({ query: 'T | take 1', limit: 100 }),
+    ],
+  ])(
+    'a pre-execution failure (%s) still records its limit',
+    async (_label, firstCall) => {
+      // Writes are on by default; turn them off so `.drop` is rejected.
+      const { client, close } = await connect({ allowWriteOperations: false });
+      try {
+        const failed = await client.callTool({
+          name: 'execute-query',
+          arguments: await firstCall(client),
+        });
+        expect(failed.isError).toBe(true);
+
+        await client.callTool({
+          name: 'initialize-connection',
+          arguments: {
+            cluster_url: 'https://x.kusto.windows.net',
+            database: 'd',
+          },
+        });
+        const ok = await client.callTool({
+          name: 'execute-query',
+          arguments: { query: 'T | take 1', limit: 100 },
+        });
+        expect(ok.isError).toBeFalsy();
+
+        const [, second] = toolSpans();
+        expect(second.attributes['kustomcp.query.retry_class']).toBe(
+          'after_error',
+        );
+        expect(second.attributes['kustomcp.query.limit_escalation']).toBe(
+          'same',
+        );
+      } finally {
+        await close();
+      }
+    },
+  );
 
   // LLMs are free to ignore the optional `purpose` hint. Everything must still
   // work and be reported as `unspecified`.
