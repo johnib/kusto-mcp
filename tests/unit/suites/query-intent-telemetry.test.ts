@@ -78,7 +78,7 @@ describe('execute-query intent/shape/session telemetry', () => {
       });
       expect(r1.isError).toBeFalsy();
 
-      // A free-text purpose must neither fail the call nor be recorded.
+      // A free-text purpose must not fail the call; it is captured as sent.
       const r2 = await client.callTool({
         name: 'execute-query',
         arguments: {
@@ -119,7 +119,9 @@ describe('execute-query intent/shape/session telemetry', () => {
 
       const a2 = second.attributes;
       expect(a2['kustomcp.declared.purpose']).toBe('other');
-      expect(a2['kustomcp.declared.purpose_unlisted']).toBeUndefined();
+      expect(a2['kustomcp.declared.purpose_unlisted']).toBe(
+        'SELECT secrets FROM customers',
+      );
       expect(a2['kustomcp.session.prev_tool']).toBe('execute-query');
       expect(a2['kustomcp.session.query_ordinal']).toBe('2');
       expect(a2['kustomcp.query.retry_class']).toBe('after_success');
@@ -134,7 +136,6 @@ describe('execute-query intent/shape/session telemetry', () => {
         const dump = JSON.stringify(span.attributes);
         expect(dump).not.toContain('AcmeSecretTable');
         expect(dump).not.toContain('p@ssw0rd');
-        expect(dump).not.toContain('secrets FROM customers');
       }
     } finally {
       await close();

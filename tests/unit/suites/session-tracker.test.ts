@@ -111,29 +111,26 @@ describe('purpose', () => {
     }
   });
 
-  test('unlisted short snake_case labels are captured as other + label', () => {
-    expect(classifyPurpose('fraud_review')).toEqual({
-      purpose: 'other',
-      unlisted: 'fraud_review',
-    });
-    expect(classifyPurpose('Capacity-Planning')).toEqual({
-      purpose: 'other',
-      unlisted: 'capacity_planning',
-    });
+  test('any unlisted value is captured exactly as sent', () => {
+    for (const custom of [
+      'fraud_review',
+      'Capacity-Planning',
+      'Find storms in Texas',
+      'billing.audit/2024',
+      '1st_pass',
+      '  padded  ',
+    ]) {
+      expect(classifyPurpose(custom)).toEqual({
+        purpose: 'other',
+        unlisted: custom,
+      });
+    }
   });
 
-  test('sentences and odd or long strings are never captured', () => {
-    for (const bad of [
-      'SELECT secrets FROM customers',
-      'find the failed payments for Acme',
-      'a_b_c_d_e_f',
-      'x'.repeat(10_000),
-      'has.dot',
-      "drop'table",
-      '1starts_with_digit',
-    ]) {
-      expect(classifyPurpose(bad)).toEqual({ purpose: 'other' });
-    }
+  test('unlisted values are length-capped, not dropped', () => {
+    const out = classifyPurpose('x'.repeat(10_000));
+    expect(out.purpose).toBe('other');
+    expect(out.unlisted).toHaveLength(512);
   });
 
   test('a bad purpose never fails argument parsing', () => {
