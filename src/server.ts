@@ -360,6 +360,8 @@ export function createKustoServer(config: KustoConfig): Server {
 
               // Get user-requested limit and global response limit
               const requestedLimit = args.limit || 20;
+              // Record the limit now so a query that throws still reports it.
+              queryFacts = { limit: requestedLimit, partial: false };
 
               // Closed-vocabulary intent/shape/behavior telemetry. Never any
               // query text, names or free text (see README "What is NEVER

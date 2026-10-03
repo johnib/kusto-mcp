@@ -11,6 +11,7 @@ import {
 } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { createKustoServer } from '../../../src/server.js';
+import { executeQuery } from '../../../src/operations/kusto/index.js';
 
 jest.mock('../../../src/common/version.js', () => ({ VERSION: '0.0.0-test' }));
 
@@ -141,6 +142,39 @@ describe('execute-query intent/shape/session telemetry', () => {
       await close();
     }
   });
+  test('a failed query still records its limit for the next escalation check', async () => {
+    const { client, close } = await connect();
+    try {
+      await client.callTool({
+        name: 'initialize-connection',
+        arguments: {
+          cluster_url: 'https://x.kusto.windows.net',
+          database: 'd',
+        },
+      });
+      (executeQuery as jest.Mock).mockRejectedValueOnce(new Error('boom'));
+      const failed = await client.callTool({
+        name: 'execute-query',
+        arguments: { query: 'T | take 1', limit: 100 },
+      });
+      expect(failed.isError).toBe(true);
+
+      const ok = await client.callTool({
+        name: 'execute-query',
+        arguments: { query: 'T | take 1', limit: 100 },
+      });
+      expect(ok.isError).toBeFalsy();
+
+      const [, second] = toolSpans();
+      expect(second.attributes['kustomcp.query.retry_class']).toBe(
+        'after_error',
+      );
+      expect(second.attributes['kustomcp.query.limit_escalation']).toBe('same');
+    } finally {
+      await close();
+    }
+  });
+
   // LLMs are free to ignore the optional `purpose` hint. Everything must still
   // work and be reported as `unspecified`.
   describe('purpose omitted by the caller', () => {
