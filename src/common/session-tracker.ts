@@ -4,6 +4,11 @@ import type { Attributes } from '@opentelemetry/api';
  * Per-process (per MCP session) behavior signals for `execute-query`, exported
  * only as bounded enums / capped buckets. Nothing here is derived from query
  * text, and no per-query hash is kept or exported. Never throws.
+ *
+ * MCP requests can overlap, so a query reserves its slot synchronously in
+ * `beginQuery` (ordinal, limit, "in flight" state) and reconciles its outcome
+ * in `finish`. A later query that starts before an earlier one finished sees
+ * `after_in_flight` instead of a stale or duplicated state.
  */
 
 const KNOWN_TOOLS: ReadonlySet<string> = new Set([
@@ -22,7 +27,7 @@ const SCHEMA_TOOLS: ReadonlySet<string> = new Set([
   'show-function',
 ]);
 
-type Outcome = 'success' | 'error' | 'partial' | 'reduced';
+type Outcome = 'success' | 'error' | 'partial' | 'reduced' | 'in_flight';
 
 export const ORDINAL_BUCKETS = ['1', '2', '3', '4-5', '6-10', '11+'] as const;
 export const SCHEMA_CALL_BUCKETS = ['0', '1', '2-3', '4+'] as const;
@@ -32,6 +37,7 @@ export const RETRY_CLASSES = [
   'after_error',
   'after_partial',
   'after_reduced',
+  'after_in_flight',
 ] as const;
 export const LIMIT_ESCALATIONS = [
   'first',
@@ -54,17 +60,29 @@ function schemaBucket(n: number): string {
   return '4+';
 }
 
+export interface QueryResult {
+  status: string;
+  partial?: boolean;
+  reduced?: boolean;
+}
+
 export class SessionTracker {
   private lastTool = 'none';
   private queryCount = 0;
   private schemaCalls = 0;
   private last: { outcome: Outcome; limit: number } | undefined;
 
-  /** Attributes to stamp on an `execute-query` span, before it runs. */
-  beforeQuery(requestedLimit: number): Attributes {
+  /**
+   * Reserve a query slot. Returns the attributes to stamp on the span and a
+   * `finish` callback to call once the query's outcome is known.
+   */
+  beginQuery(requestedLimit: number): {
+    attributes: Attributes;
+    finish: (result: QueryResult) => void;
+  } {
     try {
       const prev = this.last;
-      return {
+      const attributes: Attributes = {
         'kustomcp.session.prev_tool': this.lastTool,
         'kustomcp.session.query_ordinal': ordinalBucket(this.queryCount + 1),
         'kustomcp.session.schema_calls_before_query': schemaBucket(
@@ -79,40 +97,47 @@ export class SessionTracker {
               ? 'lowered'
               : 'same',
       };
+
+      const ticket = ++this.queryCount;
+      this.schemaCalls = 0;
+      this.lastTool = 'execute-query';
+      this.last = { outcome: 'in_flight', limit: requestedLimit };
+
+      return {
+        attributes,
+        finish: result => {
+          try {
+            // Only the most recent query owns the "previous outcome" state.
+            if (this.queryCount !== ticket) return;
+            this.last = {
+              outcome:
+                result.status === 'error'
+                  ? 'error'
+                  : result.partial
+                    ? 'partial'
+                    : result.reduced
+                      ? 'reduced'
+                      : 'success',
+              limit: requestedLimit,
+            };
+          } catch {
+            /* telemetry must never fail a call */
+          }
+        },
+      };
     } catch {
-      return {};
+      return { attributes: {}, finish: () => undefined };
     }
   }
 
-  /** Record a finished tool call. Call from the handler's `finally`. */
-  recordCall(
-    tool: string,
-    result: {
-      status: string;
-      limit?: number;
-      partial?: boolean;
-      reduced?: boolean;
-    },
-  ): void {
+  /**
+   * Record a finished tool call (for the "previous tool" and schema-lookup
+   * signals). `execute-query` state is owned by `beginQuery`/`finish`.
+   */
+  recordCall(tool: string): void {
     try {
       const name = KNOWN_TOOLS.has(tool) ? tool : 'other';
-      if (name === 'execute-query') {
-        this.queryCount++;
-        this.schemaCalls = 0;
-        this.last = {
-          outcome:
-            result.status === 'error'
-              ? 'error'
-              : result.partial
-                ? 'partial'
-                : result.reduced
-                  ? 'reduced'
-                  : 'success',
-          limit: result.limit ?? this.last?.limit ?? 20,
-        };
-      } else if (SCHEMA_TOOLS.has(name)) {
-        this.schemaCalls++;
-      }
+      if (SCHEMA_TOOLS.has(name)) this.schemaCalls++;
       this.lastTool = name;
     } catch {
       /* telemetry must never fail a call */

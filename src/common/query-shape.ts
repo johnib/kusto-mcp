@@ -73,6 +73,10 @@ const STATEMENT_START_OPERATORS: ReadonlySet<string> = new Set([
   'evaluate',
 ]);
 
+// After `(`, only `union` is treated as an operator: other words are too often
+// plain column names inside call arguments.
+const PAREN_START_OPERATORS: ReadonlySet<string> = new Set(['union']);
+
 export const QUERY_OPERATOR_VOCAB: readonly string[] = [
   ...new Set(OPERATOR_FAMILY.values()),
   'other',
@@ -133,7 +137,7 @@ const UNIT_SECONDS: Readonly<Record<string, number>> = {
 
 type Tok =
   | { t: 'word' | 'num'; v: string }
-  | { t: 'pipe' | 'semi' | 'lparen' | 'rparen' | 'dot' | 'other' };
+  | { t: 'pipe' | 'semi' | 'lparen' | 'rparen' | 'dot' | 'eq' | 'other' };
 
 const isWordStart = (c: string) => /[A-Za-z_]/.test(c);
 const isWordChar = (c: string) => /[A-Za-z0-9_]/.test(c);
@@ -228,7 +232,13 @@ function lex(q: string): Tok[] | undefined {
       else if (c === '(') toks.push({ t: 'lparen' });
       else if (c === ')') toks.push({ t: 'rparen' });
       else if (c === '.') toks.push({ t: 'dot' });
-      else toks.push({ t: 'other' });
+      else if (c === '=' && !'=~>'.includes(q[i + 1] ?? ' ')) {
+        toks.push({ t: 'eq' });
+      } else if ('=!<>'.includes(c) && (q[i + 1] === '=' || q[i + 1] === '~')) {
+        // ==, =~, =>, !=, !~, <=, >= are comparison operators, not assignment.
+        toks.push({ t: 'other' });
+        i++;
+      } else toks.push({ t: 'other' });
       i++;
     }
   }
@@ -301,37 +311,66 @@ export function classifyQueryShape(query: string): Attributes {
     let sawDatetime = false;
     let atStatementStart = true;
     let expectOperator = false;
+    // Words allowed to count as an operator at the very next token (after `(`
+    // or after the `=` of a `let` binding).
+    let pendingStart: ReadonlySet<string> | null = null;
+    let inLet = false;
+    let letEqSeen = false;
+
+    const countOperator = (word: string) => {
+      const family = OPERATOR_FAMILY.get(word) ?? 'other';
+      operators.add(family);
+      if (family === 'join') joins++;
+      if (family === 'union') unions++;
+    };
 
     for (let k = 0; k < toks.length; k++) {
       const tk = toks[k];
       if (tk.t === 'semi') {
         atStatementStart = true;
         expectOperator = false;
+        pendingStart = null;
+        inLet = false;
+        letEqSeen = false;
         continue;
       }
       if (tk.t === 'pipe') {
         pipes++;
         expectOperator = true;
+        pendingStart = null;
+        atStatementStart = false;
+        continue;
+      }
+      if (tk.t === 'lparen') {
+        pendingStart = PAREN_START_OPERATORS;
+        expectOperator = false;
+        atStatementStart = false;
+        continue;
+      }
+      if (tk.t === 'eq' && inLet && !letEqSeen) {
+        letEqSeen = true;
+        pendingStart = STATEMENT_START_OPERATORS;
+        expectOperator = false;
         continue;
       }
       if (tk.t === 'word') {
         if (expectOperator) {
-          const family = OPERATOR_FAMILY.get(tk.v) ?? 'other';
-          operators.add(family);
-          if (family === 'join') joins++;
-          if (family === 'union') unions++;
+          countOperator(tk.v);
         } else if (atStatementStart) {
-          if (tk.v === 'let') lets++;
-          else if (STATEMENT_START_OPERATORS.has(tk.v)) {
+          if (tk.v === 'let') {
+            lets++;
+            inLet = true;
+          } else if (STATEMENT_START_OPERATORS.has(tk.v)) {
             // Only operators that can legally begin a statement; any other
             // word here is a table name (e.g. a table called `join`).
-            const family = OPERATOR_FAMILY.get(tk.v) ?? 'other';
-            operators.add(family);
-            if (family === 'union') unions++;
+            countOperator(tk.v);
           }
+        } else if (pendingStart?.has(tk.v)) {
+          countOperator(tk.v);
         }
         expectOperator = false;
         atStatementStart = false;
+        pendingStart = null;
 
         const next = toks[k + 1];
         if (tk.v === 'ago' && next?.t === 'lparen') {
@@ -351,6 +390,7 @@ export function classifyQueryShape(query: string): Attributes {
       }
       expectOperator = false;
       atStatementStart = false;
+      pendingStart = null;
     }
 
     let timeWindow = 'none';

@@ -244,6 +244,55 @@ describe('execute-query intent/shape/session telemetry', () => {
     },
   );
 
+  test('overlapping queries get distinct ordinals', async () => {
+    const { client, close } = await connect();
+    try {
+      await client.callTool({
+        name: 'initialize-connection',
+        arguments: {
+          cluster_url: 'https://x.kusto.windows.net',
+          database: 'd',
+        },
+      });
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => (release = resolve));
+      (executeQuery as jest.Mock).mockImplementationOnce(async () => {
+        await gate;
+        return {
+          primaryResults: [
+            { name: 'r', columns: [{ ColumnName: 'a' }], _rows: [[1]] },
+          ],
+        };
+      });
+      const slow = client.callTool({
+        name: 'execute-query',
+        arguments: { query: 'T | take 1' },
+      });
+      // Let the first call reach (and block in) executeQuery.
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const fast = await client.callTool({
+        name: 'execute-query',
+        arguments: { query: 'T | take 1' },
+      });
+      expect(fast.isError).toBeFalsy();
+      release();
+      await slow;
+
+      const byOrdinal = toolSpans()
+        .map(s => s.attributes['kustomcp.session.query_ordinal'])
+        .sort();
+      expect(byOrdinal).toEqual(['1', '2']);
+      const second = toolSpans().find(
+        s => s.attributes['kustomcp.session.query_ordinal'] === '2',
+      )!;
+      expect(second.attributes['kustomcp.query.retry_class']).toBe(
+        'after_in_flight',
+      );
+    } finally {
+      await close();
+    }
+  });
+
   // LLMs are free to ignore the optional `purpose` hint. Everything must still
   // work and be reported as `unspecified`.
   describe('purpose omitted by the caller', () => {

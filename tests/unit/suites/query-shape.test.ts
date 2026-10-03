@@ -112,6 +112,30 @@ describe('classifyQueryShape', () => {
     expect(shape('join | take 1')[`${P}operators`]).toEqual(['take']);
   });
 
+  test('union inside let bindings and nested expressions is classified', () => {
+    const a = shape('let Combined = union TableA, TableB;\nCombined | count');
+    expect(a[`${P}union_count`]).toBe(1);
+    expect(a[`${P}let_count`]).toBe(1);
+    expect(a[`${P}operators`]).toEqual(['count', 'union']);
+
+    const b = shape('T | join (union U, V) on Key');
+    expect(b[`${P}union_count`]).toBe(1);
+    expect(b[`${P}join_count`]).toBe(1);
+
+    const c = shape('let x = (union A, B); x | take 1');
+    expect(c[`${P}union_count`]).toBe(1);
+  });
+
+  test('words after = / ( that are plain names are not operators', () => {
+    // `==` is a comparison, not a let binding; `union` as a column name in a
+    // call is only counted after `(` (accepted residual), `search` never is.
+    expect(shape('let a = 1; T | where x == union')[`${P}union_count`]).toBe(0);
+    expect(shape('T | where f(search) > 1')[`${P}operators`]).toEqual([
+      'where',
+    ]);
+    expect(shape('let n = 5; T | take n')[`${P}operators`]).toEqual(['take']);
+  });
+
   test('hyphenated operators map to their family', () => {
     const a = shape(
       'T | project-away A | mv-expand B | make-series c=count() on t',

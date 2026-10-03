@@ -26,7 +26,7 @@ import {
 import { appendRowLimit, assertQueryAllowed } from './common/kql-safety.js';
 import { classifyPurpose, QUERY_PURPOSES } from './common/query-purpose.js';
 import { classifyQueryShape } from './common/query-shape.js';
-import { SessionTracker } from './common/session-tracker.js';
+import { QueryResult, SessionTracker } from './common/session-tracker.js';
 import { VERSION } from './common/version.js';
 import {
   executeQuery,
@@ -243,6 +243,7 @@ export function createKustoServer(config: KustoConfig): Server {
       // Facts about an execute-query call, fed to the session tracker in finally.
       let queryFacts: { limit: number; partial: boolean } | undefined;
       let queryReduced = false;
+      let finishQuery: ((r: QueryResult) => void) | undefined;
 
       span.setAttribute('kustomcp.tool.name', toolName);
       // MCP client (host app) identity — a first-order "who uses this" signal.
@@ -347,9 +348,12 @@ export function createKustoServer(config: KustoConfig): Server {
               // failed calls carry the same intent/session dimensions.
               queryFacts = { limit: requestedLimit, partial: false };
 
-              // Closed-vocabulary intent/shape/behavior telemetry. Never any
-              // query text, names or free text (see README "What is NEVER
-              // collected"); each helper is failure-safe.
+              // Intent / shape / behavior telemetry. Query shape and session
+              // signals are closed-vocabulary. `purpose` is an optional label:
+              // known values are reported as-is; any other value the caller
+              // chose is exported verbatim as `purpose_unlisted` (maintainer's
+              // decision, so new categories can be discovered). Each helper is
+              // failure-safe.
               span.setAttribute(
                 'kustomcp.query.requested_limit',
                 requestedLimit,
@@ -363,7 +367,9 @@ export function createKustoServer(config: KustoConfig): Server {
                 );
               }
               span.setAttributes(classifyQueryShape(args.query));
-              span.setAttributes(session.beforeQuery(requestedLimit));
+              const queryTicket = session.beginQuery(requestedLimit);
+              span.setAttributes(queryTicket.attributes);
+              finishQuery = queryTicket.finish;
 
               const conn = requireConnection();
 
@@ -641,12 +647,14 @@ export function createKustoServer(config: KustoConfig): Server {
           isError: true,
         };
       } finally {
-        session.recordCall(toolName, {
-          status,
-          limit: queryFacts?.limit,
-          partial: queryFacts?.partial,
-          reduced: queryReduced,
-        });
+        if (finishQuery) {
+          finishQuery({
+            status,
+            partial: queryFacts?.partial,
+            reduced: queryReduced,
+          });
+        }
+        session.recordCall(toolName);
         toolCallsCounter.add(1, {
           tool: toolName,
           status,
