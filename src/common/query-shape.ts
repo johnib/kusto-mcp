@@ -137,7 +137,17 @@ const UNIT_SECONDS: Readonly<Record<string, number>> = {
 
 type Tok =
   | { t: 'word' | 'num'; v: string }
-  | { t: 'pipe' | 'semi' | 'lparen' | 'rparen' | 'dot' | 'eq' | 'other' };
+  | {
+      t:
+        | 'pipe'
+        | 'semi'
+        | 'lparen'
+        | 'rparen'
+        | 'lbrace'
+        | 'dot'
+        | 'eq'
+        | 'other';
+    };
 
 const isWordStart = (c: string) => /[A-Za-z_]/.test(c);
 const isWordChar = (c: string) => /[A-Za-z0-9_]/.test(c);
@@ -230,6 +240,7 @@ function lex(q: string): Tok[] | undefined {
       if (c === '|') toks.push({ t: 'pipe' });
       else if (c === ';') toks.push({ t: 'semi' });
       else if (c === '(') toks.push({ t: 'lparen' });
+      else if (c === '{') toks.push({ t: 'lbrace' });
       else if (c === ')') toks.push({ t: 'rparen' });
       else if (c === '.') toks.push({ t: 'dot' });
       else if (c === '=' && !'=~>'.includes(q[i + 1] ?? ' ')) {
@@ -343,6 +354,14 @@ export function classifyQueryShape(query: string): Attributes {
       }
       if (tk.t === 'lparen') {
         pendingStart = PAREN_START_OPERATORS;
+        expectOperator = false;
+        atStatementStart = false;
+        continue;
+      }
+      if (tk.t === 'lbrace') {
+        // Body of a `let` function/view: its first word may be a tabular
+        // operator. Outside a `let`, braces are scalar/dynamic content.
+        pendingStart = inLet ? STATEMENT_START_OPERATORS : null;
         expectOperator = false;
         atStatementStart = false;
         continue;

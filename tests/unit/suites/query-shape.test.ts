@@ -126,6 +126,26 @@ describe('classifyQueryShape', () => {
     expect(c[`${P}union_count`]).toBe(1);
   });
 
+  test('union at the start of a let function/view body is classified', () => {
+    const f = shape('let Combined = () { union TableA, TableB };\nCombined()');
+    expect(f[`${P}union_count`]).toBe(1);
+    expect(f[`${P}operators`]).toEqual(['union']);
+
+    const v = shape(
+      'let V = view () { union TableA, TableB };\nunion V, TableC',
+    );
+    expect(v[`${P}union_count`]).toBe(2);
+
+    // Scalar/dynamic braces and non-tabular bodies are not misread.
+    expect(
+      shape('let d = dynamic({"a": 1}); T | take 1')[`${P}operators`],
+    ).toEqual(['take']);
+    expect(
+      shape('let f = (x:string) { x | take 1 }; f("a")')[`${P}operators`],
+    ).toEqual(['take']);
+    expect(shape('T | where a == "{ union X }"')[`${P}union_count`]).toBe(0);
+  });
+
   test('words after = / ( that are plain names are not operators', () => {
     // `==` is a comparison, not a let binding; `union` as a column name in a
     // call is only counted after `(` (accepted residual), `search` never is.
