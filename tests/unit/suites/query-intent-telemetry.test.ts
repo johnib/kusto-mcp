@@ -140,4 +140,101 @@ describe('execute-query intent/shape/session telemetry', () => {
       await close();
     }
   });
+  // LLMs are free to ignore the optional `purpose` hint. Everything must still
+  // work and be reported as `unspecified`.
+  describe('purpose omitted by the caller', () => {
+    const NOT_PROVIDED: Array<[string, Record<string, unknown>]> = [
+      ['key absent', { query: 'T | take 1' }],
+      ['key absent, limit given', { query: 'T | take 1', limit: 5 }],
+      ['explicit undefined-like null', { query: 'T | take 1', purpose: null }],
+      ['empty string', { query: 'T | take 1', purpose: '' }],
+      ['whitespace only', { query: 'T | take 1', purpose: '   ' }],
+      ['non-string number', { query: 'T | take 1', purpose: 7 }],
+      ['non-string object', { query: 'T | take 1', purpose: { a: 1 } }],
+    ];
+
+    test.each(NOT_PROVIDED)(
+      '%s: call succeeds, returns data, purpose is unspecified',
+      async (_label, args) => {
+        const { client, close } = await connect();
+        try {
+          await client.callTool({
+            name: 'initialize-connection',
+            arguments: {
+              cluster_url: 'https://x.kusto.windows.net',
+              database: 'd',
+            },
+          });
+          const res = await client.callTool({
+            name: 'execute-query',
+            arguments: args,
+          });
+          expect(res.isError).toBeFalsy();
+          const text = (res.content as Array<{ text: string }>)[0].text;
+          expect(text).toContain('"a"'); // result rows still come back
+
+          const [span] = toolSpans();
+          const attrs = span.attributes;
+          expect(attrs['kustomcp.declared.purpose']).toBe('unspecified');
+          expect(attrs['kustomcp.declared.purpose_unlisted']).toBeUndefined();
+          // Everything else is still reported.
+          expect(attrs['kustomcp.query.stmt_kind']).toBe('query');
+          expect(attrs['kustomcp.query.operators']).toEqual(['take']);
+          expect(attrs['kustomcp.session.query_ordinal']).toBe('1');
+          expect(attrs['kustomcp.query.retry_class']).toBe('first');
+          expect(attrs['kustomcp.result.row_count']).toBe(2);
+        } finally {
+          await close();
+        }
+      },
+    );
+
+    test('a run of calls with no purpose never errors and stays unspecified', async () => {
+      const { client, close } = await connect();
+      try {
+        await client.callTool({
+          name: 'initialize-connection',
+          arguments: {
+            cluster_url: 'https://x.kusto.windows.net',
+            database: 'd',
+          },
+        });
+        for (let i = 0; i < 4; i++) {
+          const res = await client.callTool({
+            name: 'execute-query',
+            arguments: { query: `T | take ${i + 1}` },
+          });
+          expect(res.isError).toBeFalsy();
+        }
+        const spans = toolSpans();
+        expect(spans).toHaveLength(4);
+        for (const span of spans) {
+          expect(span.attributes['kustomcp.declared.purpose']).toBe(
+            'unspecified',
+          );
+        }
+        expect(spans[3].attributes['kustomcp.session.query_ordinal']).toBe(
+          '4-5',
+        );
+      } finally {
+        await close();
+      }
+    });
+
+    test('a failing query without purpose is still recorded and does not throw', async () => {
+      const { client, close } = await connect();
+      try {
+        // No connection initialized -> the tool errors before running.
+        const res = await client.callTool({
+          name: 'execute-query',
+          arguments: { query: 'T | take 1' },
+        });
+        expect(res.isError).toBe(true);
+        const [span] = toolSpans();
+        expect(span.attributes['kustomcp.declared.purpose']).toBeUndefined();
+      } finally {
+        await close();
+      }
+    });
+  });
 });
