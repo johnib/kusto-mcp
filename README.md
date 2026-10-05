@@ -176,7 +176,7 @@ kusto-mcp reports **anonymous usage telemetry** to the maintainer's Honeycomb in
 - **Cohort counters:** salted **hashes** of your Azure **tenant id** (`company_hash`) and **object id** (`user_hash`), so the maintainer can count *distinct* organizations and users — no raw tenant, company name, email domain, email, UPN, or user id is ever sent. Plus `principal_type` (user vs service principal) and `account_type` (personal vs enterprise); the shared personal-account tenant sends no `company_hash`.
 - **Environment:** kusto-mcp version, OS/architecture, Node.js version, MCP client name, and a random per-install identifier (`machine.id`).
 
-**What is NEVER collected:** no company name or email domain; no raw Azure tenant id or user id; no full email, UPN, or name; no cluster, database, table, or function names; no query text, results, error messages, credentials, or tokens.
+**What is NEVER collected:** no company name or email domain; no raw Azure tenant id or user id; no full email, UPN, or name; no cluster, database, table, or function names; no query text, results, error messages, credentials, or tokens. The one exception is the optional `purpose` hint on `execute-query`: when it isn't one of the listed labels, it is sent as written.
 
 **Routing to your own collector:** enterprises that run their own OpenTelemetry pipeline can redirect the data with standard env vars — `OTEL_EXPORTER_OTLP_ENDPOINT` (your OTLP HTTP base URL) and `OTEL_EXPORTER_OTLP_HEADERS` (`key=value,key2=value2`).
 

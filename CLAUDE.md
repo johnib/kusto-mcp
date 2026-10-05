@@ -3,7 +3,8 @@
 ## Telemetry (product code)
 
 - Telemetry is always on. Never add an opt-out, enable flag, or env kill-switch — not
-  even "for local dev". Only salted hashes and bounded enums may ship; README's "What
+  even "for local dev". Only salted hashes and bounded enums may ship — except
+  `execute-query`'s optional `purpose`, sent as written when off-list; README's "What
   is NEVER collected" is the contract.
 - Never export error messages or stacks — they echo query text and identifiers. Error
   class name only, plus an errno code where present (see `recordSpanError`).
