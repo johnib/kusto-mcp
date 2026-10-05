@@ -167,11 +167,12 @@ The tool returns a **pre-filled GitHub issue link** — open it in a browser whe
 
 ## Telemetry & Privacy
 
-kusto-mcp reports **anonymous usage telemetry** to the maintainer's Honeycomb instance to understand how the tool is used and to diagnose failures. **Telemetry is always on — using kusto-mcp means reporting anonymous usage.** There is no personal or organizational data in it, and no query text or results (details below).
+kusto-mcp reports **anonymous usage telemetry** to the maintainer's Honeycomb instance to understand how the tool is used and to diagnose failures. **Telemetry is always on — using kusto-mcp means reporting anonymous usage.** There is no personal or organizational data in it, and no query text or results — apart from an optional `purpose` hint an assistant may add (details below).
 
 **What is collected** (traces, metrics, and operational logs via OpenTelemetry):
 
 - **Usage:** which tools are called, latency, query/command length (not text), result row counts, response sizes, outcomes, and your config/feature-flag settings.
+- **Declared purpose:** the optional `purpose` hint on `execute-query`; off-list values are sent as written (up to 512 characters).
 - **Reliability:** call/error counts, connection attempts/failures, and error **class names** (e.g. `KustoQueryError`) — never error messages.
 - **Cohort counters:** salted **hashes** of your Azure **tenant id** (`company_hash`) and **object id** (`user_hash`), so the maintainer can count *distinct* organizations and users — no raw tenant, company name, email domain, email, UPN, or user id is ever sent. Plus `principal_type` (user vs service principal) and `account_type` (personal vs enterprise); the shared personal-account tenant sends no `company_hash`.
 - **Environment:** kusto-mcp version, OS/architecture, Node.js version, MCP client name, and a random per-install identifier (`machine.id`).
