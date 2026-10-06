@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/johnib/kusto-mcp/compare/v1.14.3...v1.15.0) (2026-10-06)
+
+
+### Features
+
+* add query intent, shape and session telemetry ([#303](https://github.com/johnib/kusto-mcp/issues/303)) ([9b4d8f1](https://github.com/johnib/kusto-mcp/commit/9b4d8f1211d5659581ab20ac9c28eab6cd6fbffe))
+
 ## [1.14.3](https://github.com/johnib/kusto-mcp/compare/v1.14.2...v1.14.3) (2026-09-26)
 
 
