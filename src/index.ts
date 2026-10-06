@@ -203,7 +203,8 @@ if (machine.isFirstRun) {
     'kusto-mcp reports anonymous usage telemetry (tool usage, latency, error ' +
       'types, version/OS, a random install id, and salted one-way hashes of ' +
       'your Azure tenant/user id for distinct counts) to the maintainer. No ' +
-      'query text, results, or raw identity are collected. See README > Telemetry.',
+      'query text, results, or raw identity are collected, except an optional ' +
+      '`purpose` hint, which is sent as written. See README > Telemetry.',
   );
 }
 

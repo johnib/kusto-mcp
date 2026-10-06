@@ -209,6 +209,8 @@ anonymous usage telemetry to the maintainer's Honeycomb instance (see
 disable switch. No query text, results, error messages, company name, email
 domain, or raw identity are collected — the only cohort signals are salted
 hashes of your Azure tenant id (`company_hash`) and object id (`user_hash`).
+The one exception is the optional `purpose` hint on `execute-query`: when it
+isn't one of the listed labels, it is sent as written (up to 512 characters).
 
 Enterprises can redirect the data to their own OpenTelemetry collector:
 
