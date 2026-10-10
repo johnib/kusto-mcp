@@ -86,6 +86,15 @@ export class KustoTimeoutError extends KustoMcpError {
 }
 
 /**
+ * Error thrown when the MCP client cancels a request while a query is running
+ */
+export class KustoQueryCancelledError extends KustoMcpError {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/**
  * Check if an error is a KustoMcpError
  */
 export function isKustoMcpError(error: unknown): error is KustoMcpError {
@@ -132,6 +141,8 @@ export function formatKustoMcpError(error: KustoMcpError): string {
     return `Kusto Data Conversion Error: ${error.message}`;
   } else if (error instanceof KustoTimeoutError) {
     return `Kusto Timeout Error: ${error.message}`;
+  } else if (error instanceof KustoQueryCancelledError) {
+    return `Kusto Query Cancelled: ${error.message}`;
   } else {
     return `Kusto Error: ${error.message}`;
   }
