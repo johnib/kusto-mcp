@@ -595,10 +595,11 @@ export class KustoConnection {
             // reporting its own timeout (cluster-side pressure).
             span.setAttribute('kustomcp.query.timeout_kind', timeoutKind);
           }
-          // A server timeout surfaces as KustoTimeoutError too, so users and
-          // error.type see a timeout rather than a generic query error.
+          // A server or HTTP (ECONNABORTED) timeout surfaces as
+          // KustoTimeoutError too, so users and error.type see a timeout
+          // rather than a generic query error.
           const serverTimeout =
-            timeoutKind === 'server'
+            outcome === 'timeout' && !(error instanceof KustoTimeoutError)
               ? new KustoTimeoutError(errorMessage)
               : undefined;
           recordSpanError(span, serverTimeout ?? error);

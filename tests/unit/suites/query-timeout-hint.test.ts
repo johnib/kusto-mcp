@@ -147,6 +147,20 @@ describe('timeout recovery hint (#312)', () => {
     );
   });
 
+  test('an HTTP (ECONNABORTED) timeout gets the hint', async () => {
+    const msg = await query(
+      'StormEvents | where StartTime > ago(30d) | take 10',
+      async () => {
+        throw Object.assign(new Error('timeout of 90000ms exceeded'), {
+          code: 'ECONNABORTED',
+        });
+      },
+    );
+    expect(msg).toBe(
+      `Kusto Timeout Error: timeout of 90000ms exceeded. ${HINT} The query ${LOOKBACK}; try a shorter window first.`,
+    );
+  });
+
   test('a management command timeout gets no time-range advice', async () => {
     const msg = await query('.show tables', hang, 20);
     expect(msg).toBe('Kusto Timeout Error: Query timed out after 20ms');
