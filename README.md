@@ -165,7 +165,6 @@ You should see your AI successfully connect and list your database tables.
 - ✅ **Cline** - Full support with auto-approval
 - ✅ **Cursor** - Complete integration
 - ✅ **Claude Desktop** - Native MCP support
-- ✅ **VS Code with MCP** - Built-in compatibility
 - ✅ **Any MCP-compatible tool** - Universal support
 
 ## Common Issues
