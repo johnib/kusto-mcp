@@ -125,6 +125,29 @@ export function extractKustoErrorMessage(error: unknown): string {
   return errorMessage;
 }
 
+// Marks a query failure the query text can't fix (auth, network, throttling).
+// Re-wrapping layers lose the original class, so they carry this flag instead.
+const NOT_QUERY_FAULT = Symbol('kustomcp.notQueryFault');
+
+export function markNotQueryFault(error: unknown): void {
+  if (error && typeof error === 'object' && Object.isExtensible(error)) {
+    (error as Record<symbol, unknown>)[NOT_QUERY_FAULT] = true;
+  }
+}
+
+export function isNotQueryFault(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === 'object' &&
+    (error as Record<symbol, unknown>)[NOT_QUERY_FAULT] === true
+  );
+}
+
+/** Copy the not-a-query-fault mark onto an error that re-wraps `from`. */
+export function carryNotQueryFault(from: unknown, to: unknown): void {
+  if (isNotQueryFault(from)) markNotQueryFault(to);
+}
+
 const LONG_TIME_WINDOWS: ReadonlySet<unknown> = new Set([
   '<=7d',
   '<=30d',
