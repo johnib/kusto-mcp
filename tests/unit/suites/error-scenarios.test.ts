@@ -27,6 +27,9 @@ jest.mock('azure-kusto-data', () => ({
     ),
   },
   ClientRequestProperties: class {
+    setTimeout() {
+      /* no-op for tests */
+    }
     setClientTimeout() {
       /* no-op for tests */
     }
@@ -103,6 +106,7 @@ describe('Error Scenarios Unit Tests', () => {
       expect(mockExecute).toHaveBeenCalledWith(
         'ContosoSales',
         'invalid_syntax_here | this_is_not_kql',
+        expect.anything(),
       );
     });
 
@@ -118,6 +122,7 @@ describe('Error Scenarios Unit Tests', () => {
       expect(mockExecute).toHaveBeenCalledWith(
         'ContosoSales',
         'NonExistentTable123 | take 1',
+        expect.anything(),
       );
     });
 
@@ -130,7 +135,11 @@ describe('Error Scenarios Unit Tests', () => {
         'Query is empty',
       );
 
-      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', '');
+      expect(mockExecute).toHaveBeenCalledWith(
+        'ContosoSales',
+        '',
+        expect.anything(),
+      );
     });
 
     test('should handle whitespace-only queries', async () => {
@@ -142,7 +151,11 @@ describe('Error Scenarios Unit Tests', () => {
         connection.executeQuery('ContosoSales', '   \n\t   '),
       ).rejects.toThrow('Query is empty');
 
-      expect(mockExecute).toHaveBeenCalledWith('ContosoSales', '   \n\t   ');
+      expect(mockExecute).toHaveBeenCalledWith(
+        'ContosoSales',
+        '   \n\t   ',
+        expect.anything(),
+      );
     });
 
     test('should handle queries with syntax errors in functions', async () => {
@@ -160,6 +173,7 @@ describe('Error Scenarios Unit Tests', () => {
       expect(mockExecute).toHaveBeenCalledWith(
         'ContosoSales',
         'SalesOrders | extend invalid_function()',
+        expect.anything(),
       );
     });
 
@@ -175,6 +189,7 @@ describe('Error Scenarios Unit Tests', () => {
       expect(mockExecute).toHaveBeenCalledWith(
         'ContosoSales',
         'SalesOrders | where',
+        expect.anything(),
       );
     });
 
@@ -193,6 +208,7 @@ describe('Error Scenarios Unit Tests', () => {
       expect(mockExecute).toHaveBeenCalledWith(
         'ContosoSales',
         'SalesOrders | invalid_operator',
+        expect.anything(),
       );
     });
 
@@ -229,6 +245,7 @@ describe('Error Scenarios Unit Tests', () => {
       expect(mockExecute).toHaveBeenCalledWith(
         'ContosoSales',
         expect.stringContaining('range i from 1 to 100000'),
+        expect.anything(),
       );
     });
 
