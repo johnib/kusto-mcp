@@ -58,6 +58,13 @@ const nonQueryFailures: Array<[string, () => Error]> = [
     'throttled (429)',
     () => Object.assign(new Error('Too many'), { response: { status: 429 } }),
   ],
+  [
+    'service unavailable (503)',
+    () =>
+      Object.assign(new Error('Service Unavailable'), {
+        response: { status: 503 },
+      }),
+  ],
 ];
 
 describe('error loop hint ignores runtime connection/auth failures', () => {

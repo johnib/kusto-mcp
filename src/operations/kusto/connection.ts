@@ -115,12 +115,14 @@ function classifyConnectionFailure(error: unknown): {
 }
 
 // Query failures from these categories can't be fixed by rewriting the query,
-// so they stay out of the error-loop hint streak (#313). Timeouts, HTTP 4xx
-// (Kusto semantic errors) and 5xx (query limits) still count.
+// so they stay out of the error-loop hint streak (#313). Timeouts and HTTP 4xx
+// (Kusto semantic errors) still count; query-limit failures arrive as HTTP 200
+// partial failures, so a 5xx is a service/gateway fault.
 const NOT_QUERY_FAULT_CATEGORIES: ReadonlySet<string> = new Set([
   'auth',
   'authz',
   'throttled',
+  'http_5xx',
   'dns_resolution',
   'connection_refused',
   'tls',
