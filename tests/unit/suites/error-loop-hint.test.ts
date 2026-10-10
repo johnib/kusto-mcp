@@ -8,6 +8,10 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createKustoServer } from '../../../src/server.js';
 import { SessionTracker } from '../../../src/common/session-tracker.js';
 import { executeQuery } from '../../../src/operations/kusto/index.js';
+import {
+  KustoQueryCancelledError,
+  KustoTimeoutError,
+} from '../../../src/common/errors.js';
 
 jest.mock('../../../src/common/version.js', () => ({ VERSION: '0.0.0-test' }));
 
@@ -204,6 +208,102 @@ describe('error loop hint ignores failures the query text cannot fix', () => {
       (executeQuery as jest.Mock).mockRejectedValueOnce(new Error('bad 3'));
       const third = await call('T | where z');
       expect(text(third).endsWith(`\n${HINT}`)).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('error loop hint ignores timeouts and client cancels', () => {
+  async function connect() {
+    const server = createKustoServer({});
+    const client = new Client({ name: 'unit-test', version: '0.0.0' });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(st), client.connect(ct)]);
+    await client.callTool({
+      name: 'initialize-connection',
+      arguments: { cluster_url: 'https://x.kusto.windows.net', database: 'd' },
+    });
+    const call = () =>
+      client.callTool({
+        name: 'execute-query',
+        arguments: { query: 'T | take 1' },
+      });
+    return {
+      call,
+      close: async () => {
+        await client.close();
+        await server.close();
+      },
+    };
+  }
+  const text = (r: Awaited<ReturnType<Client['callTool']>>) =>
+    (r.content as Array<{ type: string; text: string }>)[0].text;
+  const fail = (error: Error) =>
+    (executeQuery as jest.Mock).mockRejectedValueOnce(error);
+  const bad = () => fail(new Error('Semantic error: bad column'));
+  const cancel = () =>
+    fail(new KustoQueryCancelledError('Query cancelled by the client'));
+  const timeout = () =>
+    fail(new KustoTimeoutError('Query timed out after 120000ms'));
+
+  test('three cancels then one bad query: no hint', async () => {
+    const { call, close } = await connect();
+    try {
+      for (let i = 0; i < 3; i++) {
+        cancel();
+        expect(text(await call())).not.toContain(HINT);
+      }
+      bad();
+      expect(text(await call())).not.toContain(HINT);
+    } finally {
+      await close();
+    }
+  });
+
+  test('bad, cancel, bad: no hint until the third real KQL failure', async () => {
+    const { call, close } = await connect();
+    try {
+      bad();
+      expect(text(await call())).not.toContain(HINT);
+      cancel();
+      expect(text(await call())).not.toContain(HINT);
+      bad();
+      expect(text(await call())).not.toContain(HINT);
+      bad();
+      expect(text(await call()).endsWith(`\n${HINT}`)).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
+  test('three timeouts: only the timeout hint, never the streak hint', async () => {
+    const { call, close } = await connect();
+    try {
+      for (let i = 0; i < 3; i++) {
+        timeout();
+        const t = text(await call());
+        expect(t).toContain('Narrow the time range');
+        expect(t).not.toContain(HINT);
+      }
+    } finally {
+      await close();
+    }
+  });
+
+  test('two bad + timeout + bad: hint on the last bad query', async () => {
+    const { call, close } = await connect();
+    try {
+      bad();
+      await call();
+      bad();
+      await call();
+      timeout();
+      const t = text(await call());
+      expect(t).toContain('Narrow the time range');
+      expect(t).not.toContain(HINT);
+      bad();
+      expect(text(await call()).endsWith(`\n${HINT}`)).toBe(true);
     } finally {
       await close();
     }

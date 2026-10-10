@@ -11,11 +11,13 @@ import {
 import { z } from 'zod';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import {
+  carryNotQueryFault,
   formatKustoMcpError,
   isKustoMcpError,
   isNotQueryFault,
   KustoAuthenticationError,
   KustoConnectionError,
+  KustoQueryCancelledError,
   KustoTimeoutError,
   KustoValidationError,
   withTimeoutHint,
@@ -483,6 +485,7 @@ export function createKustoServer(config: KustoConfig): Server {
                     withTimeoutHint(error.message, args.query),
                   );
                   carryErrorRecording(error, hinted);
+                  carryNotQueryFault(error, hinted);
                   throw hinted;
                 });
               } finally {
@@ -720,8 +723,13 @@ export function createKustoServer(config: KustoConfig): Server {
         // Nudge an agent stuck in a loop of failing queries (#313).
         if (finishQuery) {
           // Only failures the agent can fix by rewriting the query count.
+          // Timeouts and client cancels neither count nor reset the streak:
+          // a timeout already carries its own hint (#312), and the two hints
+          // must never stack.
           const queryFailure = !(
             error instanceof McpError ||
+            error instanceof KustoTimeoutError ||
+            error instanceof KustoQueryCancelledError ||
             error instanceof KustoConnectionError ||
             error instanceof KustoAuthenticationError ||
             error instanceof KustoValidationError ||

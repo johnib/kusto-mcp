@@ -163,9 +163,11 @@ function classifyConnectionFailure(error: unknown): {
 }
 
 // Query failures from these categories can't be fixed by rewriting the query,
-// so they stay out of the error-loop hint streak (#313). Timeouts and HTTP 4xx
-// (Kusto semantic errors) still count; query-limit failures arrive as HTTP 200
-// partial failures, so a 5xx is a service/gateway fault.
+// so they stay out of the error-loop hint streak (#313). HTTP 4xx (Kusto
+// semantic errors) still count; query-limit failures arrive as HTTP 200
+// partial failures, so a 5xx is a service/gateway fault. Timeouts and client
+// cancels are kept out too (marked where they are rethrown below): a timeout
+// carries its own recovery hint (#312), and schema advice is wrong after one.
 const NOT_QUERY_FAULT_CATEGORIES: ReadonlySet<string> = new Set([
   'auth',
   'authz',
@@ -629,13 +631,20 @@ export class KustoConnection {
           });
 
           // Our own timeout / client cancel keep their type so callers
-          // report them as such.
+          // report them as such. Neither is a fault in the query text, so
+          // mark them before rethrowing to keep them out of the error-loop
+          // streak even if a caller re-wraps them.
           if (
             error instanceof KustoTimeoutError ||
             error instanceof KustoQueryCancelledError
-          )
+          ) {
+            markNotQueryFault(error);
             throw error;
-          if (serverTimeout) throw serverTimeout;
+          }
+          if (serverTimeout) {
+            markNotQueryFault(serverTimeout);
+            throw serverTimeout;
+          }
 
           // Don't wrap as KustoQueryError here since queries.ts will handle it
           // Just rethrow with the detailed error message
