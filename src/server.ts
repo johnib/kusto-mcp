@@ -9,7 +9,13 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
-import { formatKustoMcpError, isKustoMcpError } from './common/errors.js';
+import {
+  formatKustoMcpError,
+  isKustoMcpError,
+  KustoAuthenticationError,
+  KustoConnectionError,
+  KustoValidationError,
+} from './common/errors.js';
 import { criticalLog, debugLog } from './common/utils.js';
 import { getIdentityAttributes } from './common/identity.js';
 import {
@@ -649,9 +655,23 @@ export function createKustoServer(config: KustoConfig): Server {
 
         // Nudge an agent stuck in a loop of failing queries (#313).
         if (finishQuery) {
-          finishQuery({ status, partial: queryFacts?.partial });
+          // Only failures the agent can fix by rewriting the query count.
+          const queryFailure = !(
+            error instanceof McpError ||
+            error instanceof KustoConnectionError ||
+            error instanceof KustoAuthenticationError ||
+            error instanceof KustoValidationError
+          );
+          finishQuery({
+            status,
+            partial: queryFacts?.partial,
+            countsAsQueryFailure: queryFailure,
+          });
           finishQuery = undefined;
-          if (session.consecutiveQueryFailures >= QUERY_FAILURE_HINT_AFTER) {
+          if (
+            queryFailure &&
+            session.consecutiveQueryFailures >= QUERY_FAILURE_HINT_AFTER
+          ) {
             errorMessage += `\n${QUERY_FAILURE_HINT}`;
           }
         }

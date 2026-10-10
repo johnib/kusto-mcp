@@ -64,6 +64,8 @@ export interface QueryResult {
   status: string;
   partial?: boolean;
   reduced?: boolean;
+  /** False for failures the query text can't fix (connection, auth, read-only block). */
+  countsAsQueryFailure?: boolean;
 }
 
 export class SessionTracker {
@@ -113,8 +115,9 @@ export class SessionTracker {
         attributes,
         finish: result => {
           try {
-            this.failureStreak =
-              result.status === 'error' ? this.failureStreak + 1 : 0;
+            if (result.status !== 'error') this.failureStreak = 0;
+            else if (result.countsAsQueryFailure !== false)
+              this.failureStreak++;
             // Only the most recent query owns the "previous outcome" state.
             if (this.queryCount !== ticket) return;
             this.last = {

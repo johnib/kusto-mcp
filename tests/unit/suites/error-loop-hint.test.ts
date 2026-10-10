@@ -134,3 +134,78 @@ describe('execute-query error loop hint', () => {
     }
   });
 });
+
+describe('error loop hint ignores failures the query text cannot fix', () => {
+  async function connect(config = {}, init = true) {
+    const server = createKustoServer(config);
+    const client = new Client({ name: 'unit-test', version: '0.0.0' });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(st), client.connect(ct)]);
+    if (init) {
+      await client.callTool({
+        name: 'initialize-connection',
+        arguments: {
+          cluster_url: 'https://x.kusto.windows.net',
+          database: 'd',
+        },
+      });
+    }
+    return {
+      client,
+      close: async () => {
+        await client.close();
+        await server.close();
+      },
+    };
+  }
+  const text = (r: Awaited<ReturnType<Client['callTool']>>) =>
+    (r.content as Array<{ type: string; text: string }>)[0].text;
+
+  test('tracker: non-query failures neither count nor reset the streak', () => {
+    const t = new SessionTracker();
+    t.beginQuery(20).finish({ status: 'error' });
+    t.beginQuery(20).finish({ status: 'error', countsAsQueryFailure: false });
+    expect(t.consecutiveQueryFailures).toBe(1);
+    t.beginQuery(20).finish({ status: 'error' });
+    expect(t.consecutiveQueryFailures).toBe(2);
+  });
+
+  test('not shown for "connection not initialized" errors', async () => {
+    const { client, close } = await connect({}, false);
+    try {
+      for (let i = 0; i < 4; i++) {
+        const r = await client.callTool({
+          name: 'execute-query',
+          arguments: { query: 'T | take 1' },
+        });
+        expect(r.isError).toBe(true);
+        expect(text(r)).not.toContain(HINT);
+      }
+    } finally {
+      await close();
+    }
+  });
+
+  test('not shown for read-only blocks, which do not break a KQL streak', async () => {
+    const { client, close } = await connect({ allowWriteOperations: false });
+    const call = (query: string) =>
+      client.callTool({ name: 'execute-query', arguments: { query } });
+    try {
+      for (let i = 0; i < 3; i++) {
+        const r = await call('.drop table T');
+        expect(r.isError).toBe(true);
+        expect(text(r)).not.toContain(HINT);
+      }
+      (executeQuery as jest.Mock).mockRejectedValueOnce(new Error('bad 1'));
+      await call('T | where x');
+      await call('.drop table T');
+      (executeQuery as jest.Mock).mockRejectedValueOnce(new Error('bad 2'));
+      await call('T | where y');
+      (executeQuery as jest.Mock).mockRejectedValueOnce(new Error('bad 3'));
+      const third = await call('T | where z');
+      expect(text(third).endsWith(`\n${HINT}`)).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+});
