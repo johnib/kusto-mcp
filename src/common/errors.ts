@@ -143,7 +143,8 @@ export function withTimeoutHint(message: string, query: string): string {
     hint +=
       ' The query looks back more than 1 day; try a shorter window first.';
   }
-  return `${message.replace(/\.?\s*$/, '.')} ${hint}`;
+  const base = message.trimEnd();
+  return `${base.endsWith('.') ? base : `${base}.`} ${hint}`;
 }
 
 /**

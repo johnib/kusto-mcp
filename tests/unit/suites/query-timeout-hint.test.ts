@@ -14,6 +14,7 @@ import {
   formatKustoMcpError,
   KustoMcpError,
   KustoTimeoutError,
+  withTimeoutHint,
 } from '../../../src/common/errors.js';
 import { KustoConnection } from '../../../src/operations/kusto/connection.js';
 import { executeQueryWithTransformation } from '../../../src/operations/kusto/queries.js';
@@ -152,5 +153,20 @@ describe('timeout recovery hint (#312)', () => {
       })),
     );
     expect(dumped).not.toMatch(/narrow|summarize|looks back/i);
+  });
+
+  test('a long server message is handled in linear time', () => {
+    // A trailing-punctuation regex like /\.?\s*$/ is quadratic on long
+    // whitespace runs; this input took ~20s with it.
+    const started = Date.now();
+    const msg = withTimeoutHint(' '.repeat(200_000) + 'x', 'T | count');
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(msg.endsWith(`x. ${HINT}`)).toBe(true);
+  });
+
+  test('trailing period and whitespace are not doubled', () => {
+    expect(withTimeoutHint('Query timed out. \n', 'T')).toBe(
+      `Query timed out. ${HINT}`,
+    );
   });
 });
