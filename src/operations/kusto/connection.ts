@@ -480,6 +480,12 @@ export class KustoConnection {
             throw new KustoConnectionError('Connection not initialized');
           }
 
+          // Cancelled before we got here: don't start a query only to race
+          // a `.cancel query` against it.
+          if (signal?.aborted) {
+            throw new KustoQueryCancelledError('Query cancelled by the client');
+          }
+
           debugLog(`Executing query on database ${database}: ${query}`);
 
           // Set timeout from config
