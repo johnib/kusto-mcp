@@ -136,9 +136,14 @@ const LONG_TIME_WINDOWS: ReadonlySet<unknown> = new Set([
  * goes into the tool result only; it is never put on a span.
  */
 export function withTimeoutHint(message: string, query: string): string {
+  const shape = classifyQueryShape(query);
+  // Management commands (`.show …`) have no time range or rows to narrow.
+  if (String(shape['kustomcp.query.stmt_kind']).startsWith('control_')) {
+    return message;
+  }
   let hint =
     'Narrow the time range, filter earlier, or summarize before returning rows.';
-  const window = classifyQueryShape(query)['kustomcp.query.time_window'];
+  const window = shape['kustomcp.query.time_window'];
   if (LONG_TIME_WINDOWS.has(window)) {
     hint +=
       ' The query looks back more than 1 day; try a shorter window first.';

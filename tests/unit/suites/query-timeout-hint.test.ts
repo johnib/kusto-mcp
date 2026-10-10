@@ -128,6 +128,35 @@ describe('timeout recovery hint (#312)', () => {
     expect(msg).toContain(LOOKBACK);
   });
 
+  test('an HTTP (ECONNABORTED) timeout gets the hint', async () => {
+    const msg = await agentMessage(
+      'StormEvents | where StartTime > ago(30d) | take 10',
+      execute =>
+        execute.mockRejectedValueOnce(
+          Object.assign(new Error('timeout of 90000ms exceeded'), {
+            code: 'ECONNABORTED',
+          }),
+        ),
+    );
+    expect(msg).toContain('timeout of 90000ms exceeded');
+    expect(msg).toContain(HINT);
+    expect(msg).toContain(LOOKBACK);
+  });
+
+  test('a management command timeout gets no time-range advice', async () => {
+    const msg = await agentMessage('.show tables', hang, 20);
+    expect(msg).toBe('Kusto Timeout Error: Query timed out after 20ms');
+  });
+
+  test('a management command server timeout gets no time-range advice', async () => {
+    const msg = await agentMessage(
+      '.show table StormEvents details',
+      serverTimeout,
+    );
+    expect(msg).toContain('Query timed out');
+    expect(msg).not.toContain(HINT);
+  });
+
   test('non-timeout errors get no hint', async () => {
     const msg = await agentMessage('StormEvents | where ago(30d)', execute =>
       execute.mockRejectedValueOnce(new Error('Semantic error')),
