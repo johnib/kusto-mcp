@@ -8,7 +8,12 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { SpanStatusCode, trace } from '@opentelemetry/api';
+import {
+  ROOT_CONTEXT,
+  SpanStatusCode,
+  context,
+  trace,
+} from '@opentelemetry/api';
 import { formatKustoMcpError, isKustoMcpError } from './common/errors.js';
 import { criticalLog, debugLog } from './common/utils.js';
 import { getIdentityAttributes } from './common/identity.js';
@@ -194,10 +199,12 @@ export function createKustoServer(config: KustoConfig): Server {
     }
   }
 
-  // Start an auto-connect unless one is already running.
+  // Start an auto-connect unless one is already running. Runs detached from
+  // the calling tool span so the auto init span stays a root, as at startup.
   function startAutoConnect(): Promise<void> {
     if (!autoConnectInFlight) {
-      autoConnectInFlight = tryAutoConnect()
+      autoConnectInFlight = context
+        .with(ROOT_CONTEXT, tryAutoConnect)
         .catch(error => {
           // tryAutoConnect already handles errors; this is a safety net.
           criticalLog(

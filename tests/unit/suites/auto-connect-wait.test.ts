@@ -6,6 +6,12 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { trace } from '@opentelemetry/api';
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { createKustoServer } from '../../../src/server.js';
 import { KustoConfig } from '../../../src/types/config.js';
 import {
@@ -32,10 +38,18 @@ const MockConnection = KustoConnection as unknown as jest.Mock;
 type InitBehavior = { delayMs: number; fail?: boolean; hang?: boolean };
 let behaviors: InitBehavior[] = [];
 let initCalls: string[] = [];
+// Name of the span active when each initialize() started ('' if none).
+let initParents: string[] = [];
+
+const provider = new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(new InMemorySpanExporter())],
+});
+beforeAll(() => provider.register());
 
 beforeEach(() => {
   behaviors = [];
   initCalls = [];
+  initParents = [];
   (showTables as jest.Mock).mockClear();
   MockConnection.mockReset();
   MockConnection.mockImplementation(() => {
@@ -43,6 +57,8 @@ beforeEach(() => {
       cluster: '',
       initialize: (cluster: string, database: string, source: string) => {
         initCalls.push(source);
+        const active = trace.getActiveSpan() as { name?: string } | undefined;
+        initParents.push(active?.name ?? '');
         const b = behaviors.shift() ?? { delayMs: 0 };
         if (b.hang) return new Promise(() => {});
         return new Promise((resolve, reject) =>
@@ -109,6 +125,8 @@ describe('tool calls wait for auto-connect (#311)', () => {
       const r = await client.callTool({ name: 'show-tables', arguments: {} });
       expect(r.isError).toBeFalsy();
       expect(initCalls).toEqual(['auto', 'auto']);
+      // The retry runs detached from the tool span, like the startup attempt.
+      expect(initParents).toEqual(['', '']);
     } finally {
       await close();
     }
