@@ -27,6 +27,46 @@ Run this terminal command to install:
 claude mcp add kusto-mcp -- npx -y kusto-mcp@latest
 ```
 
+### For GitHub Copilot CLI Users
+
+Run this terminal command to install:
+
+```bash
+copilot mcp add kusto-mcp -- npx -y kusto-mcp@latest
+```
+
+Or add this to `~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "kusto-mcp": {
+      "type": "local",
+      "command": "npx",
+      "args": ["-y", "kusto-mcp@latest"],
+      "env": {},
+      "tools": ["*"]
+    }
+  }
+}
+```
+
+### For VS Code Users (Copilot Chat)
+
+Add this to `.vscode/mcp.json` in your workspace, or to your user `mcp.json` (Command Palette → **MCP: Open User Configuration**):
+
+```json
+{
+  "servers": {
+    "kusto-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "kusto-mcp@latest"]
+    }
+  }
+}
+```
+
 ### For Cline Users
 
 Add this to your `cline_mcp_settings.json` file:
@@ -62,7 +102,7 @@ Add this to your VS Code `settings.json`:
       "github.com/johnib/kusto-mcp": {
         "type": "stdio",
         "command": "npx",
-        "args": ["-y", "kusto-mcp"]
+        "args": ["-y", "kusto-mcp@latest"]
       }
     }
   }
@@ -78,11 +118,13 @@ Add this to your Claude Desktop configuration file:
   "mcpServers": {
     "kusto-mcp": {
       "command": "npx",
-      "args": ["-y", "kusto-mcp"]
+      "args": ["-y", "kusto-mcp@latest"]
     }
   }
 }
 ```
+
+> **Long-running queries?** Some hosts have their own per-server tool timeout that can cut a slow query off before kusto-mcp does. Where the host supports it, raise it — e.g. `copilot mcp add --timeout <ms>` in Copilot CLI, or the `timeout` field (seconds) in Cline.
 
 ## Authentication Setup
 
@@ -118,6 +160,7 @@ You should see your AI successfully connect and list your database tables.
 ## Supported AI Tools
 
 - ✅ **Claude Code** - One-command setup with native MCP support
+- ✅ **GitHub Copilot CLI** - One-command setup with native MCP support
 - ✅ **Cline** - Full support with auto-approval
 - ✅ **Cursor** - Complete integration
 - ✅ **Claude Desktop** - Native MCP support
