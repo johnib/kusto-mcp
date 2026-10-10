@@ -81,7 +81,7 @@ export class KustoDataConversionError extends KustoMcpError {
  */
 export class KustoTimeoutError extends KustoMcpError {
   constructor(message: string) {
-    super(`Timeout error: ${message}`);
+    super(message);
   }
 }
 
