@@ -17,7 +17,6 @@ import type { Attributes } from '@opentelemetry/api';
 
 const PREFIX = 'kustomcp.query.';
 const MAX_SCAN_CHARS = 64 * 1024;
-const MAX_OPERATORS = 8;
 const COUNT_CAP = 10;
 const PIPE_CAP = 20;
 
@@ -430,7 +429,7 @@ export function classifyQueryShape(query: string): Attributes {
     return {
       [`${PREFIX}stmt_kind`]: 'query',
       [`${PREFIX}control_cmd`]: 'none',
-      [`${PREFIX}operators`]: [...operators].sort().slice(0, MAX_OPERATORS),
+      [`${PREFIX}operators`]: [...operators].sort(),
       [`${PREFIX}pipe_count`]: cap(pipes, PIPE_CAP),
       [`${PREFIX}join_count`]: cap(joins, COUNT_CAP),
       [`${PREFIX}union_count`]: cap(unions, COUNT_CAP),

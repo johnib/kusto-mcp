@@ -163,6 +163,30 @@ describe('classifyQueryShape', () => {
     expect(a[`${P}operators`]).toEqual(['make_series', 'mv_expand', 'project']);
   });
 
+  test('all operator families are reported, not just the first 8 (#317)', () => {
+    const a = shape(
+      'T | where x > 1 | extend y = 2 | join (U) on k | distinct k, y' +
+        ' | count | parse s with v | project k | render table' +
+        ' | sort by k | summarize n = count() by k | take 5 | top 3 by n' +
+        ' | union V',
+    );
+    expect(a[`${P}operators`]).toEqual([
+      'count',
+      'distinct',
+      'extend',
+      'join',
+      'parse',
+      'project',
+      'render',
+      'sort',
+      'summarize',
+      'take',
+      'top',
+      'union',
+      'where',
+    ]);
+  });
+
   describe('adversarial inputs never leak or miscount', () => {
     test('operator names inside strings and comments are ignored', () => {
       const a = shape(
