@@ -9,7 +9,7 @@ import { createTokenCredential } from '../../auth/token-credentials.js';
 import {
   extractKustoErrorMessage,
   KustoConnectionError,
-  KustoQueryError,
+  KustoTimeoutError,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
@@ -39,15 +39,52 @@ const MAX_SERVER_TIMEOUT_MS = 60 * 60 * 1000;
 /** Extra HTTP wait beyond the query timeout, so a server timeout error arrives. */
 const CLIENT_TIMEOUT_GRACE_MS = 30000;
 
-/** Classify an error into a low-cardinality outcome for query metrics. */
+/**
+ * Kusto's structured server-timeout error, as returned by a live cluster:
+ * code "RequestExecutionTimeout", @type KustoServiceTimeoutException.
+ */
+const SERVER_TIMEOUT_CODE = 'RequestExecutionTimeout';
+const SERVER_TIMEOUT_TYPE =
+  'Kusto.Data.Exceptions.KustoServiceTimeoutException';
+/**
+ * azure-kusto-data (7.2.0) reports v2 query errors that arrive in an HTTP 200
+ * body as a plain Error built from each error's @message only, dropping
+ * code/@type. This is that exact message for a server timeout.
+ */
+const SDK_SERVER_TIMEOUT_MESSAGE = 'Kusto request had errors. Query timed out';
+
+/**
+ * Classify an error into a low-cardinality outcome for query metrics. Timeouts
+ * come from our own timer flag, axios's timeout code, or Kusto's structured
+ * timeout error — never from a message that merely mentions a timeout.
+ */
 function classifyQueryOutcome(
-  message: string,
-): 'timeout' | 'throttled' | 'error' {
-  const m = message.toLowerCase();
-  if (m.includes('timed out') || m.includes('timeout')) return 'timeout';
+  error: unknown,
+  clientTimedOut: boolean,
+): {
+  outcome: 'timeout' | 'throttled' | 'error';
+  timeoutKind?: 'client' | 'server';
+} {
+  if (clientTimedOut || error instanceof KustoTimeoutError)
+    return { outcome: 'timeout', timeoutKind: 'client' };
+  const e = error as {
+    code?: unknown;
+    response?: { data?: { error?: { code?: unknown; '@type'?: unknown } } };
+  };
+  // axios's own HTTP timeout (setClientTimeout) is a client-side give-up.
+  if (e?.code === 'ECONNABORTED')
+    return { outcome: 'timeout', timeoutKind: 'client' };
+  const kustoError = e?.response?.data?.error;
+  if (
+    kustoError?.code === SERVER_TIMEOUT_CODE ||
+    kustoError?.['@type'] === SERVER_TIMEOUT_TYPE ||
+    (error instanceof Error && error.message === SDK_SERVER_TIMEOUT_MESSAGE)
+  )
+    return { outcome: 'timeout', timeoutKind: 'server' };
+  const m = extractKustoErrorMessage(error).toLowerCase();
   if (m.includes('throttl') || m.includes('e_too_many') || m.includes('429'))
-    return 'throttled';
-  return 'error';
+    return { outcome: 'throttled' };
+  return { outcome: 'error' };
 }
 
 /**
@@ -455,7 +492,9 @@ export class KustoConnection {
           const rawResult = await new Promise((resolve, reject) => {
             timeoutHandle = setTimeout(() => {
               clientTimedOut = true;
-              reject(new KustoQueryError(`Query timed out after ${timeout}ms`));
+              reject(
+                new KustoTimeoutError(`Query timed out after ${timeout}ms`),
+              );
             }, timeout);
 
             queryPromise
@@ -490,20 +529,26 @@ export class KustoConnection {
           return formattedResult;
         } catch (error) {
           const errorMessage = extractKustoErrorMessage(error);
-          const outcome = classifyQueryOutcome(errorMessage);
+          const { outcome, timeoutKind } = classifyQueryOutcome(
+            error,
+            clientTimedOut,
+          );
 
           criticalLog(`Failed to execute query: ${errorMessage}`);
 
           span.setAttribute('kustomcp.outcome', outcome);
-          if (outcome === 'timeout') {
+          if (timeoutKind) {
             // Our wrapper fired (raise queryTimeout / heavy query) vs the server
             // reporting its own timeout (cluster-side pressure).
-            span.setAttribute(
-              'kustomcp.query.timeout_kind',
-              clientTimedOut ? 'client' : 'server',
-            );
+            span.setAttribute('kustomcp.query.timeout_kind', timeoutKind);
           }
-          recordSpanError(span, error);
+          // A server timeout surfaces as KustoTimeoutError too, so users and
+          // error.type see a timeout rather than a generic query error.
+          const serverTimeout =
+            timeoutKind === 'server'
+              ? new KustoTimeoutError(errorMessage)
+              : undefined;
+          recordSpanError(span, serverTimeout ?? error);
           queriesCounter.add(1, {
             operation,
             outcome,
@@ -512,6 +557,10 @@ export class KustoConnection {
             operation,
             outcome,
           });
+
+          // Our own timeout keeps its type so callers report it as a timeout.
+          if (error instanceof KustoTimeoutError) throw error;
+          if (serverTimeout) throw serverTimeout;
 
           // Don't wrap as KustoQueryError here since queries.ts will handle it
           // Just rethrow with the detailed error message
