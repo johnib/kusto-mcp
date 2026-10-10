@@ -71,6 +71,12 @@ export class SessionTracker {
   private queryCount = 0;
   private schemaCalls = 0;
   private last: { outcome: Outcome; limit: number } | undefined;
+  private failureStreak = 0;
+
+  /** `execute-query` calls that failed in a row, in completion order. */
+  get consecutiveQueryFailures(): number {
+    return this.failureStreak;
+  }
 
   /**
    * Reserve a query slot. Returns the attributes to stamp on the span and a
@@ -107,6 +113,8 @@ export class SessionTracker {
         attributes,
         finish: result => {
           try {
+            this.failureStreak =
+              result.status === 'error' ? this.failureStreak + 1 : 0;
             // Only the most recent query owns the "previous outcome" state.
             if (this.queryCount !== ticket) return;
             this.last = {

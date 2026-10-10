@@ -103,6 +103,11 @@ const ReportIssueSchema = z.object({
     ),
 });
 
+// Appended to execute-query errors once this many failed in a row (#313).
+const QUERY_FAILURE_HINT_AFTER = 3;
+const QUERY_FAILURE_HINT =
+  'Several queries failed in a row – check the table schema with show-table and simplify the query.';
+
 /**
  * Create a Kusto MCP server
  *
@@ -641,6 +646,15 @@ export function createKustoServer(config: KustoConfig): Server {
           }`;
         }
         criticalLog(`Error handling tool call: ${errorMessage}`);
+
+        // Nudge an agent stuck in a loop of failing queries (#313).
+        if (finishQuery) {
+          finishQuery({ status, partial: queryFacts?.partial });
+          finishQuery = undefined;
+          if (session.consecutiveQueryFailures >= QUERY_FAILURE_HINT_AFTER) {
+            errorMessage += `\n${QUERY_FAILURE_HINT}`;
+          }
+        }
 
         return {
           content: [{ type: 'text', text: errorMessage }],
