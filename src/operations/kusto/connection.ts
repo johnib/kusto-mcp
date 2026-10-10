@@ -489,7 +489,7 @@ export class KustoConnection {
           debugLog(`Executing query on database ${database}: ${query}`);
 
           // Set timeout from config
-          const timeout = this.config.queryTimeout || 60000;
+          const timeout = this.config.queryTimeout || 120000;
           span.setAttribute('kustomcp.query.timeout_ms', timeout);
 
           // Tell the server to stop at the same deadline (Kusto caps

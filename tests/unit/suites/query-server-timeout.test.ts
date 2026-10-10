@@ -75,10 +75,10 @@ describe('executeQuery sends the query timeout to the server (#294)', () => {
     expect(props.getClientTimeout()).toBe(150000);
   });
 
-  test('default queryTimeout (60s) is sent when unset', async () => {
+  test('default queryTimeout (120s) is sent when unset', async () => {
     const props = await propsForQuery(undefined);
-    expect(props.getTimeout()).toBe(60000);
-    expect(props.getClientTimeout()).toBe(90000);
+    expect(props.getTimeout()).toBe(120000);
+    expect(props.getClientTimeout()).toBe(150000);
   });
 
   test('servertimeout is clamped to the 1h Kusto maximum', async () => {

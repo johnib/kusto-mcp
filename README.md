@@ -186,7 +186,7 @@ kusto-mcp reports **anonymous usage telemetry** to the maintainer's Honeycomb in
 Need custom settings? Check out our [Configuration Guide](docs/CONFIGURATION.md) for:
 
 - Response format options (JSON vs Markdown)
-- Query timeout settings
+- Query timeout settings (default 120s; your MCP host may have its own per-server timeout)
 - Result size limiting
 - OpenTelemetry integration
 
