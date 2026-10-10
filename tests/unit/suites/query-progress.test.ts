@@ -33,6 +33,7 @@ async function connect() {
   });
   return {
     client,
+    server,
     close: async () => {
       await client.close();
       await server.close();
@@ -97,6 +98,8 @@ describe('execute-query progress notifications (#321)', () => {
         undefined,
         { onprogress: p => progress.push(p) },
       );
+      // If an assertion fails first, close() rejects this; keep it handled.
+      pending.catch(() => {});
       while (!q.started()) await flush();
 
       jest.advanceTimersByTime(15000);
@@ -107,6 +110,7 @@ describe('execute-query progress notifications (#321)', () => {
       await flush();
       expect(progress).toHaveLength(2);
       expect(progress[1].progress).toBeGreaterThan(progress[0].progress);
+      expect(progress[0].message).toMatch(/^Query running \(\d+s\)$/);
 
       q.release();
       const r = await pending;
@@ -134,6 +138,8 @@ describe('execute-query progress notifications (#321)', () => {
         name: 'execute-query',
         arguments: { query: 'T | count' },
       });
+      // If an assertion fails first, close() rejects this; keep it handled.
+      pending.catch(() => {});
       while (!q.started()) await flush();
       expect(jest.getTimerCount()).toBe(0);
       jest.advanceTimersByTime(30000);
@@ -163,6 +169,75 @@ describe('execute-query progress notifications (#321)', () => {
       expect(r.isError).toBe(true);
       expect(jest.getTimerCount()).toBe(0);
     } finally {
+      await close();
+    }
+  });
+
+  test('client cancellation clears the heartbeat', async () => {
+    const q = slowQuery();
+    const { client, close } = await connect();
+    try {
+      const ac = new AbortController();
+      const pending = client
+        .callTool(
+          { name: 'execute-query', arguments: { query: 'T | count' } },
+          undefined,
+          { onprogress: () => {}, signal: ac.signal },
+        )
+        .catch(e => e);
+      while (!q.started()) await flush();
+      expect(jest.getTimerCount()).toBe(1);
+
+      ac.abort();
+      await pending;
+      for (let i = 0; i < 20 && jest.getTimerCount() > 0; i++) await flush();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      q.release();
+      await close();
+    }
+  });
+
+  test('a rejected progress send is swallowed and the query still succeeds', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (r: unknown) => unhandled.push(r);
+    process.on('unhandledRejection', onUnhandled);
+    const q = slowQuery();
+    const { client, server, close } = await connect();
+    try {
+      const realNotification = server.notification.bind(server);
+      const sendSpy = jest
+        .spyOn(server, 'notification')
+        .mockImplementation(async (n, opts) => {
+          if (n.method === 'notifications/progress') {
+            throw new Error('transport closed');
+          }
+          return realNotification(n, opts);
+        });
+      const pending = client.callTool(
+        { name: 'execute-query', arguments: { query: 'T | count' } },
+        undefined,
+        { onprogress: () => {} },
+      );
+      // If an assertion fails first, close() rejects this; keep it handled.
+      pending.catch(() => {});
+      while (!q.started()) await flush();
+
+      jest.advanceTimersByTime(30000);
+      await flush();
+      expect(
+        sendSpy.mock.calls.filter(
+          ([n]) => n.method === 'notifications/progress',
+        ),
+      ).toHaveLength(2);
+
+      q.release();
+      const r = await pending;
+      expect(r.isError).toBeFalsy();
+      await new Promise(r => setTimeout(r, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
       await close();
     }
   });
