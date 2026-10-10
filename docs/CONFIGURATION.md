@@ -9,7 +9,7 @@ Create a `.env` file based on the provided `.env.example`:
 ```bash
 # Kusto Configuration
 KUSTO_AUTH_METHOD=azure-cli  # Options: azure-identity, azure-cli
-KUSTO_QUERY_TIMEOUT=60000  # Timeout in milliseconds (default: 60000)
+KUSTO_QUERY_TIMEOUT=120000  # Timeout in milliseconds (default: 120000)
 KUSTO_CONNECTION_TIMEOUT=20000  # Connection init timeout in ms (default: 20000)
 KUSTO_RESPONSE_FORMAT=json  # Options: json, markdown (default: json)
 KUSTO_MARKDOWN_MAX_CELL_LENGTH=1000  # Maximum characters per table cell (default: 1000)
@@ -287,9 +287,19 @@ Add this to your Claude Desktop configuration file:
 Control how long queries can run before timing out:
 
 ```bash
-# Set query timeout to 2 minutes (default: 60000ms = 1 minute)
-KUSTO_QUERY_TIMEOUT=120000
+# Set query timeout to 5 minutes (default: 120000ms = 2 minutes)
+KUSTO_QUERY_TIMEOUT=300000
 ```
+
+While a query runs, the server sends MCP progress notifications about every
+15 seconds when the client asks for them (a `progressToken` on the request).
+
+Your MCP host has its own per-server timeout for tool calls, and it can stop
+the call before ours fires. Many hosts stop a tool call after 60 seconds
+unless they extend the timeout on progress. If long queries fail with the
+host's own timeout error, raise the host's timeout too (for example a
+`timeout` setting on the server entry in the host's MCP config, where
+supported).
 
 This is useful for:
 

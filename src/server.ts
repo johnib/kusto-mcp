@@ -6,6 +6,7 @@ import {
   GetPromptRequestSchema,
   ListToolsRequestSchema,
   McpError,
+  ServerNotification,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
@@ -71,6 +72,39 @@ const ExecuteQuerySchema = z.object({
     .default(20)
     .describe('Maximum number of rows to return (default: 20)'),
 });
+
+const PROGRESS_INTERVAL_MS = 15000;
+
+/**
+ * Send notifications/progress every PROGRESS_INTERVAL_MS until the returned
+ * stop function is called. No-op without a progressToken. Never throws.
+ */
+function startProgressHeartbeat(
+  progressToken: string | number | undefined,
+  sendNotification: (n: ServerNotification) => Promise<void>,
+): () => void {
+  if (progressToken === undefined) return () => {};
+  const startedAt = Date.now();
+  let ticks = 0;
+  const timer = setInterval(() => {
+    try {
+      ticks++;
+      const seconds = Math.round((Date.now() - startedAt) / 1000);
+      sendNotification({
+        method: 'notifications/progress',
+        params: {
+          progressToken,
+          progress: ticks,
+          message: `Query running (${seconds}s)`,
+        },
+      }).catch(() => {});
+    } catch {
+      // Progress is best-effort.
+    }
+  }, PROGRESS_INTERVAL_MS);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
 
 const ShowFunctionSchema = z.object({
   functionName: z
@@ -413,11 +447,22 @@ export function createKustoServer(config: KustoConfig): Server {
 
               // Execute the query and get raw results
               // extra.signal aborts on notifications/cancelled from the client.
-              const rawResult = await executeQuery(
-                conn,
-                modifiedQuery,
-                extra.signal,
+              // While it runs, send progress so hosts that extend their own
+              // request timeout on progress keep the call alive.
+              const stopProgress = startProgressHeartbeat(
+                request.params._meta?.progressToken,
+                extra.sendNotification,
               );
+              let rawResult;
+              try {
+                rawResult = await executeQuery(
+                  conn,
+                  modifiedQuery,
+                  extra.signal,
+                );
+              } finally {
+                stopProgress();
+              }
 
               // Transform using the proper architecture
               const transformedResult = transformQueryResult(
