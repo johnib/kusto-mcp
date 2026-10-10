@@ -23,7 +23,16 @@ import {
   KustoTimeoutError,
 } from '../../../src/common/errors.js';
 import { KustoConnection } from '../../../src/operations/kusto/connection.js';
-import { executeQueryWithTransformation } from '../../../src/operations/kusto/queries.js';
+import {
+  executeManagementCommand,
+  executeQueryWithTransformation,
+} from '../../../src/operations/kusto/queries.js';
+import {
+  showFunction,
+  showFunctions,
+  showTable,
+  showTables,
+} from '../../../src/operations/kusto/tables.js';
 import { AuthenticationMethod } from '../../../src/types/config.js';
 
 const exporter = new InMemorySpanExporter();
@@ -76,8 +85,8 @@ describe('query timeout classification (#319)', () => {
     }
 
     expect(thrown).toBeInstanceOf(KustoTimeoutError);
-    expect(formatKustoMcpError(thrown as KustoMcpError)).toMatch(
-      /^Kusto Timeout Error: Query timed out after 20ms\./,
+    expect(formatKustoMcpError(thrown as KustoMcpError)).toBe(
+      'Kusto Timeout Error: Query timed out after 20ms',
     );
 
     const attrs = querySpan();
@@ -87,19 +96,22 @@ describe('query timeout classification (#319)', () => {
   });
 
   test('an error that merely mentions a timeout is an error, not a timeout', async () => {
-    const err = Object.assign(new Error('Request failed with status code 400'), {
-      response: {
-        status: 400,
-        data: {
-          error: {
-            code: 'General_BadRequest',
-            '@type': 'Kusto.Data.Exceptions.KustoBadRequestException',
-            '@message':
-              "Semantic error: 'where' operator: Failed to resolve column named 'timeout'",
+    const err = Object.assign(
+      new Error('Request failed with status code 400'),
+      {
+        response: {
+          status: 400,
+          data: {
+            error: {
+              code: 'General_BadRequest',
+              '@type': 'Kusto.Data.Exceptions.KustoBadRequestException',
+              '@message':
+                "Semantic error: 'where' operator: Failed to resolve column named 'timeout'",
+            },
           },
         },
       },
-    });
+    );
     const attrs = await failWith(err);
     expect(attrs['kustomcp.outcome']).toBe('error');
     expect(attrs['kustomcp.query.timeout_kind']).toBeUndefined();
@@ -112,18 +124,21 @@ describe('query timeout classification (#319)', () => {
   });
 
   test('structured Kusto timeout error is a server timeout', async () => {
-    const err = Object.assign(new Error('Request failed with status code 400'), {
-      response: {
-        status: 400,
-        data: {
-          error: {
-            code: 'RequestExecutionTimeout',
-            '@type': 'Kusto.Data.Exceptions.KustoServiceTimeoutException',
-            '@message': 'Query timed out',
+    const err = Object.assign(
+      new Error('Request failed with status code 400'),
+      {
+        response: {
+          status: 400,
+          data: {
+            error: {
+              code: 'RequestExecutionTimeout',
+              '@type': 'Kusto.Data.Exceptions.KustoServiceTimeoutException',
+              '@message': 'Query timed out',
+            },
           },
         },
       },
-    });
+    );
     const attrs = await failWith(err);
     expect(attrs['kustomcp.outcome']).toBe('timeout');
     expect(attrs['kustomcp.query.timeout_kind']).toBe('server');
@@ -136,6 +151,131 @@ describe('query timeout classification (#319)', () => {
     expect(attrs['kustomcp.outcome']).toBe('timeout');
     expect(attrs['kustomcp.query.timeout_kind']).toBe('server');
   });
+
+  test.each([
+    [
+      'management command',
+      (c: KustoConnection) => executeManagementCommand(c, '.show version'),
+    ],
+    ['show-tables', (c: KustoConnection) => showTables(c)],
+    ['show-table', (c: KustoConnection) => showTable(c, 'StormEvents')],
+    ['show-functions', (c: KustoConnection) => showFunctions(c)],
+    ['show-function', (c: KustoConnection) => showFunction(c, 'MyFunc')],
+  ])(
+    '%s surfaces our timer as KustoTimeoutError, not a query error',
+    async (_name, run) => {
+      const { connection, execute } = await connect(20);
+      execute.mockReturnValueOnce(new Promise(() => {}));
+
+      let thrown: unknown;
+      try {
+        await run(connection);
+      } catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown).toBeInstanceOf(KustoTimeoutError);
+      expect(formatKustoMcpError(thrown as KustoMcpError)).toBe(
+        'Kusto Timeout Error: Query timed out after 20ms',
+      );
+    },
+  );
+
+  test.each([
+    ['code', { code: 'RequestExecutionTimeout' }],
+    [
+      '@type',
+      { '@type': 'Kusto.Data.Exceptions.KustoServiceTimeoutException' },
+    ],
+  ])(
+    'Kusto error with only the timeout %s is a server timeout',
+    async (_field, kustoError) => {
+      const err = Object.assign(
+        new Error('Request failed with status code 400'),
+        { response: { status: 400, data: { error: kustoError } } },
+      );
+      const attrs = await failWith(err);
+      expect(attrs['kustomcp.outcome']).toBe('timeout');
+      expect(attrs['kustomcp.query.timeout_kind']).toBe('server');
+    },
+  );
+
+  const serverTimeouts: [string, () => Error, string][] = [
+    [
+      'v2 query (HTTP 200, SDK message)',
+      () => new Error('Kusto request had errors. Query timed out'),
+      'Kusto Timeout Error: Kusto request had errors. Query timed out',
+    ],
+    [
+      'HTTP 400 RequestExecutionTimeout',
+      () =>
+        Object.assign(new Error('Request failed with status code 400'), {
+          response: {
+            status: 400,
+            data: {
+              error: {
+                code: 'RequestExecutionTimeout',
+                '@type': 'Kusto.Data.Exceptions.KustoServiceTimeoutException',
+                '@message': 'Query timed out',
+              },
+            },
+          },
+        }),
+      'Kusto Timeout Error: Query timed out',
+    ],
+  ];
+
+  test.each(serverTimeouts)(
+    'server timeout (%s) surfaces as KustoTimeoutError',
+    async (_shape, makeError, expected) => {
+      const { connection, execute } = await connect();
+      execute.mockRejectedValueOnce(makeError());
+
+      let thrown: unknown;
+      try {
+        await executeQueryWithTransformation(connection, 'StormEvents | count');
+      } catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown).toBeInstanceOf(KustoTimeoutError);
+      expect(formatKustoMcpError(thrown as KustoMcpError)).toBe(expected);
+
+      const attrs = querySpan();
+      expect(attrs['kustomcp.outcome']).toBe('timeout');
+      expect(attrs['kustomcp.query.timeout_kind']).toBe('server');
+      expect(attrs['kustomcp.error.type']).toBe('KustoTimeoutError');
+    },
+  );
+
+  test.each([
+    [
+      'management command',
+      (c: KustoConnection) => executeManagementCommand(c, '.show version'),
+    ],
+    ['show-tables', (c: KustoConnection) => showTables(c)],
+    ['show-table', (c: KustoConnection) => showTable(c, 'StormEvents')],
+    ['show-functions', (c: KustoConnection) => showFunctions(c)],
+    ['show-function', (c: KustoConnection) => showFunction(c, 'MyFunc')],
+  ])(
+    '%s surfaces a server timeout as KustoTimeoutError',
+    async (_name, run) => {
+      const { connection, execute } = await connect();
+      execute.mockRejectedValueOnce(serverTimeouts[1][1]());
+
+      let thrown: unknown;
+      try {
+        await run(connection);
+      } catch (e) {
+        thrown = e;
+      }
+
+      expect(thrown).toBeInstanceOf(KustoTimeoutError);
+      expect(formatKustoMcpError(thrown as KustoMcpError)).toBe(
+        'Kusto Timeout Error: Query timed out',
+      );
+    },
+  );
 
   test('axios HTTP timeout is a client timeout, not a server one', async () => {
     const err = Object.assign(new Error('timeout of 90000ms exceeded'), {

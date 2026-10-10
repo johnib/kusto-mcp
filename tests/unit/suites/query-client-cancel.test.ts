@@ -13,6 +13,8 @@ import {
 } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { Client as KustoClient } from 'azure-kusto-data';
+import { KustoQueryCancelledError } from '../../../src/common/errors.js';
+import { KustoConnection } from '../../../src/operations/kusto/connection.js';
 import { createKustoServer } from '../../../src/server.js';
 import { AuthenticationMethod } from '../../../src/types/config.js';
 
@@ -158,6 +160,28 @@ describe('execute-query client cancellation (#320)', () => {
     } finally {
       await close();
     }
+  });
+
+  test('a request cancelled before the query starts never sends the query', async () => {
+    const calls = routeKusto(async () => ok);
+    const conn = new KustoConnection({
+      authMethod: AuthenticationMethod.AzureCli,
+      queryTimeout: 2000,
+    });
+    await conn.initialize('https://x.kusto.windows.net', 'd');
+    exporter.reset();
+    calls.length = 0;
+
+    const ac = new AbortController();
+    ac.abort();
+    await expect(
+      conn.executeQuery('d', 'T | count', ac.signal),
+    ).rejects.toBeInstanceOf(KustoQueryCancelledError);
+
+    expect(calls).toEqual([]);
+    expect(querySpans()[0].attributes['kustomcp.outcome']).toBe(
+      'cancelled_by_client',
+    );
   });
 
   test('a completed query sends no .cancel query', async () => {

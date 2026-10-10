@@ -2,6 +2,7 @@ import { SpanStatusCode, trace } from '@opentelemetry/api';
 import {
   KustoQueryError,
   KustoResourceNotFoundError,
+  KustoTimeoutError,
 } from '../../common/errors.js';
 import {
   bracketEntityName,
@@ -94,6 +95,8 @@ export async function showTables(
       criticalLog(`Failed to list tables: ${errorMessage}`);
 
       recordSpanError(span, error);
+
+      if (error instanceof KustoTimeoutError) throw error;
 
       const wrapped = new KustoQueryError(
         `Failed to list tables: ${errorMessage}`,
@@ -200,7 +203,10 @@ export async function showTable(
 
       recordSpanError(span, error);
 
-      if (error instanceof KustoResourceNotFoundError) {
+      if (
+        error instanceof KustoResourceNotFoundError ||
+        error instanceof KustoTimeoutError
+      ) {
         throw error;
       }
 
@@ -296,6 +302,8 @@ export async function showFunctions(
       criticalLog(`Failed to list functions: ${errorMessage}`);
 
       recordSpanError(span, error);
+
+      if (error instanceof KustoTimeoutError) throw error;
 
       const wrapped = new KustoQueryError(
         `Failed to list functions: ${errorMessage}`,
@@ -407,7 +415,10 @@ export async function showFunction(
 
       recordSpanError(span, error);
 
-      if (error instanceof KustoResourceNotFoundError) {
+      if (
+        error instanceof KustoResourceNotFoundError ||
+        error instanceof KustoTimeoutError
+      ) {
         throw error;
       }
 
