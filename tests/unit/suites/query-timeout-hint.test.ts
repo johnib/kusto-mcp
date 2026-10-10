@@ -157,6 +157,22 @@ describe('timeout recovery hint (#312)', () => {
     expect(msg).not.toContain(HINT);
   });
 
+  test('a management command too large to classify gets no hint', () => {
+    // classifyQueryShape returns 'unparsed' above 64 KiB.
+    const command = `.ingest inline into table T <| ${'a,'.repeat(40_000)}`;
+    expect(withTimeoutHint('Query timed out', command)).toBe('Query timed out');
+    expect(withTimeoutHint('Query timed out', `  \n${command}`)).toBe(
+      'Query timed out',
+    );
+  });
+
+  test('a query too large to classify still gets the hint', () => {
+    const query = `T | where x in (${'1,'.repeat(40_000)}1)`;
+    expect(withTimeoutHint('Query timed out', query)).toBe(
+      `Query timed out. ${HINT}`,
+    );
+  });
+
   test('non-timeout errors get no hint', async () => {
     const msg = await agentMessage('StormEvents | where ago(30d)', execute =>
       execute.mockRejectedValueOnce(new Error('Semantic error')),

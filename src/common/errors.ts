@@ -136,8 +136,11 @@ const LONG_TIME_WINDOWS: ReadonlySet<unknown> = new Set([
  * goes into the tool result only; it is never put on a span.
  */
 export function withTimeoutHint(message: string, query: string): string {
-  const shape = classifyQueryShape(query);
   // Management commands (`.show …`) have no time range or rows to narrow.
+  // Check the leading dot directly too: the classifier skips inputs over
+  // 64 KiB (e.g. a large `.ingest inline`).
+  if (query.trimStart().startsWith('.')) return message;
+  const shape = classifyQueryShape(query);
   if (String(shape['kustomcp.query.stmt_kind']).startsWith('control_')) {
     return message;
   }
