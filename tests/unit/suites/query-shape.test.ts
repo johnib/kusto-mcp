@@ -25,7 +25,9 @@ function assertInVocabulary(attrs: Record<string, unknown>): void {
       expect(QUERY_CONTROL_CMD_VOCAB).toContain(value);
     } else if (key === `${P}operators`) {
       expect(Array.isArray(value)).toBe(true);
-      expect((value as string[]).length).toBeLessThanOrEqual(8);
+      expect((value as string[]).length).toBeLessThanOrEqual(
+        QUERY_OPERATOR_VOCAB.length,
+      );
       for (const op of value as string[]) {
         expect(QUERY_OPERATOR_VOCAB).toContain(op);
       }
@@ -170,6 +172,7 @@ describe('classifyQueryShape', () => {
         ' | sort by k | summarize n = count() by k | take 5 | top 3 by n' +
         ' | union V',
     );
+    assertInVocabulary(a);
     expect(a[`${P}operators`]).toEqual([
       'count',
       'distinct',
