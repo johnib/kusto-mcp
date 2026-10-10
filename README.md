@@ -161,6 +161,7 @@ You should see your AI successfully connect and list your database tables.
 
 - ✅ **Claude Code** - One-command setup with native MCP support
 - ✅ **GitHub Copilot CLI** - One-command setup with native MCP support
+- ✅ **VS Code (Copilot Chat)** - Native MCP support via `mcp.json`
 - ✅ **Cline** - Full support with auto-approval
 - ✅ **Cursor** - Complete integration
 - ✅ **Claude Desktop** - Native MCP support
