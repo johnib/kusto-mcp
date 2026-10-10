@@ -2,7 +2,9 @@ import { SpanStatusCode, trace } from '@opentelemetry/api';
 import {
   carryNotQueryFault,
   extractKustoErrorMessage,
+  KustoQueryCancelledError,
   KustoQueryError,
+  KustoTimeoutError,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
@@ -241,11 +243,13 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
  *
  * @param connection The Kusto connection
  * @param query The query to execute
+ * @param signal Aborts when the MCP client cancels the request
  * @returns The result of the query
  */
 export async function executeQuery(
   connection: KustoConnection,
   query: string,
+  signal?: AbortSignal,
 ): Promise<KustoQueryResult> {
   return tracer.startActiveSpan('executeQuery', async span => {
     try {
@@ -258,7 +262,7 @@ export async function executeQuery(
       const database = connection.getDatabase();
 
       // Execute the query
-      const result = await connection.executeQuery(database, query);
+      const result = await connection.executeQuery(database, query, signal);
 
       debugLog('Query executed successfully');
       span.setStatus({ code: SpanStatusCode.OK });
@@ -270,6 +274,12 @@ export async function executeQuery(
       criticalLog(`Failed to execute query: ${errorMessage}`);
 
       recordSpanError(span, error);
+
+      if (
+        error instanceof KustoTimeoutError ||
+        error instanceof KustoQueryCancelledError
+      )
+        throw error;
 
       const wrapped = new KustoQueryError(errorMessage);
       carryErrorRecording(error, wrapped);
@@ -387,7 +397,10 @@ export async function executeQueryWithTransformation(
         recordSpanError(span, error);
 
         // Don't double-wrap if it's already a KustoQueryError from executeQuery
-        if (error instanceof KustoQueryError) {
+        if (
+          error instanceof KustoQueryError ||
+          error instanceof KustoTimeoutError
+        ) {
           throw error;
         }
 
@@ -436,6 +449,8 @@ export async function executeManagementCommand(
       criticalLog(`Failed to execute management command: ${errorMessage}`);
 
       recordSpanError(span, error);
+
+      if (error instanceof KustoTimeoutError) throw error;
 
       const wrapped = new KustoQueryError(errorMessage);
       carryErrorRecording(error, wrapped);

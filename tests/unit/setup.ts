@@ -85,6 +85,9 @@ jest.mock('azure-kusto-data', () => {
 
   class MockClientRequestProperties {
     private clientTimeout?: number;
+    setTimeout() {
+      /* no-op for tests */
+    }
     setClientTimeout(timeoutMillis: number) {
       this.clientTimeout = timeoutMillis;
     }
