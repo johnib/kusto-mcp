@@ -15,6 +15,7 @@ import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { createKustoServer } from '../../../src/server.js';
 import { KustoConfig } from '../../../src/types/config.js';
 import {
+  executeQuery,
   KustoConnection,
   showTables,
 } from '../../../src/operations/kusto/index.js';
@@ -28,6 +29,15 @@ jest.mock('../../../src/operations/kusto/index.js', () => {
     KustoConnection: jest.fn(),
     showTables: jest.fn(async (conn: { cluster: string }) => ({
       cluster: conn.cluster,
+    })),
+    executeQuery: jest.fn(async (conn: { cluster: string }) => ({
+      primaryResults: [
+        {
+          name: 'r',
+          columns: [{ ColumnName: 'cluster' }],
+          _rows: [[conn.cluster]],
+        },
+      ],
     })),
   };
 });
@@ -51,6 +61,7 @@ beforeEach(() => {
   initCalls = [];
   initParents = [];
   (showTables as jest.Mock).mockClear();
+  (executeQuery as jest.Mock).mockClear();
   MockConnection.mockReset();
   MockConnection.mockImplementation(() => {
     const self = {
@@ -183,6 +194,75 @@ describe('tool calls wait for auto-connect (#311)', () => {
         'https://manual.kusto.windows.net',
       );
     } finally {
+      await close();
+    }
+  });
+
+  test('execute-query made while auto-connect is in flight waits and runs on it', async () => {
+    behaviors = [{ delayMs: 150 }];
+    const { client, close } = await connect(CONFIGURED);
+    try {
+      const r = await client.callTool({
+        name: 'execute-query',
+        arguments: { query: 'T | take 1' },
+      });
+      expect(r.isError).toBeFalsy();
+      expect(executeQuery).toHaveBeenCalledTimes(1);
+      const conn = (executeQuery as jest.Mock).mock.calls[0][0];
+      expect(conn.cluster).toBe('https://auto.kusto.windows.net');
+      expect(initCalls).toEqual(['auto']);
+    } finally {
+      await close();
+    }
+  });
+
+  test('once a manual connection exists, calls do not wait on a hung auto-connect', async () => {
+    behaviors = [{ delayMs: 0, hang: true }, { delayMs: 0 }];
+    const { client, close } = await connect({
+      ...CONFIGURED,
+      connectionTimeout: 5000,
+    });
+    try {
+      const m = await client.callTool({
+        name: 'initialize-connection',
+        arguments: {
+          cluster_url: 'https://manual.kusto.windows.net',
+          database: 'db',
+        },
+      });
+      expect(m.isError).toBeFalsy();
+      const started = Date.now();
+      const r = await client.callTool({ name: 'show-tables', arguments: {} });
+      expect(Date.now() - started).toBeLessThan(1000);
+      expect(r.isError).toBeFalsy();
+      expect(JSON.parse(text(r)).cluster).toBe(
+        'https://manual.kusto.windows.net',
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  test('the wait deadline timer is cleared once auto-connect settles', async () => {
+    behaviors = [{ delayMs: 50 }];
+    const TIMEOUT = 7777; // distinctive, to pick out the deadline timer
+    const setSpy = jest.spyOn(global, 'setTimeout');
+    const clearSpy = jest.spyOn(global, 'clearTimeout');
+    const { client, close } = await connect({
+      ...CONFIGURED,
+      connectionTimeout: TIMEOUT,
+    });
+    try {
+      const r = await client.callTool({ name: 'show-tables', arguments: {} });
+      expect(r.isError).toBeFalsy();
+      const deadlineTimers = setSpy.mock.results.filter(
+        (_res, i) => setSpy.mock.calls[i][1] === TIMEOUT,
+      );
+      expect(deadlineTimers).toHaveLength(1);
+      expect(clearSpy).toHaveBeenCalledWith(deadlineTimers[0].value);
+    } finally {
+      setSpy.mockRestore();
+      clearSpy.mockRestore();
       await close();
     }
   });
