@@ -140,6 +140,13 @@ export function createKustoServer(config: KustoConfig): Server {
     ? new PromptManager()
     : null;
 
+  // Bumped by every initialize-connection call. An auto-connect only stores
+  // its result if no manual connect started meanwhile, so manual always wins.
+  let manualConnectCount = 0;
+
+  // The auto-connect attempt currently running, if any.
+  let autoConnectInFlight: Promise<void> | null = null;
+
   // Auto-connection function
   async function tryAutoConnect(): Promise<void> {
     // Only attempt auto-connection if both cluster URL and database are configured
@@ -150,6 +157,7 @@ export function createKustoServer(config: KustoConfig): Server {
       return;
     }
 
+    const manualCountAtStart = manualConnectCount;
     try {
       debugLog(
         `Attempting auto-connection to ${validatedConfig.clusterUrl} -> ${validatedConfig.defaultDatabase}`,
@@ -165,6 +173,12 @@ export function createKustoServer(config: KustoConfig): Server {
         'auto',
       );
 
+      // A manual connect started while this was pending wins.
+      if (manualConnectCount !== manualCountAtStart) {
+        debugLog('Auto-connection result discarded: manual connection made');
+        return;
+      }
+
       // If successful, store the connection
       connection = autoConnection;
       criticalLog(
@@ -177,6 +191,46 @@ export function createKustoServer(config: KustoConfig): Server {
         `Auto-connection failed: ${errorMessage}. Manual connection will be required.`,
       );
       // Don't throw - just log and continue with manual connection mode
+    }
+  }
+
+  // Start an auto-connect unless one is already running.
+  function startAutoConnect(): Promise<void> {
+    if (!autoConnectInFlight) {
+      autoConnectInFlight = tryAutoConnect()
+        .catch(error => {
+          // tryAutoConnect already handles errors; this is a safety net.
+          criticalLog(
+            `Unexpected error in auto-connection: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        })
+        .finally(() => {
+          autoConnectInFlight = null;
+        });
+    }
+    return autoConnectInFlight;
+  }
+
+  // When a cluster/database is configured but no connection exists yet, wait
+  // for the in-flight auto-connect (or start one), bounded by the connection
+  // timeout so a hung connect can't block the tool call forever.
+  async function awaitAutoConnect(): Promise<void> {
+    if (
+      connection ||
+      !validatedConfig.clusterUrl ||
+      !validatedConfig.defaultDatabase
+    ) {
+      return;
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<void>(resolve => {
+      timer = setTimeout(resolve, validatedConfig.connectionTimeout ?? 20000);
+      timer.unref?.();
+    });
+    try {
+      await Promise.race([startAutoConnect(), deadline]);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -265,7 +319,8 @@ export function createKustoServer(config: KustoConfig): Server {
       }
 
       // Require an initialized connection; records the not_initialized metric.
-      const requireConnection = (): KustoConnection => {
+      const requireConnection = async (): Promise<KustoConnection> => {
+        await awaitAutoConnect();
         if (!connection) {
           toolNotInitializedCounter.add(1, { tool: toolName });
           throw new McpError(
@@ -293,6 +348,7 @@ export function createKustoServer(config: KustoConfig): Server {
 
               // Create a new connection each time initialize-connection is
               // called; this overrides any existing connection.
+              manualConnectCount++;
               connection = new KustoConnection(validatedConfig);
 
               const result = await connection.initialize(
@@ -309,7 +365,7 @@ export function createKustoServer(config: KustoConfig): Server {
 
             case 'show-tables': {
               ShowTablesSchema.parse(request.params.arguments);
-              const result = await showTables(requireConnection());
+              const result = await showTables(await requireConnection());
               return {
                 content: [
                   { type: 'text', text: JSON.stringify(result, null, 2) },
@@ -320,7 +376,7 @@ export function createKustoServer(config: KustoConfig): Server {
             case 'show-table': {
               const args = ShowTableSchema.parse(request.params.arguments);
               const result = await showTable(
-                requireConnection(),
+                await requireConnection(),
                 args.tableName,
               );
               return {
@@ -332,7 +388,7 @@ export function createKustoServer(config: KustoConfig): Server {
 
             case 'show-functions': {
               ShowFunctionsSchema.parse(request.params.arguments);
-              const result = await showFunctions(requireConnection());
+              const result = await showFunctions(await requireConnection());
               return {
                 content: [
                   { type: 'text', text: JSON.stringify(result, null, 2) },
@@ -371,7 +427,7 @@ export function createKustoServer(config: KustoConfig): Server {
               span.setAttributes(queryTicket.attributes);
               finishQuery = queryTicket.finish;
 
-              const conn = requireConnection();
+              const conn = await requireConnection();
 
               // Enforce read-only mode unless writes are explicitly enabled.
               try {
@@ -511,7 +567,7 @@ export function createKustoServer(config: KustoConfig): Server {
             case 'show-function': {
               const args = ShowFunctionSchema.parse(request.params.arguments);
               const result = await showFunction(
-                requireConnection(),
+                await requireConnection(),
                 args.functionName,
               );
               return {
@@ -670,13 +726,7 @@ export function createKustoServer(config: KustoConfig): Server {
 
   // Trigger auto-connection asynchronously (fire-and-forget)
   // This allows the server to start immediately while attempting connection in the background
-  tryAutoConnect().catch(error => {
-    // This catch is redundant since tryAutoConnect already handles errors,
-    // but it's a safety net in case of unexpected issues
-    criticalLog(
-      `Unexpected error in auto-connection: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  });
+  void startAutoConnect();
 
   return server;
 }
