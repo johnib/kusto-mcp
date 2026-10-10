@@ -12,6 +12,7 @@ import { SpanStatusCode, trace } from '@opentelemetry/api';
 import {
   formatKustoMcpError,
   isKustoMcpError,
+  isNotQueryFault,
   KustoAuthenticationError,
   KustoConnectionError,
   KustoValidationError,
@@ -660,7 +661,8 @@ export function createKustoServer(config: KustoConfig): Server {
             error instanceof McpError ||
             error instanceof KustoConnectionError ||
             error instanceof KustoAuthenticationError ||
-            error instanceof KustoValidationError
+            error instanceof KustoValidationError ||
+            isNotQueryFault(error)
           );
           finishQuery({
             status,

@@ -1,5 +1,6 @@
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import {
+  carryNotQueryFault,
   extractKustoErrorMessage,
   KustoQueryError,
 } from '../../common/errors.js';
@@ -272,6 +273,7 @@ export async function executeQuery(
 
       const wrapped = new KustoQueryError(errorMessage);
       carryErrorRecording(error, wrapped);
+      carryNotQueryFault(error, wrapped);
       throw wrapped;
     } finally {
       span.end();
@@ -391,6 +393,7 @@ export async function executeQueryWithTransformation(
 
         const wrapped = new KustoQueryError(errorMessage);
         carryErrorRecording(error, wrapped);
+        carryNotQueryFault(error, wrapped);
         throw wrapped;
       } finally {
         span.end();
@@ -436,6 +439,7 @@ export async function executeManagementCommand(
 
       const wrapped = new KustoQueryError(errorMessage);
       carryErrorRecording(error, wrapped);
+      carryNotQueryFault(error, wrapped);
       throw wrapped;
     } finally {
       span.end();

@@ -10,6 +10,7 @@ import {
   extractKustoErrorMessage,
   KustoConnectionError,
   KustoQueryError,
+  markNotQueryFault,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
@@ -112,6 +113,19 @@ function classifyConnectionFailure(error: unknown): {
   if (codes.includes('ERR_NETWORK')) return { category: 'network' };
   return { category: 'unknown' };
 }
+
+// Query failures from these categories can't be fixed by rewriting the query,
+// so they stay out of the error-loop hint streak (#313). Timeouts, HTTP 4xx
+// (Kusto semantic errors) and 5xx (query limits) still count.
+const NOT_QUERY_FAULT_CATEGORIES: ReadonlySet<string> = new Set([
+  'auth',
+  'authz',
+  'throttled',
+  'dns_resolution',
+  'connection_refused',
+  'tls',
+  'network',
+]);
 
 /**
  * Map a failure category (+ whether our deadline fired) to a coarse connection
@@ -504,6 +518,15 @@ export class KustoConnection {
           // Just rethrow with the detailed error message
           const customError = new Error(errorMessage);
           carryErrorRecording(error, customError);
+          if (
+            error instanceof KustoConnectionError ||
+            outcome === 'throttled' ||
+            NOT_QUERY_FAULT_CATEGORIES.has(
+              classifyConnectionFailure(error).category,
+            )
+          ) {
+            markNotQueryFault(customError);
+          }
           throw customError;
         } finally {
           span.end();
