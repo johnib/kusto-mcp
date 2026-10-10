@@ -76,8 +76,8 @@ describe('query timeout classification (#319)', () => {
     }
 
     expect(thrown).toBeInstanceOf(KustoTimeoutError);
-    expect(formatKustoMcpError(thrown as KustoMcpError)).toBe(
-      'Kusto Timeout Error: Query timed out after 20ms',
+    expect(formatKustoMcpError(thrown as KustoMcpError)).toMatch(
+      /^Kusto Timeout Error: Query timed out after 20ms\./,
     );
 
     const attrs = querySpan();

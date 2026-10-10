@@ -12,6 +12,7 @@ import {
   KustoConnectionError,
   KustoQueryCancelledError,
   KustoTimeoutError,
+  withTimeoutHint,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
@@ -537,7 +538,9 @@ export class KustoConnection {
               cleanup();
               clientTimedOut = true;
               reject(
-                new KustoTimeoutError(`Query timed out after ${timeout}ms`),
+                new KustoTimeoutError(
+                  withTimeoutHint(`Query timed out after ${timeout}ms`, query),
+                ),
               );
             }, timeout);
 
@@ -609,7 +612,11 @@ export class KustoConnection {
 
           // Don't wrap as KustoQueryError here since queries.ts will handle it
           // Just rethrow with the detailed error message
-          const customError = new Error(errorMessage);
+          const customError = new Error(
+            outcome === 'timeout'
+              ? withTimeoutHint(errorMessage, query)
+              : errorMessage,
+          );
           carryErrorRecording(error, customError);
           throw customError;
         } finally {
