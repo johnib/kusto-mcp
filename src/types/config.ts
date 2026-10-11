@@ -90,7 +90,7 @@ export interface KustoConfig {
  */
 export const DEFAULT_CONFIG: Partial<KustoConfig> = {
   authMethod: AuthenticationMethod.AzureIdentity,
-  queryTimeout: 60000, // 1 minute
+  queryTimeout: 120000, // 2 minutes
   connectionTimeout: 20000, // 20s — connection setup should be fast; bound the tail
   responseFormat: ResponseFormat.Json, // Default to JSON for backward compatibility
   markdownMaxCellLength: 1000, // Default to 1000 characters per cell
