@@ -9,6 +9,8 @@
  * managed-identity probe never touches the network.
  */
 import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 jest.unmock('@azure/identity');
 jest.unmock('../../../src/auth/az-cli-credential.js');
@@ -176,6 +178,17 @@ describe('chain shape matches DefaultAzureCredential', () => {
   test('an unrecognized credential is returned unchanged', () => {
     const other = { getToken: jest.fn() };
     expect(withTreeKillingAzCli(other)).toBe(other);
+  });
+
+  test('@azure/identity is pinned to the version these tests ran against', () => {
+    // The swap reads DefaultAzureCredential's private `_sources`. A range
+    // would let npx users resolve an untested minor where the swap silently
+    // stops; with an exact pin every bump must pass this suite first.
+    const read = (p: string) =>
+      JSON.parse(readFileSync(path.join(process.cwd(), p), 'utf8'));
+    const declared = read('package.json').dependencies['@azure/identity'];
+    const installed = read('node_modules/@azure/identity/package.json').version;
+    expect(declared).toBe(installed);
   });
 });
 
