@@ -113,6 +113,30 @@ describe('CachingTokenCredential', () => {
     expect(inner.getToken).toHaveBeenCalledTimes(2);
   });
 
+  test('a late ordinary fetch cannot overwrite the claims token', async () => {
+    const releases: Array<(t: AccessToken) => void> = [];
+    const inner = {
+      getToken: jest.fn(
+        () => new Promise<AccessToken>(resolve => releases.push(resolve)),
+      ),
+    };
+    const cred = new CachingTokenCredential(inner, now);
+    const ordinary = cred.getToken(SCOPE);
+    const claims = cred.getToken(SCOPE, { claims: 'c' });
+    // An ordinary caller arriving during the claims refresh joins it.
+    const joiner = cred.getToken(SCOPE);
+    expect(inner.getToken).toHaveBeenCalledTimes(2);
+
+    releases[1]({ token: 'fresh', expiresOnTimestamp: clock + HOUR });
+    expect((await claims)?.token).toBe('fresh');
+    expect((await joiner)?.token).toBe('fresh');
+    releases[0]({ token: 'rejected', expiresOnTimestamp: clock + HOUR });
+    expect((await ordinary)?.token).toBe('rejected');
+
+    expect((await cred.getToken(SCOPE))?.token).toBe('fresh');
+    expect(inner.getToken).toHaveBeenCalledTimes(2);
+  });
+
   test('CAE and non-CAE tokens are cached separately', async () => {
     const inner = fakeInner(now);
     const cred = new CachingTokenCredential(inner, now);

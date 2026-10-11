@@ -53,6 +53,7 @@ function raceAbort<T>(
 export class CachingTokenCredential implements TokenCredential {
   private readonly cache = new Map<string, AccessToken>();
   private readonly inFlight = new Map<string, Promise<AccessToken | null>>();
+  private readonly generation = new Map<string, number>();
 
   constructor(
     private readonly inner: TokenCredential,
@@ -73,12 +74,10 @@ export class CachingTokenCredential implements TokenCredential {
     ]);
 
     // A claims challenge means the cached token was rejected: always fetch,
-    // and let the new token replace it so later calls don't reuse the old one.
+    // and supersede any ordinary fetch already in flight for this key.
     if (options?.claims) {
       this.cache.delete(key);
-      const token = await this.inner.getToken(scopes, options);
-      if (token) this.cache.set(key, token);
-      return token;
+      return raceAbort(this.fetch(key, scopes, options), options.abortSignal);
     }
 
     const cached = this.cache.get(key);
@@ -91,25 +90,39 @@ export class CachingTokenCredential implements TokenCredential {
       return cached;
     }
 
-    let pending = this.inFlight.get(key);
-    if (!pending) {
-      // The shared fetch must not be cancelled by one caller's signal;
-      // each caller races its own signal below instead.
-      const request = this.inner
-        .getToken(scopes, { ...options, abortSignal: undefined })
-        .then(token => {
+    const pending = this.inFlight.get(key) ?? this.fetch(key, scopes, options);
+    return raceAbort(pending, options?.abortSignal);
+  }
+
+  /**
+   * Start a fetch for `key` that later callers join. Only the newest fetch
+   * for a key may write the cache, so a superseded one (e.g. an ordinary
+   * fetch overtaken by a claims refresh) can't restore a rejected token.
+   */
+  private fetch(
+    key: string,
+    scopes: string | string[],
+    options?: GetTokenOptions,
+  ): Promise<AccessToken | null> {
+    const generation = (this.generation.get(key) ?? 0) + 1;
+    this.generation.set(key, generation);
+    // The shared fetch must not be cancelled by one caller's signal;
+    // each caller races its own signal instead.
+    const request = this.inner
+      .getToken(scopes, { ...options, abortSignal: undefined })
+      .then(token => {
+        if (this.generation.get(key) === generation) {
           if (token) this.cache.set(key, token);
           else this.cache.delete(key);
-          return token;
-        });
-      pending = request;
-      this.inFlight.set(key, request);
-      const clear = () => {
-        if (this.inFlight.get(key) === request) this.inFlight.delete(key);
-      };
-      request.then(clear, clear);
-    }
-    return raceAbort(pending, options?.abortSignal);
+        }
+        return token;
+      });
+    this.inFlight.set(key, request);
+    const clear = () => {
+      if (this.inFlight.get(key) === request) this.inFlight.delete(key);
+    };
+    request.then(clear, clear);
+    return request;
   }
 }
 
