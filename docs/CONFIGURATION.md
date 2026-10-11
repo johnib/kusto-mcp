@@ -338,7 +338,7 @@ The server maintains connection state for efficiency. Connections are automatica
 ### Authentication Tokens
 
 - Azure CLI tokens are automatically managed
-- Tokens are cached securely by the Azure SDK
+- Tokens are cached in memory per scope and refreshed about 5 minutes before they expire; they are never written to disk or logged
 - No manual token management is required
 
 ## Troubleshooting Configuration
