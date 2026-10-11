@@ -18,6 +18,9 @@ jest.mock('azure-kusto-data', () => ({
     withAzLoginIdentity: jest.fn(
       clusterUrl => `connection-string-for-${clusterUrl}`,
     ),
+    withTokenCredential: jest.fn(
+      clusterUrl => `connection-string-for-${clusterUrl}`,
+    ),
   },
   ClientRequestProperties: class {
     setTimeout() {

@@ -36,6 +36,12 @@ jest.mock('azure-kusto-data', () => {
       );
     }
 
+    static withTokenCredential(clusterUrl: string) {
+      return new MockKustoConnectionStringBuilder(
+        `Data Source=${clusterUrl};Fed=True;`,
+      );
+    }
+
     static withAadApplicationKeyAuthentication(
       clusterUrl: string,
       clientId: string,

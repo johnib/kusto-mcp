@@ -157,36 +157,62 @@ function classifyAuthError(error: unknown): Attributes {
   return attrs;
 }
 
+// Bumped by every captureIdentity call. Only the newest capture may write the
+// module state, so a late getToken result from an older attempt can't
+// overwrite a newer attempt's identity (#293).
+let captureGeneration = 0;
+
 /**
  * Acquire a token, decode its identity claims (tenant, object id, principal
  * type), and store the salted cohort hashes. Never throws — telemetry must not
  * break a connection. On failure it records a bounded, non-identifying
  * classification of WHY (see classifyAuthError) instead of a silent blank.
+ *
+ * `isAbandoned` tells whether the caller gave up on this attempt (its connect
+ * deadline fired). The result is then returned but not stored.
  */
 export async function captureIdentity(
   clusterUrl: string,
   getToken: (scope: string) => Promise<{ token: string } | null>,
+  isAbandoned: () => boolean = () => false,
 ): Promise<Attributes> {
+  const generation = ++captureGeneration;
   identityAttrs = {};
-  // A token acquisition is being attempted; downgraded to 'captured' on success.
+  // A token acquisition is being attempted; upgraded to 'captured' on success.
   identityState = 'unavailable';
+  let attrs: Attributes = {};
+  let state: IdentityState = 'unavailable';
   try {
     const origin = new URL(clusterUrl).origin;
     const tokenResponse = await getToken(`${origin}/.default`);
     if (tokenResponse?.token) {
-      identityAttrs = buildIdentityAttributes(
-        decodeJwtClaims(tokenResponse.token),
-      );
-      identityState = 'captured';
-      debugLog('Telemetry identity captured');
+      attrs = buildIdentityAttributes(decodeJwtClaims(tokenResponse.token));
+      state = 'captured';
     }
   } catch (error) {
-    identityAttrs = classifyAuthError(error);
+    attrs = classifyAuthError(error);
+  }
+  let current = generation === captureGeneration;
+  try {
+    current = current && !isAbandoned();
+  } catch {
+    current = false;
+  }
+  if (!current) {
+    debugLog('Telemetry identity result ignored: connect attempt abandoned');
+    return attrs;
+  }
+  // Attributes and state are written together, so they always agree.
+  identityAttrs = attrs;
+  identityState = state;
+  if (state === 'captured') {
+    debugLog('Telemetry identity captured');
+  } else if (attrs['kustomcp.auth.failure_stage'] !== undefined) {
     debugLog(
       `Telemetry identity capture failed: stage=${String(
-        identityAttrs['kustomcp.auth.failure_stage'],
+        attrs['kustomcp.auth.failure_stage'],
       )}`,
     );
   }
-  return identityAttrs;
+  return attrs;
 }
