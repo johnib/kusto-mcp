@@ -30,13 +30,11 @@ jest.mock('azure-kusto-data', () => {
       this.connectionString = connectionString;
     }
 
-    static withAzLoginIdentity(clusterUrl: string) {
-      return new MockKustoConnectionStringBuilder(
-        `Data Source=${clusterUrl};Fed=True;`,
-      );
+    static withTokenCredential(clusterUrl: string, _credential: unknown) {
+      return new MockKustoConnectionStringBuilder(`Data Source=${clusterUrl};`);
     }
 
-    static withTokenCredential(clusterUrl: string) {
+    static withAzLoginIdentity(clusterUrl: string) {
       return new MockKustoConnectionStringBuilder(
         `Data Source=${clusterUrl};Fed=True;`,
       );

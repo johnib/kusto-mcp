@@ -298,6 +298,10 @@ export class KustoConnection {
       // user-facing hint on failure (#315).
       let step: 'token' | 'cluster' = 'token';
       let tokenAttrs: Record<string, unknown> = {};
+      // The validation client, closed on any failure (#290). `abandoned` stops
+      // a connect that is still running after the deadline from opening one.
+      let tempClient: Client | undefined;
+      let abandoned = false;
       try {
         debugLog(
           `Initializing connection to ${clusterUrl}, database: ${database}`,
@@ -344,9 +348,10 @@ export class KustoConnection {
             if (v !== undefined && v !== null) span.setAttribute(k, v);
           }
 
-          // Both auth methods go through our own credential.
-          // withAzLoginIdentity would build the SDK's own AzureCliCredential,
-          // which spawns `az` with no process timeout (#293).
+          // Both auth methods go through our caching, time-limited credential.
+          // Don't use withAzLoginIdentity: it builds its own uncached
+          // AzureCliCredential, which spawns `az` on every request (#296) with
+          // no process timeout (#293).
           debugLog(
             `Using ${this.config.authMethod ?? 'default'} credential for connection`,
           );
@@ -356,8 +361,10 @@ export class KustoConnection {
               this.tokenCredential,
             );
 
+          if (abandoned) throw new Error('Connection attempt abandoned');
           // Create a temporary client for validation, don't set instance variables yet
-          const tempClient = new Client(connectionString);
+          const client = new Client(connectionString);
+          tempClient = client;
 
           // Bound the HTTP round-trip itself (library default is 270s).
           const props = new ClientRequestProperties();
@@ -366,18 +373,18 @@ export class KustoConnection {
           // Test basic connectivity and authentication with a universal query.
           // This works with regular Kusto clusters and ADX Proxy endpoints.
           const connectStart = Date.now();
-          await tempClient.execute(database, 'print now()', props);
+          await client.execute(database, 'print now()', props);
           span.setAttribute(
             'kustomcp.connection.connect_ms',
             Date.now() - connectStart,
           );
-          return tempClient;
+          return client;
         };
 
-        const tempClient = await Promise.race([connect(), deadline]);
+        const validated = await Promise.race([connect(), deadline]);
 
         // Only set the instance variables after successful validation
-        this.client = tempClient;
+        this.client = validated;
         this.database = database;
 
         debugLog('Connection initialized successfully');
@@ -404,6 +411,12 @@ export class KustoConnection {
           database: database,
         };
       } catch (error) {
+        abandoned = true;
+        try {
+          tempClient?.close();
+        } catch {
+          /* best effort */
+        }
         const failedStep = step;
         const errorMessage = extractKustoErrorMessage(error);
 
@@ -727,6 +740,20 @@ export class KustoConnection {
     }
 
     return this.database;
+  }
+
+  /**
+   * Release the client (cancels its in-flight requests). Only for a
+   * connection nothing else uses. Never throws.
+   */
+  close(): void {
+    try {
+      this.client?.close();
+    } catch {
+      /* best effort */
+    }
+    this.client = null;
+    this.database = null;
   }
 
   /**
