@@ -64,19 +64,29 @@ export class CachingTokenCredential implements TokenCredential {
     options?: GetTokenOptions,
   ): Promise<AccessToken | null> {
     if (options?.abortSignal?.aborted) throw abortError();
-    // A claims challenge asks for a fresh token; never answer it from cache.
-    if (options?.claims) return this.inner.getToken(scopes, options);
 
     const scopeList = Array.isArray(scopes) ? scopes : [scopes];
     const key = JSON.stringify([
       [...scopeList].sort(),
       options?.tenantId ?? '',
+      !!options?.enableCae,
     ]);
+
+    // A claims challenge means the cached token was rejected: always fetch,
+    // and let the new token replace it so later calls don't reuse the old one.
+    if (options?.claims) {
+      this.cache.delete(key);
+      const token = await this.inner.getToken(scopes, options);
+      if (token) this.cache.set(key, token);
+      return token;
+    }
 
     const cached = this.cache.get(key);
     if (
       cached &&
-      cached.expiresOnTimestamp - TOKEN_REFRESH_MARGIN_MS > this.now()
+      cached.expiresOnTimestamp - TOKEN_REFRESH_MARGIN_MS > this.now() &&
+      (cached.refreshAfterTimestamp === undefined ||
+        cached.refreshAfterTimestamp > this.now())
     ) {
       return cached;
     }

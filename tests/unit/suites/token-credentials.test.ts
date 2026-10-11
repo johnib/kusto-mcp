@@ -104,6 +104,43 @@ describe('CachingTokenCredential', () => {
     expect(inner.getToken).toHaveBeenCalledTimes(2);
   });
 
+  test('a claims challenge replaces the rejected cached token', async () => {
+    const inner = fakeInner(now);
+    const cred = new CachingTokenCredential(inner, now);
+    expect((await cred.getToken(SCOPE))?.token).toBe('t1');
+    expect((await cred.getToken(SCOPE, { claims: 'c' }))?.token).toBe('t2');
+    expect((await cred.getToken(SCOPE))?.token).toBe('t2');
+    expect(inner.getToken).toHaveBeenCalledTimes(2);
+  });
+
+  test('CAE and non-CAE tokens are cached separately', async () => {
+    const inner = fakeInner(now);
+    const cred = new CachingTokenCredential(inner, now);
+    expect((await cred.getToken(SCOPE, { enableCae: false }))?.token).toBe(
+      't1',
+    );
+    expect((await cred.getToken(SCOPE, { enableCae: true }))?.token).toBe('t2');
+    expect(inner.getToken).toHaveBeenCalledTimes(2);
+  });
+
+  test('honors refreshAfterTimestamp before the expiry margin', async () => {
+    let n = 0;
+    const inner = {
+      getToken: jest.fn(async () => ({
+        token: `r${++n}`,
+        expiresOnTimestamp: clock + HOUR,
+        refreshAfterTimestamp: clock + 10 * 60 * 1000,
+      })),
+    };
+    const cred = new CachingTokenCredential(inner, now);
+    expect((await cred.getToken(SCOPE))?.token).toBe('r1');
+    clock += 10 * 60 * 1000 - 1;
+    expect((await cred.getToken(SCOPE))?.token).toBe('r1');
+    clock += 1;
+    expect((await cred.getToken(SCOPE))?.token).toBe('r2');
+    expect(inner.getToken).toHaveBeenCalledTimes(2);
+  });
+
   test("one caller's abort rejects only that caller", async () => {
     let release!: (t: AccessToken) => void;
     const inner = {
