@@ -1,3 +1,17 @@
+# [1.18.0](https://github.com/johnib/kusto-mcp/compare/v1.17.0...v1.18.0) (2026-10-11)
+
+
+### Bug Fixes
+
+* back off startup auto-connect across relaunches ([#338](https://github.com/johnib/kusto-mcp/issues/338)) [skip ci] ([07b3309](https://github.com/johnib/kusto-mcp/commit/07b33098577edd7e75117cec575162052a22d9a0)), closes [#316](https://github.com/johnib/kusto-mcp/issues/316)
+* cancel running Kusto queries when the stdio client disconnects ([#340](https://github.com/johnib/kusto-mcp/issues/340)) ([88eadba](https://github.com/johnib/kusto-mcp/commit/88eadbaddb8dc672f92ef01047d86ede380de658)), closes [#333](https://github.com/johnib/kusto-mcp/issues/333)
+* keep session and shape telemetry on invalid execute-query args ([#336](https://github.com/johnib/kusto-mcp/issues/336)) [skip ci] ([189ad79](https://github.com/johnib/kusto-mcp/commit/189ad7973db1cf09085a7e12718649ef9a135a46)), closes [#318](https://github.com/johnib/kusto-mcp/issues/318)
+
+
+### Features
+
+* say which connect step failed and how to fix it ([#339](https://github.com/johnib/kusto-mcp/issues/339)) [skip ci] ([07301bf](https://github.com/johnib/kusto-mcp/commit/07301bfce398a2096c4f8a889894299692fa7319)), closes [#315](https://github.com/johnib/kusto-mcp/issues/315)
+
 # [1.17.0](https://github.com/johnib/kusto-mcp/compare/v1.16.0...v1.17.0) (2026-10-11)
 
 
