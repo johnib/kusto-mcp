@@ -2,6 +2,7 @@ import { SpanStatusCode, trace } from '@opentelemetry/api';
 import {
   extractKustoErrorMessage,
   KustoQueryError,
+  KustoTimeoutError,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
@@ -270,6 +271,8 @@ export async function executeQuery(
 
       recordSpanError(span, error);
 
+      if (error instanceof KustoTimeoutError) throw error;
+
       const wrapped = new KustoQueryError(errorMessage);
       carryErrorRecording(error, wrapped);
       throw wrapped;
@@ -385,7 +388,10 @@ export async function executeQueryWithTransformation(
         recordSpanError(span, error);
 
         // Don't double-wrap if it's already a KustoQueryError from executeQuery
-        if (error instanceof KustoQueryError) {
+        if (
+          error instanceof KustoQueryError ||
+          error instanceof KustoTimeoutError
+        ) {
           throw error;
         }
 
@@ -433,6 +439,8 @@ export async function executeManagementCommand(
       criticalLog(`Failed to execute management command: ${errorMessage}`);
 
       recordSpanError(span, error);
+
+      if (error instanceof KustoTimeoutError) throw error;
 
       const wrapped = new KustoQueryError(errorMessage);
       carryErrorRecording(error, wrapped);
