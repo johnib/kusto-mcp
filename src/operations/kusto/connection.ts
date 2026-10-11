@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { TokenCredential } from '@azure/identity';
 import { SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 import {
@@ -9,6 +10,7 @@ import { createTokenCredential } from '../../auth/token-credentials.js';
 import {
   extractKustoErrorMessage,
   KustoConnectionError,
+  KustoQueryCancelledError,
   KustoTimeoutError,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
@@ -38,6 +40,8 @@ const tracer = trace.getTracer('kusto-connection');
 const MAX_SERVER_TIMEOUT_MS = 60 * 60 * 1000;
 /** Extra HTTP wait beyond the query timeout, so a server timeout error arrives. */
 const CLIENT_TIMEOUT_GRACE_MS = 30000;
+/** HTTP bound for the best-effort `.cancel query` sent on client cancel. */
+const CANCEL_COMMAND_TIMEOUT_MS = 10000;
 
 /**
  * Kusto's structured server-timeout error, as returned by a live cluster:
@@ -62,9 +66,11 @@ function classifyQueryOutcome(
   error: unknown,
   clientTimedOut: boolean,
 ): {
-  outcome: 'timeout' | 'throttled' | 'error';
+  outcome: 'timeout' | 'throttled' | 'cancelled_by_client' | 'error';
   timeoutKind?: 'client' | 'server';
 } {
+  if (error instanceof KustoQueryCancelledError)
+    return { outcome: 'cancelled_by_client' };
   if (clientTimedOut || error instanceof KustoTimeoutError)
     return { outcome: 'timeout', timeoutKind: 'client' };
   const e = error as {
@@ -433,11 +439,14 @@ export class KustoConnection {
    *
    * @param database The database to execute the query on
    * @param query The query to execute
+   * @param signal Aborts when the MCP client cancels the request; the query is
+   *   then cancelled on the cluster (best effort)
    * @returns The result of the query
    */
   async executeQuery(
     database: string,
     query: string,
+    signal?: AbortSignal,
   ): Promise<KustoQueryResult> {
     return tracer.startActiveSpan(
       'kusto.query',
@@ -471,6 +480,12 @@ export class KustoConnection {
             throw new KustoConnectionError('Connection not initialized');
           }
 
+          // Cancelled before we got here: don't start a query only to race
+          // a `.cancel query` against it.
+          if (signal?.aborted) {
+            throw new KustoQueryCancelledError('Query cancelled by the client');
+          }
+
           debugLog(`Executing query on database ${database}: ${query}`);
 
           // Set timeout from config
@@ -484,26 +499,64 @@ export class KustoConnection {
           const props = new ClientRequestProperties();
           props.setTimeout(Math.min(timeout, MAX_SERVER_TIMEOUT_MS));
           props.setClientTimeout(timeout + CLIENT_TIMEOUT_GRACE_MS);
+          // Our own id, so the query can be cancelled by `.cancel query`.
+          const clientRequestId = `KustoMcp.execute;${randomUUID()}`;
+          props.clientRequestId = clientRequestId;
 
           // Execute the query with timeout, ensuring timeout handle is always cleared
           let timeoutHandle: NodeJS.Timeout;
-          const queryPromise = this.client.execute(database, query, props);
+          const client = this.client;
+          const queryPromise = client.execute(database, query, props);
 
           const rawResult = await new Promise((resolve, reject) => {
+            // The client cancelled the tool call: stop waiting and ask the
+            // cluster to cancel the query. Fire-and-forget; never throws.
+            const onAbort = () => {
+              cleanup();
+              reject(
+                new KustoQueryCancelledError('Query cancelled by the client'),
+              );
+              try {
+                const cancelProps = new ClientRequestProperties();
+                cancelProps.setClientTimeout(CANCEL_COMMAND_TIMEOUT_MS);
+                client
+                  .execute(
+                    database,
+                    `.cancel query "${clientRequestId}"`,
+                    cancelProps,
+                  )
+                  .catch(err =>
+                    debugLog(
+                      `Best-effort .cancel query failed: ${extractKustoErrorMessage(err)}`,
+                    ),
+                  );
+              } catch {
+                /* best effort */
+              }
+            };
+            const cleanup = () => {
+              clearTimeout(timeoutHandle);
+              signal?.removeEventListener('abort', onAbort);
+            };
+
             timeoutHandle = setTimeout(() => {
+              cleanup();
               clientTimedOut = true;
               reject(
                 new KustoTimeoutError(`Query timed out after ${timeout}ms`),
               );
             }, timeout);
 
+            if (signal?.aborted) onAbort();
+            else signal?.addEventListener('abort', onAbort, { once: true });
+
             queryPromise
               .then(result => {
-                clearTimeout(timeoutHandle);
+                cleanup();
                 resolve(result);
               })
               .catch(err => {
-                clearTimeout(timeoutHandle);
+                cleanup();
                 reject(err);
               });
           });
@@ -558,8 +611,13 @@ export class KustoConnection {
             outcome,
           });
 
-          // Our own timeout keeps its type so callers report it as a timeout.
-          if (error instanceof KustoTimeoutError) throw error;
+          // Our own timeout / client cancel keep their type so callers
+          // report them as such.
+          if (
+            error instanceof KustoTimeoutError ||
+            error instanceof KustoQueryCancelledError
+          )
+            throw error;
           if (serverTimeout) throw serverTimeout;
 
           // Don't wrap as KustoQueryError here since queries.ts will handle it

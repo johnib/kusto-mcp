@@ -235,7 +235,7 @@ export function createKustoServer(config: KustoConfig): Server {
   }
 
   // Register the CallTool request handler
-  server.setRequestHandler(CallToolRequestSchema, async request => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const toolName = request.params.name;
     return serverTracer.startActiveSpan(`mcp.tool/${toolName}`, async span => {
       const startedAt = Date.now();
@@ -412,7 +412,12 @@ export function createKustoServer(config: KustoConfig): Server {
                 await import('./common/response-limiter.js');
 
               // Execute the query and get raw results
-              const rawResult = await executeQuery(conn, modifiedQuery);
+              // extra.signal aborts on notifications/cancelled from the client.
+              const rawResult = await executeQuery(
+                conn,
+                modifiedQuery,
+                extra.signal,
+              );
 
               // Transform using the proper architecture
               const transformedResult = transformQueryResult(
