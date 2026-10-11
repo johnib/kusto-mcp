@@ -255,7 +255,12 @@ export class KustoConnection {
    */
   constructor(config: KustoConfig) {
     this.config = config;
-    this.tokenCredential = createTokenCredential(config.authMethod);
+    // Credential subprocesses (`az`) are killed at the connect deadline, so a
+    // hung one can't outlive the attempt that spawned it (#293).
+    this.tokenCredential = createTokenCredential(
+      config.authMethod,
+      config.connectionTimeout ?? 20000,
+    );
   }
 
   /**
@@ -322,9 +327,18 @@ export class KustoConnection {
           // user that fails to connect is still counted. On failure this also
           // records a bounded classification of WHY (identity_state / auth.*).
           const tokenStart = Date.now();
-          tokenAttrs = await captureIdentity(clusterUrl, scope =>
-            this.tokenCredential.getToken(scope),
+          // A capture that settles after the deadline is ignored (#293).
+          const captured = await captureIdentity(
+            clusterUrl,
+            scope => this.tokenCredential.getToken(scope),
+            () => timedOut,
           );
+          // The deadline already failed this attempt: stop here instead of
+          // spawning another `az` and a validation query nobody awaits.
+          if (timedOut) {
+            throw new KustoConnectionError('Connection attempt abandoned');
+          }
+          tokenAttrs = captured;
           step = 'cluster';
           span.setAttribute(
             'kustomcp.connection.token_ms',
@@ -334,9 +348,13 @@ export class KustoConnection {
             if (v !== undefined && v !== null) span.setAttribute(k, v);
           }
 
-          // Both auth methods go through our caching credential. Don't use
-          // withAzLoginIdentity: it builds its own uncached AzureCliCredential,
-          // which spawns `az` on every request (#296).
+          // Both auth methods go through our caching, time-limited credential.
+          // Don't use withAzLoginIdentity: it builds its own uncached
+          // AzureCliCredential, which spawns `az` on every request (#296) with
+          // no process timeout (#293).
+          debugLog(
+            `Using ${this.config.authMethod ?? 'default'} credential for connection`,
+          );
           const connectionString =
             KustoConnectionStringBuilder.withTokenCredential(
               clusterUrl,

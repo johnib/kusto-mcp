@@ -130,20 +130,31 @@ export class CachingTokenCredential implements TokenCredential {
  * Factory function to create a TokenCredential based on the authentication method
  *
  * @param method The authentication method to use
+ * @param processTimeoutInMs Kill bound for credential subprocesses (`az`,
+ *   `azd`, PowerShell). Without it @azure/identity spawns them with no
+ *   timeout, so a hung `az` outlives the connect attempt that started it.
  * @returns A TokenCredential instance
  */
 export function createTokenCredential(
   method: string = 'azure-cli',
+  processTimeoutInMs?: number,
 ): TokenCredential {
+  // child_process rejects a non-integer timeout, so pass only a sane value.
+  const options =
+    typeof processTimeoutInMs === 'number' &&
+    Number.isInteger(processTimeoutInMs) &&
+    processTimeoutInMs > 0
+      ? { processTimeoutInMs }
+      : {};
   try {
     switch (method.toLowerCase()) {
       case 'azure-cli':
         debugLog('Using Azure CLI authentication');
-        return new CachingTokenCredential(new AzureCliCredential());
+        return new CachingTokenCredential(new AzureCliCredential(options));
 
       case 'azure-identity':
         debugLog('Using Azure Identity authentication');
-        return new CachingTokenCredential(new DefaultAzureCredential());
+        return new CachingTokenCredential(new DefaultAzureCredential(options));
 
       default:
         throw new KustoAuthenticationError(
