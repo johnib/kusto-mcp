@@ -721,6 +721,20 @@ export class KustoConnection {
   }
 
   /**
+   * Release the client (cancels its in-flight requests). Only for a
+   * connection nothing else uses. Never throws.
+   */
+  close(): void {
+    try {
+      this.client?.close();
+    } catch {
+      /* best effort */
+    }
+    this.client = null;
+    this.database = null;
+  }
+
+  /**
    * Check if the connection is initialized
    *
    * @returns True if the connection is initialized, false otherwise
