@@ -19,7 +19,7 @@ KUSTO_MAX_RESPONSE_LENGTH=12000  # Maximum characters for entire MCP response (d
 KUSTO_MIN_RESPONSE_ROWS=1  # Minimum rows to return when data exists (default: 1)
 
 # Safety
-KUSTO_ALLOW_WRITE_OPERATIONS=true  # Allow write/management commands (default: true). Set false for read-only.
+KUSTO_ALLOW_WRITE_OPERATIONS=false  # Read-only unless true/1/yes/on (default: read-only)
 
 # OpenTelemetry Configuration (optional)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317/v1/traces
@@ -27,14 +27,22 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317/v1/traces
 
 ## Read-Only Mode
 
-By default the `execute-query` tool accepts any command, including
-write/management commands (e.g. `.set-or-append`, `.append`, `.ingest`,
-`.drop`, `.create`, `.alter`).
+**The server is read-only by default.** The `execute-query` tool accepts plain
+KQL queries and `.show` commands; all other control/management commands
+(e.g. `.set-or-append`, `.append`, `.ingest`, `.drop`, `.create`, `.alter`) are
+rejected before they reach the cluster.
 
-To harden the server — for example when the tool is auto-approved or driven by
-untrusted input — set `KUSTO_ALLOW_WRITE_OPERATIONS=false`. In read-only mode
-only plain KQL queries and `.show` commands are permitted; all other
-control/management commands are rejected.
+To allow write/management commands, set `KUSTO_ALLOW_WRITE_OPERATIONS=true`.
+The values `true`, `1`, `yes` and `on` enable writes (case-insensitive,
+surrounding spaces and a trailing `# comment` are ignored). Anything else —
+unset, empty, `false`, `0`, `no`, `off`, or a typo — keeps the server
+read-only.
+
+**Upgrading from 1.x:** earlier versions allowed write/management commands
+unless `KUSTO_ALLOW_WRITE_OPERATIONS=false` was set. From 2.0 they are blocked
+unless you opt in. If your setup relies on writes, add
+`KUSTO_ALLOW_WRITE_OPERATIONS=true`; if you already set it to `false`, nothing
+changes.
 
 ## Authentication Methods
 

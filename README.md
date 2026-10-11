@@ -17,6 +17,20 @@ Connect Cline, Cursor, Claude Desktop, or any AI tool to Azure Data Explorer. As
 
 No more writing complex KQL queries. Just ask your AI assistant natural questions about your data.
 
+## Read-Only by Default
+
+The server is **read-only by default**. KQL queries and `.show` commands work; write and management commands (`.set`, `.append`, `.ingest`, `.drop`, `.create`, `.alter`, ...) are rejected before they reach your cluster.
+
+To allow them, set `KUSTO_ALLOW_WRITE_OPERATIONS=true` in the server's environment (`1`, `yes` and `on` also work). Any other value, or leaving it unset, keeps the server read-only. For example:
+
+```bash
+claude mcp add kusto-mcp -e KUSTO_ALLOW_WRITE_OPERATIONS=true -- npx -y kusto-mcp@latest
+```
+
+or in a JSON MCP config: `"env": { "KUSTO_ALLOW_WRITE_OPERATIONS": "true" }`.
+
+**Upgrading from 1.x:** earlier versions allowed write commands unless you set `KUSTO_ALLOW_WRITE_OPERATIONS=false`. From 2.0 they are blocked unless you opt in. If you rely on writes, add `KUSTO_ALLOW_WRITE_OPERATIONS=true`; if you already set it to `false`, nothing changes.
+
 ## Quick Setup
 
 ### For Claude Code Users
@@ -228,6 +242,7 @@ kusto-mcp reports **anonymous usage telemetry** to the maintainer's Honeycomb in
 
 Need custom settings? Check out our [Configuration Guide](docs/CONFIGURATION.md) for:
 
+- Read-only mode and enabling write/management commands
 - Response format options (JSON vs Markdown)
 - Query timeout settings (default 120s; your MCP host may have its own per-server timeout)
 - Result size limiting

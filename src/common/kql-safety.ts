@@ -80,7 +80,7 @@ export function assertQueryAllowed(query: string, allowWrite: boolean): void {
     throw new KustoValidationError(
       'Management/write commands are disabled: this server runs in read-only mode. ' +
         'Only KQL queries and ".show" commands are permitted. ' +
-        'Set KUSTO_ALLOW_WRITE_OPERATIONS=true to enable write/management commands.',
+        'To allow write/management commands, set KUSTO_ALLOW_WRITE_OPERATIONS=true in the MCP server environment and restart it.',
     );
   }
 }

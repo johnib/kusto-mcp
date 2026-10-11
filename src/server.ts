@@ -651,7 +651,9 @@ export function createKustoServer(config: KustoConfig): Server {
                 'kusto connected': connection ? 'yes' : 'no',
                 'response format': validatedConfig.responseFormat ?? 'json',
                 'write mode':
-                  (validatedConfig.allowWriteOperations ?? true) ? 'on' : 'off',
+                  (validatedConfig.allowWriteOperations ?? false)
+                    ? 'on'
+                    : 'off',
               };
 
               const report = buildReportIssueUrl({
