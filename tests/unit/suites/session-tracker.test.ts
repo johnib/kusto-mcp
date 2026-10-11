@@ -91,6 +91,23 @@ describe('SessionTracker', () => {
     );
   });
 
+  test('peekQuery reports context without reserving a query slot', () => {
+    const t = new SessionTracker();
+    t.recordCall('show-tables');
+    run(t, 50, { status: 'error' });
+    expect(t.peekQuery()).toEqual({
+      'kustomcp.session.prev_tool': 'execute-query',
+      'kustomcp.session.query_ordinal': '2',
+      'kustomcp.session.schema_calls_before_query': '0',
+      'kustomcp.query.retry_class': 'after_error',
+    });
+    expect(t.consecutiveQueryFailures).toBe(1);
+    const next = t.beginQuery(50).attributes;
+    expect(next['kustomcp.session.query_ordinal']).toBe('2');
+    expect(next['kustomcp.query.retry_class']).toBe('after_error');
+    expect(next['kustomcp.query.limit_escalation']).toBe('same');
+  });
+
   test('unknown tool names collapse to other and never ship verbatim', () => {
     const t = new SessionTracker();
     t.recordCall('secret-tool-name-with-PII');

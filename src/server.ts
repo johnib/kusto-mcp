@@ -365,7 +365,9 @@ export function createKustoServer(config: KustoConfig): Server {
 
       try {
         const result = await (async () => {
-          if (!request.params.arguments) {
+          // execute-query checks this itself so the failure keeps its
+          // invalid-args telemetry (#318).
+          if (!request.params.arguments && toolName !== 'execute-query') {
             throw new McpError(
               ErrorCode.InvalidParams,
               'Arguments are required',
@@ -429,7 +431,37 @@ export function createKustoServer(config: KustoConfig): Server {
             }
 
             case 'execute-query': {
-              const args = ExecuteQuerySchema.parse(request.params.arguments);
+              const rawArgs = request.params.arguments ?? {};
+              // The schema defaults `limit` to 20, so tell "omitted" from an
+              // explicit 20 by the raw key (#318).
+              span.setAttribute(
+                'kustomcp.query.limit_explicit',
+                rawArgs.limit !== undefined,
+              );
+              let args: z.infer<typeof ExecuteQuerySchema>;
+              try {
+                if (!request.params.arguments) {
+                  throw new McpError(
+                    ErrorCode.InvalidParams,
+                    'Arguments are required',
+                  );
+                }
+                args = ExecuteQuerySchema.parse(rawArgs);
+              } catch (error) {
+                // Invalid arguments still carry the bounded intent, shape and
+                // session dimensions (#318). See peekQuery for why an invalid
+                // call does not count as a query in the session signals.
+                span.setAttribute('kustomcp.query.outcome', 'invalid_args');
+                span.setAttributes(session.peekQuery());
+                span.setAttribute(
+                  'kustomcp.declared.purpose',
+                  classifyPurpose(rawArgs.purpose).purpose,
+                );
+                if (typeof rawArgs.query === 'string') {
+                  span.setAttributes(classifyQueryShape(rawArgs.query));
+                }
+                throw error;
+              }
               const requestedLimit = args.limit || 20;
               // Record the limit and stamp the input-derived attributes before
               // any check that can throw (connection, read-only, execution), so

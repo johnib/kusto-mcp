@@ -91,12 +91,7 @@ export class SessionTracker {
     try {
       const prev = this.last;
       const attributes: Attributes = {
-        'kustomcp.session.prev_tool': this.lastTool,
-        'kustomcp.session.query_ordinal': ordinalBucket(this.queryCount + 1),
-        'kustomcp.session.schema_calls_before_query': schemaBucket(
-          this.schemaCalls,
-        ),
-        'kustomcp.query.retry_class': prev ? `after_${prev.outcome}` : 'first',
+        ...this.contextAttributes(),
         'kustomcp.query.limit_escalation': !prev
           ? 'first'
           : requestedLimit > prev.limit
@@ -139,6 +134,35 @@ export class SessionTracker {
     } catch {
       return { attributes: {}, finish: () => undefined };
     }
+  }
+
+  /**
+   * Session attributes for an `execute-query` call whose arguments failed
+   * validation. Read-only: an invalid call never reaches Kusto and has no
+   * usable limit, so it does not reserve a query ordinal, does not change the
+   * retry/limit state seen by the next query, and does not count toward the
+   * failure streak. Its `query_ordinal` is therefore the one the next valid
+   * query will also get; split the two by `kustomcp.query.outcome`. No
+   * `limit_escalation` either, since the limit may be the invalid argument.
+   */
+  peekQuery(): Attributes {
+    try {
+      return this.contextAttributes();
+    } catch {
+      return {};
+    }
+  }
+
+  private contextAttributes(): Attributes {
+    const prev = this.last;
+    return {
+      'kustomcp.session.prev_tool': this.lastTool,
+      'kustomcp.session.query_ordinal': ordinalBucket(this.queryCount + 1),
+      'kustomcp.session.schema_calls_before_query': schemaBucket(
+        this.schemaCalls,
+      ),
+      'kustomcp.query.retry_class': prev ? `after_${prev.outcome}` : 'first',
+    };
   }
 
   /**
