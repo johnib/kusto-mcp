@@ -5,6 +5,7 @@ import {
   KustoQueryCancelledError,
   KustoQueryError,
   KustoTimeoutError,
+  markNotQueryFault,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
@@ -256,7 +257,10 @@ export async function executeQuery(
       debugLog(`Executing query: ${query}`);
 
       if (!connection.isInitialized()) {
-        throw new KustoQueryError('Connection not initialized');
+        // e.g. after a failed initialize-connection: not the query's fault.
+        const notConnected = new KustoQueryError('Connection not initialized');
+        markNotQueryFault(notConnected);
+        throw notConnected;
       }
 
       const database = connection.getDatabase();
@@ -431,7 +435,10 @@ export async function executeManagementCommand(
       debugLog(`Executing management command: ${command}`);
 
       if (!connection.isInitialized()) {
-        throw new KustoQueryError('Connection not initialized');
+        // e.g. after a failed initialize-connection: not the query's fault.
+        const notConnected = new KustoQueryError('Connection not initialized');
+        markNotQueryFault(notConnected);
+        throw notConnected;
       }
 
       const database = connection.getDatabase();

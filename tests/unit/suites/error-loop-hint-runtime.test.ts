@@ -237,3 +237,52 @@ describe('error loop hint ignores runtime timeouts and client cancels', () => {
     }
   });
 });
+
+// After a failed initialize-connection the server keeps the uninitialized
+// connection (#290), so execute-query fails inside queries.executeQuery with
+// "Connection not initialized". Re-running the query can't fix that, so it
+// must never earn the schema hint.
+describe('error loop hint ignores a failed initialize-connection', () => {
+  beforeEach(() => {
+    execute.mockReset();
+    execute.mockResolvedValue({ primaryResults: [] });
+  });
+
+  test('repeated queries after a failed connect get no hint', async () => {
+    const server = createKustoServer({
+      authMethod: AuthenticationMethod.AzureCli,
+    });
+    const client = new Client({ name: 'unit-test', version: '0.0.0' });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(st), client.connect(ct)]);
+    const text = (r: Awaited<ReturnType<Client['callTool']>>) =>
+      (r.content as Array<{ type: string; text: string }>)[0].text;
+    try {
+      // The connect probe fails, so initialize() rejects.
+      execute.mockRejectedValueOnce(
+        Object.assign(new Error('Forbidden'), { response: { status: 403 } }),
+      );
+      const init = await client.callTool({
+        name: 'initialize-connection',
+        arguments: {
+          cluster_url: 'https://x.kusto.windows.net',
+          database: 'd',
+        },
+      });
+      expect(init.isError).toBe(true);
+
+      for (let i = 0; i < 4; i++) {
+        const r = await client.callTool({
+          name: 'execute-query',
+          arguments: { query: 'T | take 1' },
+        });
+        expect(r.isError).toBe(true);
+        expect(text(r)).toContain('Connection not initialized');
+        expect(text(r)).not.toContain(HINT);
+      }
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});
