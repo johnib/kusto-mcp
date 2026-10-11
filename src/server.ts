@@ -6,13 +6,20 @@ import {
   GetPromptRequestSchema,
   ListToolsRequestSchema,
   McpError,
+  ServerNotification,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import {
+  carryNotQueryFault,
   formatKustoMcpError,
   isKustoMcpError,
+  isNotQueryFault,
+  KustoAuthenticationError,
+  KustoConnectionError,
+  KustoQueryCancelledError,
   KustoTimeoutError,
+  KustoValidationError,
   withTimeoutHint,
 } from './common/errors.js';
 import { criticalLog, debugLog } from './common/utils.js';
@@ -78,6 +85,39 @@ const ExecuteQuerySchema = z.object({
     .describe('Maximum number of rows to return (default: 20)'),
 });
 
+const PROGRESS_INTERVAL_MS = 15000;
+
+/**
+ * Send notifications/progress every PROGRESS_INTERVAL_MS until the returned
+ * stop function is called. No-op without a progressToken. Never throws.
+ */
+function startProgressHeartbeat(
+  progressToken: string | number | undefined,
+  sendNotification: (n: ServerNotification) => Promise<void>,
+): () => void {
+  if (progressToken === undefined) return () => {};
+  const startedAt = Date.now();
+  let ticks = 0;
+  const timer = setInterval(() => {
+    try {
+      ticks++;
+      const seconds = Math.round((Date.now() - startedAt) / 1000);
+      sendNotification({
+        method: 'notifications/progress',
+        params: {
+          progressToken,
+          progress: ticks,
+          message: `Query running (${seconds}s)`,
+        },
+      }).catch(() => {});
+    } catch {
+      // Progress is best-effort.
+    }
+  }, PROGRESS_INTERVAL_MS);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
 const ShowFunctionSchema = z.object({
   functionName: z
     .string()
@@ -108,6 +148,11 @@ const ReportIssueSchema = z.object({
       'Append non-sensitive environment info (kusto-mcp/node/OS/MCP-client versions, connection state, response format, write mode). Never includes cluster URL, database, identity, query text, or results.',
     ),
 });
+
+// Appended to execute-query errors once this many failed in a row (#313).
+const QUERY_FAILURE_HINT_AFTER = 3;
+const QUERY_FAILURE_HINT =
+  'Several queries failed in a row – check the table schema with show-table and simplify the query.';
 
 /**
  * Create a Kusto MCP server
@@ -456,21 +501,33 @@ export function createKustoServer(config: KustoConfig): Server {
 
               // Execute the query and get raw results
               // extra.signal aborts on notifications/cancelled from the client.
+              // While it runs, send progress so hosts that extend their own
+              // request timeout on progress keep the call alive.
               // A timeout here (ours or the server's) gets recovery advice
               // for the agent (#312). Only execute-query: the show-* tools run
               // fixed metadata queries with no time range to narrow.
-              const rawResult = await executeQuery(
-                conn,
-                modifiedQuery,
-                extra.signal,
-              ).catch((error: unknown) => {
-                if (!(error instanceof KustoTimeoutError)) throw error;
-                const hinted = new KustoTimeoutError(
-                  withTimeoutHint(error.message, args.query),
-                );
-                carryErrorRecording(error, hinted);
-                throw hinted;
-              });
+              const stopProgress = startProgressHeartbeat(
+                request.params._meta?.progressToken,
+                extra.sendNotification,
+              );
+              let rawResult;
+              try {
+                rawResult = await executeQuery(
+                  conn,
+                  modifiedQuery,
+                  extra.signal,
+                ).catch((error: unknown) => {
+                  if (!(error instanceof KustoTimeoutError)) throw error;
+                  const hinted = new KustoTimeoutError(
+                    withTimeoutHint(error.message, args.query),
+                  );
+                  carryErrorRecording(error, hinted);
+                  carryNotQueryFault(error, hinted);
+                  throw hinted;
+                });
+              } finally {
+                stopProgress();
+              }
 
               // Transform using the proper architecture
               const transformedResult = transformQueryResult(
@@ -699,6 +756,35 @@ export function createKustoServer(config: KustoConfig): Server {
           }`;
         }
         criticalLog(`Error handling tool call: ${errorMessage}`);
+
+        // Nudge an agent stuck in a loop of failing queries (#313).
+        if (finishQuery) {
+          // Only failures the agent can fix by rewriting the query count.
+          // Timeouts and client cancels neither count nor reset the streak:
+          // a timeout already carries its own hint (#312), and the two hints
+          // must never stack.
+          const queryFailure = !(
+            error instanceof McpError ||
+            error instanceof KustoTimeoutError ||
+            error instanceof KustoQueryCancelledError ||
+            error instanceof KustoConnectionError ||
+            error instanceof KustoAuthenticationError ||
+            error instanceof KustoValidationError ||
+            isNotQueryFault(error)
+          );
+          finishQuery({
+            status,
+            partial: queryFacts?.partial,
+            countsAsQueryFailure: queryFailure,
+          });
+          finishQuery = undefined;
+          if (
+            queryFailure &&
+            session.consecutiveQueryFailures >= QUERY_FAILURE_HINT_AFTER
+          ) {
+            errorMessage += `\n${QUERY_FAILURE_HINT}`;
+          }
+        }
 
         return {
           content: [{ type: 'text', text: errorMessage }],
