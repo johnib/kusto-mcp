@@ -244,6 +244,152 @@ describe('execute-query intent/shape/session telemetry', () => {
     },
   );
 
+  describe('invalid arguments (#318)', () => {
+    test.each<[string, Record<string, unknown>, boolean]>([
+      ['query missing', { purpose: 'exploration', limit: 50 }, false],
+      [
+        'limit is a string',
+        { purpose: 'exploration', query: SECRET_QUERY, limit: '50' },
+        true,
+      ],
+    ])(
+      '%s: span carries session attributes and outcome=invalid_args',
+      async (_label, args, hasShape) => {
+        const { client, close } = await connect();
+        try {
+          await client.callTool({ name: 'show-tables', arguments: {} });
+          const res = await client.callTool({
+            name: 'execute-query',
+            arguments: args,
+          });
+          expect(res.isError).toBe(true);
+
+          const [span] = toolSpans();
+          const a = span.attributes;
+          expect(span.status.code).toBe(2); // ERROR
+          expect(a['kustomcp.query.outcome']).toBe('invalid_args');
+          expect(a['kustomcp.query.limit_explicit']).toBe(true);
+          expect(a['kustomcp.declared.purpose']).toBe('exploration');
+          expect(a['kustomcp.session.prev_tool']).toBe('show-tables');
+          expect(a['kustomcp.session.query_ordinal']).toBe('1');
+          expect(a['kustomcp.session.schema_calls_before_query']).toBe('1');
+          expect(a['kustomcp.query.retry_class']).toBe('first');
+          // The limit may be the invalid value: no limit-derived attributes.
+          expect(a['kustomcp.query.requested_limit']).toBeUndefined();
+          expect(a['kustomcp.query.limit_escalation']).toBeUndefined();
+          if (hasShape) {
+            expect(a['kustomcp.query.stmt_kind']).toBe('query');
+          } else {
+            expect(a['kustomcp.query.stmt_kind']).toBeUndefined();
+          }
+          const dump = JSON.stringify(a);
+          expect(dump).not.toContain('AcmeSecretTable');
+          expect(dump).not.toContain('p@ssw0rd');
+          expect(dump).not.toContain('"50"');
+        } finally {
+          await close();
+        }
+      },
+    );
+
+    test('arguments omitted entirely: still invalid_args with session attributes', async () => {
+      const { client, close } = await connect();
+      try {
+        const res = await client.callTool({ name: 'execute-query' });
+        expect(res.isError).toBe(true);
+        expect((res.content as Array<{ text: string }>)[0].text).toContain(
+          'Arguments are required',
+        );
+        const [span] = toolSpans();
+        const a = span.attributes;
+        expect(a['kustomcp.query.outcome']).toBe('invalid_args');
+        expect(a['kustomcp.query.limit_explicit']).toBe(false);
+        expect(a['kustomcp.declared.purpose']).toBe('unspecified');
+        expect(a['kustomcp.session.prev_tool']).toBe('none');
+        expect(a['kustomcp.session.query_ordinal']).toBe('1');
+        expect(a['kustomcp.query.retry_class']).toBe('first');
+        expect(a['kustomcp.query.stmt_kind']).toBeUndefined();
+      } finally {
+        await close();
+      }
+    });
+
+    test('an invalid call does not consume a query ordinal or reset state', async () => {
+      const { client, close } = await connect();
+      try {
+        await client.callTool({
+          name: 'initialize-connection',
+          arguments: {
+            cluster_url: 'https://x.kusto.windows.net',
+            database: 'd',
+          },
+        });
+        await client.callTool({
+          name: 'execute-query',
+          arguments: { query: 'T | take 1', limit: 10 },
+        });
+        await client.callTool({
+          name: 'execute-query',
+          arguments: { limit: 'ten' },
+        });
+        await client.callTool({
+          name: 'execute-query',
+          arguments: { query: 'T | take 1', limit: 10 },
+        });
+
+        const [, invalid, next] = toolSpans();
+        expect(invalid.attributes['kustomcp.query.outcome']).toBe(
+          'invalid_args',
+        );
+        expect(invalid.attributes['kustomcp.session.query_ordinal']).toBe('2');
+        expect(invalid.attributes['kustomcp.query.retry_class']).toBe(
+          'after_success',
+        );
+        expect(next.attributes['kustomcp.query.outcome']).toBeUndefined();
+        expect(next.attributes['kustomcp.session.query_ordinal']).toBe('2');
+        expect(next.attributes['kustomcp.session.prev_tool']).toBe(
+          'execute-query',
+        );
+        expect(next.attributes['kustomcp.query.retry_class']).toBe(
+          'after_success',
+        );
+        expect(next.attributes['kustomcp.query.limit_escalation']).toBe('same');
+      } finally {
+        await close();
+      }
+    });
+  });
+
+  test.each<[string, Record<string, unknown>, boolean]>([
+    ['limit omitted', { query: 'T | take 1' }, false],
+    ['limit 20', { query: 'T | take 1', limit: 20 }, true],
+    ['limit 5', { query: 'T | take 1', limit: 5 }, true],
+  ])(
+    '%s: limit_explicit tells omitted from explicit (#318)',
+    async (_label, args, explicit) => {
+      const { client, close } = await connect();
+      try {
+        await client.callTool({
+          name: 'initialize-connection',
+          arguments: {
+            cluster_url: 'https://x.kusto.windows.net',
+            database: 'd',
+          },
+        });
+        const res = await client.callTool({
+          name: 'execute-query',
+          arguments: args,
+        });
+        expect(res.isError).toBeFalsy();
+        const [span] = toolSpans();
+        expect(span.attributes['kustomcp.query.limit_explicit']).toBe(explicit);
+        expect(span.attributes['kustomcp.query.outcome']).toBeUndefined();
+      } finally {
+        await close();
+      }
+    },
+  );
+
   test('overlapping queries get distinct ordinals', async () => {
     const { client, close } = await connect();
     try {
