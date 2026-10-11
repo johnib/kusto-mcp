@@ -65,6 +65,7 @@ describe('Query Execution Unit Tests', () => {
     expect(mockConnection.executeQuery).toHaveBeenCalledWith(
       'ContosoSales',
       'SalesFact | take 5',
+      undefined,
     );
   });
 
@@ -103,6 +104,7 @@ describe('Query Execution Unit Tests', () => {
     expect(mockConnection.executeQuery).toHaveBeenCalledWith(
       'ContosoSales',
       'SalesFact | count',
+      undefined,
     );
   });
 
@@ -139,6 +141,7 @@ describe('Query Execution Unit Tests', () => {
     expect(mockConnection.executeQuery).toHaveBeenCalledWith(
       'ContosoSales',
       '.show tables',
+      undefined,
     );
   });
 
@@ -182,6 +185,7 @@ describe('Query Execution Unit Tests', () => {
     expect(mockConnection.executeQuery).toHaveBeenCalledWith(
       'ContosoSales',
       'SalesFact | summarize Count = count() | take 1',
+      undefined,
     );
   });
 
@@ -217,6 +221,7 @@ describe('Query Execution Unit Tests', () => {
     expect(mockConnection.executeQuery).toHaveBeenCalledWith(
       'ContosoSales',
       'SalesFact | where 1 == 0',
+      undefined,
     );
   });
 
@@ -285,6 +290,7 @@ describe('Query Execution Unit Tests', () => {
     expect(mockConnection.executeQuery).toHaveBeenCalledWith(
       'ContosoSales',
       'SalesFact | getschema',
+      undefined,
     );
   });
 
@@ -339,6 +345,7 @@ describe('Query Execution Unit Tests', () => {
     expect(mockConnection.executeQuery).toHaveBeenCalledWith(
       'ContosoSales',
       'SalesFact | take 1',
+      undefined,
     );
   });
 
