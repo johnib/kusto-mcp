@@ -1,7 +1,41 @@
-import { DefaultAzureCredential, TokenCredential } from '@azure/identity';
+import {
+  AzureCliCredential,
+  DefaultAzureCredential,
+  TokenCredential,
+} from '@azure/identity';
 import { AzCliCredential } from './az-cli-credential.js';
 import { KustoAuthenticationError } from '../common/errors.js';
 import { criticalLog, debugLog } from '../common/utils.js';
+
+/**
+ * Replace the Azure CLI step of a DefaultAzureCredential with our
+ * tree-killing AzCliCredential (#346). Everything else stays the SDK's own:
+ * credential order, env vars (incl. AZURE_TOKEN_CREDENTIALS), the managed
+ * identity probe, and the chain's fall-through / hard-failure / aggregated
+ * error behavior. The SDK's AzureCliCredential gets only processTimeoutInMs
+ * from us, so nothing else needs carrying over.
+ *
+ * DefaultAzureCredential is a ChainedTokenCredential that keeps its steps in
+ * `_sources`. If a future SDK drops that field, the credential is returned
+ * unchanged (still bounded by processTimeoutInMs); a unit test against the
+ * installed SDK fails first.
+ */
+export function withTreeKillingAzCli<T extends TokenCredential>(
+  chain: T,
+  timeoutMs?: number,
+): T {
+  const holder = chain as unknown as { _sources?: unknown };
+  if (!Array.isArray(holder._sources)) {
+    debugLog('Azure CLI step not swapped: credential chain not recognized');
+    return chain;
+  }
+  holder._sources = holder._sources.map(source =>
+    source instanceof AzureCliCredential
+      ? new AzCliCredential({ timeoutMs })
+      : source,
+  );
+  return chain;
+}
 
 /**
  * Factory function to create a TokenCredential based on the authentication method
@@ -33,7 +67,11 @@ export function createTokenCredential(
 
       case 'azure-identity':
         debugLog('Using Azure Identity authentication');
-        return new DefaultAzureCredential(options);
+        // The SDK chain, with only its Azure CLI step swapped for ours (#346).
+        return withTreeKillingAzCli(
+          new DefaultAzureCredential(options),
+          processTimeoutInMs,
+        );
 
       default:
         throw new KustoAuthenticationError(
