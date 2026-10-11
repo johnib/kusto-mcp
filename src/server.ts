@@ -203,6 +203,9 @@ export function createKustoServer(config: KustoConfig): Server {
   // The startup auto-connect while it is still running; null once it settles.
   let autoConnectInFlight: Promise<void> | null = null;
 
+  // Why the startup auto-connect failed, shown on later "not initialized"
+  // errors (#315). In-process only; never exported.
+  let autoConnectFailure: string | null = null;
   // Set when this launch skipped the startup auto-connect because earlier
   // launches kept failing (#316). Cleared by a successful manual connect.
   let autoConnectPaused = false;
@@ -269,6 +272,9 @@ export function createKustoServer(config: KustoConfig): Server {
       criticalLog(
         `Auto-connection failed: ${errorMessage}. Manual connection will be required.`,
       );
+      if (manualConnectCount === manualCountAtStart) {
+        autoConnectFailure = errorMessage.replace(/^Connection error: /, '');
+      }
       // Don't throw - just log and continue with manual connection mode
     }
   }
@@ -393,9 +399,12 @@ export function createKustoServer(config: KustoConfig): Server {
               'Connection not initialized: auto-connect is paused after repeated failed attempts at startup. Please call initialize-connection to connect.',
             );
           }
+          const reason = autoConnectFailure
+            ? `\nThe startup auto-connect to ${validatedConfig.clusterUrl} (database '${validatedConfig.defaultDatabase}') failed: ${autoConnectFailure}`
+            : '';
           throw new McpError(
             ErrorCode.InvalidRequest,
-            'Connection not initialized. Please call initialize-connection first.',
+            `Connection not initialized. Please call initialize-connection first.${reason}`,
           );
         }
         return connection;
@@ -421,6 +430,7 @@ export function createKustoServer(config: KustoConfig): Server {
               // Create a new connection each time initialize-connection is
               // called; this overrides any existing connection.
               manualConnectCount++;
+              autoConnectFailure = null;
               connection = new KustoConnection(validatedConfig);
 
               const result = await connection.initialize(
