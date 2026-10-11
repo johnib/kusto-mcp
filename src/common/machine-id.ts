@@ -23,7 +23,8 @@ import { debugLog } from './utils.js';
  * firstSeen is derived from the file's birthtime, floored to the day.
  */
 
-function machineIdDir(): string {
+/** The per-install local state dir (also holds the auto-connect backoff). */
+export function stateDir(): string {
   if (process.platform === 'win32') {
     const base =
       process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local');
@@ -34,7 +35,7 @@ function machineIdDir(): string {
 }
 
 function machineIdFile(): string {
-  return join(machineIdDir(), 'machine_id');
+  return join(stateDir(), 'machine_id');
 }
 
 export interface MachineIdentity {
@@ -89,7 +90,7 @@ function readStored(file: string): StoredIdentity | null {
 
 function writeStored(file: string, value: StoredIdentity): void {
   try {
-    mkdirSync(machineIdDir(), { recursive: true });
+    mkdirSync(stateDir(), { recursive: true });
     writeFileSync(file, `${JSON.stringify(value)}\n`, { mode: 0o600 });
   } catch (error) {
     debugLog(`machine_id write failed: ${String(error)}`);

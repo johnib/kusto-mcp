@@ -3,6 +3,10 @@
  * Configures mocks for Azure libraries and common test utilities
  */
 
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 // Mock azure-kusto-data before any imports
 jest.mock('azure-kusto-data', () => {
   class MockClient {
@@ -111,6 +115,14 @@ jest.mock('azure-kusto-data', () => {
   };
 });
 
+// Keep unit tests off the network: the post-failure reachability probe
+// (#315) would otherwise open real sockets. connection-probe.test.ts tests the
+// real one via jest.requireActual.
+jest.mock('../../src/common/connection-hints.js', () => ({
+  ...jest.requireActual('../../src/common/connection-hints.js'),
+  probeReachability: jest.fn(async () => undefined),
+}));
+
 // Mock @azure/identity before any imports
 jest.mock('@azure/identity', () => {
   class MockAzureCliCredential {
@@ -196,9 +208,29 @@ jest.mock('markdown-table', () => ({
 }));
 
 // Global test configuration
+// Give every test its own empty per-install state dir (machine_id, auto-connect
+// backoff) so tests never touch the real home dir or leak backoff state into
+// each other.
+let stateHome: string | undefined;
+const prevStateEnv = {
+  XDG_DATA_HOME: process.env.XDG_DATA_HOME,
+  LOCALAPPDATA: process.env.LOCALAPPDATA,
+};
+
 beforeEach(() => {
   // Clear all mocks before each test
   jest.clearAllMocks();
+  stateHome = mkdtempSync(join(tmpdir(), 'kusto-mcp-state-'));
+  process.env.XDG_DATA_HOME = stateHome;
+  process.env.LOCALAPPDATA = stateHome;
+});
+
+afterEach(() => {
+  for (const [k, v] of Object.entries(prevStateEnv)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  if (stateHome) rmSync(stateHome, { recursive: true, force: true });
 });
 
 // Global test utilities

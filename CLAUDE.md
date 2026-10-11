@@ -18,6 +18,10 @@
   mocks nothing. `machine.id` persists to disk, so the machine joins the fleet
   permanently. Export `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:9999` before
   running the server or e2e locally.
+- azure-kusto-data 7.2 rethrows DNS/refused failures from its cloud-metadata lookup as
+  a plain `Error` with no code, so `kustomcp.connection.failure_category` is `unknown`
+  for them. The user-facing hint re-probes the host (`probeReachability`); telemetry
+  does not.
 - Before analysing the Honeycomb `kusto-mcp` environment, read
   `docs/telemetry-semantics.md` if you have it — it holds the counting conventions and
   query gotchas. It is maintainer-local and deliberately untracked, so it is absent from
