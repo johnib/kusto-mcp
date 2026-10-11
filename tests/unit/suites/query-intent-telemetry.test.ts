@@ -292,6 +292,28 @@ describe('execute-query intent/shape/session telemetry', () => {
       },
     );
 
+    test('arguments omitted entirely: still invalid_args with session attributes', async () => {
+      const { client, close } = await connect();
+      try {
+        const res = await client.callTool({ name: 'execute-query' });
+        expect(res.isError).toBe(true);
+        expect((res.content as Array<{ text: string }>)[0].text).toContain(
+          'Arguments are required',
+        );
+        const [span] = toolSpans();
+        const a = span.attributes;
+        expect(a['kustomcp.query.outcome']).toBe('invalid_args');
+        expect(a['kustomcp.query.limit_explicit']).toBe(false);
+        expect(a['kustomcp.declared.purpose']).toBe('unspecified');
+        expect(a['kustomcp.session.prev_tool']).toBe('none');
+        expect(a['kustomcp.session.query_ordinal']).toBe('1');
+        expect(a['kustomcp.query.retry_class']).toBe('first');
+        expect(a['kustomcp.query.stmt_kind']).toBeUndefined();
+      } finally {
+        await close();
+      }
+    });
+
     test('an invalid call does not consume a query ordinal or reset state', async () => {
       const { client, close } = await connect();
       try {
