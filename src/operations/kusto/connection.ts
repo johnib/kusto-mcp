@@ -34,6 +34,11 @@ import { KustoQueryResult } from '../../types/kusto-interfaces.js';
 // Create a tracer for this module
 const tracer = trace.getTracer('kusto-connection');
 
+/** Kusto's maximum allowed `servertimeout` (1 hour). */
+const MAX_SERVER_TIMEOUT_MS = 60 * 60 * 1000;
+/** Extra HTTP wait beyond the query timeout, so a server timeout error arrives. */
+const CLIENT_TIMEOUT_GRACE_MS = 30000;
+
 /** Classify an error into a low-cardinality outcome for query metrics. */
 function classifyQueryOutcome(
   message: string,
@@ -435,9 +440,17 @@ export class KustoConnection {
           const timeout = this.config.queryTimeout || 60000;
           span.setAttribute('kustomcp.query.timeout_ms', timeout);
 
+          // Tell the server to stop at the same deadline (Kusto caps
+          // servertimeout at 1h); without it the server applies its own ~4 min
+          // default and keeps running after our timer fires. The HTTP layer
+          // waits a little longer so the server's timeout error can arrive.
+          const props = new ClientRequestProperties();
+          props.setTimeout(Math.min(timeout, MAX_SERVER_TIMEOUT_MS));
+          props.setClientTimeout(timeout + CLIENT_TIMEOUT_GRACE_MS);
+
           // Execute the query with timeout, ensuring timeout handle is always cleared
           let timeoutHandle: NodeJS.Timeout;
-          const queryPromise = this.client.execute(database, query);
+          const queryPromise = this.client.execute(database, query, props);
 
           const rawResult = await new Promise((resolve, reject) => {
             timeoutHandle = setTimeout(() => {

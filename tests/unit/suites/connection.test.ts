@@ -20,6 +20,9 @@ jest.mock('azure-kusto-data', () => ({
     ),
   },
   ClientRequestProperties: class {
+    setTimeout() {
+      /* no-op for tests */
+    }
     setClientTimeout() {
       /* no-op for tests */
     }
@@ -171,11 +174,13 @@ describe('Connection Management Unit Tests', () => {
         1,
         'ContosoSales',
         '.show tables',
+        expect.anything(),
       );
       expect(mockExecute).toHaveBeenNthCalledWith(
         2,
         'ContosoSales',
         '.show functions | project Name, DocString',
+        expect.anything(),
       );
     });
 
