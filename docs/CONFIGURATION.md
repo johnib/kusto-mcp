@@ -235,7 +235,7 @@ Add this to your `cline_mcp_settings.json`:
   "mcpServers": {
     "github.com/johnib/kusto-mcp": {
       "command": "npx",
-      "args": ["-y", "kusto-mcp"],
+      "args": ["-y", "kusto-mcp@latest"],
       "env": {},
       "disabled": false,
       "autoApprove": [
@@ -251,17 +251,16 @@ Add this to your `cline_mcp_settings.json`:
 
 ### Visual Studio Code
 
-Add this to your `settings.json`:
+Add this to `.vscode/mcp.json` in your workspace, or to your user `mcp.json`
+(Command Palette → **MCP: Open User Configuration**):
 
 ```json
 {
-  "mcp": {
-    "servers": {
-      "github.com/johnib/kusto-mcp": {
-        "type": "stdio",
-        "command": "npx",
-        "args": ["-y", "kusto-mcp"]
-      }
+  "servers": {
+    "kusto-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "kusto-mcp@latest"]
     }
   }
 }
@@ -276,7 +275,7 @@ Add this to your Claude Desktop configuration file:
   "mcpServers": {
     "kusto-mcp": {
       "command": "npx",
-      "args": ["-y", "kusto-mcp"]
+      "args": ["-y", "kusto-mcp@latest"]
     }
   }
 }
@@ -361,7 +360,7 @@ The server maintains connection state for efficiency. Connections are automatica
 For troubleshooting, you can enable debug output:
 
 ```bash
-DEBUG_SERVER=1 npx kusto-mcp
+DEBUG_SERVER=1 npx -y kusto-mcp@latest
 ```
 
 This will provide additional logging to help diagnose issues.
