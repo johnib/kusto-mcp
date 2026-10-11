@@ -189,6 +189,20 @@ jest.mock('@azure/identity', () => {
   };
 });
 
+// Our own az runner (#346) would spawn a real `az`. Keep it mocked like the
+// SDK credentials above; az-cli-credential.test.ts tests the real one.
+jest.mock('../../src/auth/az-cli-credential.js', () => ({
+  ...jest.requireActual('../../src/auth/az-cli-credential.js'),
+  AzCliCredential: class {
+    async getToken() {
+      return {
+        token: 'mock-token',
+        expiresOnTimestamp: Date.now() + 3600000,
+      };
+    }
+  },
+}));
+
 // Mock markdown-table module to handle ES module import issues
 jest.mock('markdown-table', () => ({
   markdownTable: jest.fn((table, options) => {

@@ -41,7 +41,8 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@azure/identity": "^4.10.0",
+    "@azure/core-process": "^1.0.0",
+    "@azure/identity": "4.13.3",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@opentelemetry/api": "^1.4.1",
     "@opentelemetry/api-logs": "^0.222.0",
