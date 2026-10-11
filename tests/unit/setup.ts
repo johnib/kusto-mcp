@@ -111,6 +111,14 @@ jest.mock('azure-kusto-data', () => {
   };
 });
 
+// Keep unit tests off the network: the post-failure reachability probe
+// (#315) would otherwise open real sockets. connection-probe.test.ts tests the
+// real one via jest.requireActual.
+jest.mock('../../src/common/connection-hints.js', () => ({
+  ...jest.requireActual('../../src/common/connection-hints.js'),
+  probeReachability: jest.fn(async () => undefined),
+}));
+
 // Mock @azure/identity before any imports
 jest.mock('@azure/identity', () => {
   class MockAzureCliCredential {

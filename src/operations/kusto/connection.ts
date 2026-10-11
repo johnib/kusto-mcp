@@ -21,6 +21,11 @@ import {
 } from '../../common/identity.js';
 import { markConnected } from '../../common/machine-id.js';
 import {
+  ConnectionFailureCategory,
+  connectionFailureHint,
+  probeReachability,
+} from '../../common/connection-hints.js';
+import {
   SeverityNumber,
   carryErrorRecording,
   connectionAttemptsCounter,
@@ -43,6 +48,8 @@ const MAX_SERVER_TIMEOUT_MS = 60 * 60 * 1000;
 const CLIENT_TIMEOUT_GRACE_MS = 30000;
 /** HTTP bound for the best-effort `.cancel query` sent on client cancel. */
 const CANCEL_COMMAND_TIMEOUT_MS = 10000;
+/** Bound for the reachability probe run after an unclassified failure. */
+const REACHABILITY_PROBE_TIMEOUT_MS = 3000;
 
 /**
  * Kusto's structured server-timeout error, as returned by a live cluster:
@@ -103,18 +110,7 @@ function classifyQueryOutcome(
  * metric label.
  */
 function classifyConnectionFailure(error: unknown): {
-  category:
-    | 'dns_resolution'
-    | 'connection_refused'
-    | 'tls'
-    | 'timeout'
-    | 'network'
-    | 'http_4xx'
-    | 'http_5xx'
-    | 'authz'
-    | 'auth'
-    | 'throttled'
-    | 'unknown';
+  category: ConnectionFailureCategory;
   httpStatus?: number;
 } {
   const e = error as {
@@ -277,15 +273,13 @@ export class KustoConnection {
     return tracer.startActiveSpan('mcp.connection.init', async span => {
       span.setAttribute('kustomcp.connection.source', source);
       span.setAttribute('kustomcp.cloud', classifyCloud(clusterUrl));
-      span.setAttribute(
-        'kustomcp.proxy_configured',
-        !!(
-          process.env.HTTPS_PROXY ||
-          process.env.https_proxy ||
-          process.env.HTTP_PROXY ||
-          process.env.http_proxy
-        ),
+      const proxyConfigured = !!(
+        process.env.HTTPS_PROXY ||
+        process.env.https_proxy ||
+        process.env.HTTP_PROXY ||
+        process.env.http_proxy
       );
+      span.setAttribute('kustomcp.proxy_configured', proxyConfigured);
       connectionAttemptsCounter.add(1, { source });
       // Bound the whole init (token acquisition + validation round-trip). Without
       // it, the client's HTTP default is 270s (see azure-kusto-data
@@ -294,6 +288,10 @@ export class KustoConnection {
       const startedAt = Date.now();
       let timedOut = false;
       let deadlineTimer: NodeJS.Timeout | undefined;
+      // Which step is running, and the bounded token result, for the
+      // user-facing hint on failure (#315).
+      let step: 'token' | 'cluster' = 'token';
+      let tokenAttrs: Record<string, unknown> = {};
       try {
         debugLog(
           `Initializing connection to ${clusterUrl}, database: ${database}`,
@@ -319,9 +317,10 @@ export class KustoConnection {
           // user that fails to connect is still counted. On failure this also
           // records a bounded classification of WHY (identity_state / auth.*).
           const tokenStart = Date.now();
-          await captureIdentity(clusterUrl, scope =>
+          tokenAttrs = await captureIdentity(clusterUrl, scope =>
             this.tokenCredential.getToken(scope),
           );
+          step = 'cluster';
           span.setAttribute(
             'kustomcp.connection.token_ms',
             Date.now() - tokenStart,
@@ -395,6 +394,7 @@ export class KustoConnection {
           database: database,
         };
       } catch (error) {
+        const failedStep = step;
         const errorMessage = extractKustoErrorMessage(error);
 
         criticalLog(`Failed to initialize connection: ${errorMessage}`);
@@ -444,7 +444,38 @@ export class KustoConnection {
             error instanceof Error ? error.name : 'unknown',
         });
 
-        const wrapped = new KustoConnectionError(errorMessage);
+        // The SDK drops the socket error code on its cloud-metadata lookup,
+        // so probe the host once to tell DNS / refused apart. A direct probe
+        // means nothing behind a proxy. Used for the hint only.
+        let hintCategory = category;
+        if (category === 'unknown' && !proxyConfigured) {
+          hintCategory =
+            (await probeReachability(
+              clusterUrl,
+              Math.min(REACHABILITY_PROBE_TIMEOUT_MS, connectTimeout),
+            )) ?? category;
+        }
+        const hint = connectionFailureHint({
+          category: hintCategory,
+          httpStatus: classified.httpStatus,
+          timedOutStep: timedOut ? failedStep : undefined,
+          tokenFailed: tokenAttrs['kustomcp.auth.token_acquired'] === false,
+          authStage: tokenAttrs['kustomcp.auth.failure_stage'] as
+            string | undefined,
+          aadsts: tokenAttrs['kustomcp.auth.aadsts'] as string | undefined,
+          authMethod: this.config.authMethod,
+          source,
+          clusterUrl,
+          database,
+          timeoutMs: connectTimeout,
+        });
+        // Our own deadline error already carries the "Connection error: "
+        // prefix; don't repeat it.
+        const base =
+          error instanceof KustoConnectionError
+            ? errorMessage.replace(/^Connection error: /, '')
+            : errorMessage;
+        const wrapped = new KustoConnectionError(`${base}\n${hint}`);
         carryErrorRecording(error, wrapped);
         throw wrapped;
       } finally {
