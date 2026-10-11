@@ -242,6 +242,32 @@ describe('chain behavior (AZURE_TOKEN_CREDENTIALS=dev)', () => {
     expect(execFileMock).not.toHaveBeenCalled();
   });
 
+  test('aborting while our az runs kills its tree and ends the chain', async () => {
+    const platform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    const kill = jest.spyOn(process, 'kill').mockImplementation(() => true);
+    try {
+      spawnMock.mockImplementation(() => new FakeChild());
+      const ac = new AbortController();
+      const cred = createTokenCredential('azure-identity', 60000);
+      const p = cred.getToken(SCOPE, { abortSignal: ac.signal });
+      // Earlier chain steps settle asynchronously; wait for our az to start.
+      for (let i = 0; i < 50 && !spawnMock.mock.calls.length; i++) {
+        await new Promise(r => setImmediate(r));
+      }
+      expect(spawnMock).toHaveBeenCalledTimes(1);
+      ac.abort();
+      await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+      expect(kill).toHaveBeenCalledWith(-777, 'SIGKILL');
+      // Give a still-running chain time to move on to PowerShell / azd.
+      for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r));
+      expect(execFileMock).not.toHaveBeenCalled();
+    } finally {
+      kill.mockRestore();
+      Object.defineProperty(process, 'platform', { value: platform });
+    }
+  });
+
   test('a timed-out az falls through (unavailable), and the tree is killed', async () => {
     const child = new FakeChild();
     spawnMock.mockImplementation(() => child);

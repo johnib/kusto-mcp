@@ -183,11 +183,13 @@ describe('CachingTokenCredential', () => {
     release({ token: 'late', expiresOnTimestamp: clock + HOUR });
     expect((await other)?.token).toBe('late');
     expect(inner.getToken).toHaveBeenCalledTimes(1);
-    // The inner request never sees a caller's signal.
-    expect(inner.getToken.mock.calls[0]).toEqual([
-      SCOPE,
-      expect.objectContaining({ abortSignal: undefined }),
-    ]);
+    // The inner request never sees a caller's signal, and isn't cancelled
+    // while another caller still waits on it.
+    const innerSignal = (
+      inner.getToken.mock.calls[0] as unknown[]
+    )[1] as { abortSignal: AbortSignal };
+    expect(innerSignal.abortSignal).not.toBe(controller.signal);
+    expect(innerSignal.abortSignal.aborted).toBe(false);
   });
 
   test('an already-aborted signal rejects without calling through', async () => {
@@ -199,6 +201,94 @@ describe('CachingTokenCredential', () => {
       cred.getToken(SCOPE, { abortSignal: controller.signal }),
     ).rejects.toMatchObject({ name: 'AbortError' });
     expect(inner.getToken).not.toHaveBeenCalled();
+  });
+
+  describe('cancels the inner fetch once every caller abandons it (#346)', () => {
+    /** Inner credential that waits for release() and records its signal. */
+    function pendingInner() {
+      const releases: Array<(t: AccessToken) => void> = [];
+      const signals: AbortSignal[] = [];
+      const getToken = jest.fn(
+        (_s: string | string[], o?: { abortSignal?: AbortSignal }) => {
+          signals.push(o!.abortSignal!);
+          return new Promise<AccessToken>(resolve => releases.push(resolve));
+        },
+      );
+      return { inner: { getToken }, releases, signals };
+    }
+
+    test('a single caller aborting aborts the inner fetch', async () => {
+      const { inner, signals } = pendingInner();
+      const cred = new CachingTokenCredential(inner, now);
+      const ac = new AbortController();
+      const p = cred.getToken(SCOPE, { abortSignal: ac.signal });
+      expect(signals[0].aborted).toBe(false);
+      ac.abort();
+      await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+      expect(signals[0].aborted).toBe(true);
+    });
+
+    test('one of two callers aborting leaves the fetch running', async () => {
+      const { inner, releases, signals } = pendingInner();
+      const cred = new CachingTokenCredential(inner, now);
+      const a = new AbortController();
+      const b = new AbortController();
+      const pa = cred.getToken(SCOPE, { abortSignal: a.signal });
+      const pb = cred.getToken(SCOPE, { abortSignal: b.signal });
+      a.abort();
+      await expect(pa).rejects.toMatchObject({ name: 'AbortError' });
+      expect(signals[0].aborted).toBe(false);
+      releases[0]({ token: 'ok', expiresOnTimestamp: clock + HOUR });
+      expect((await pb)?.token).toBe('ok');
+      expect(inner.getToken).toHaveBeenCalledTimes(1);
+    });
+
+    test('both callers aborting aborts the inner fetch', async () => {
+      const { inner, signals } = pendingInner();
+      const cred = new CachingTokenCredential(inner, now);
+      const a = new AbortController();
+      const b = new AbortController();
+      const pa = cred.getToken(SCOPE, { abortSignal: a.signal });
+      const pb = cred.getToken(SCOPE, { abortSignal: b.signal });
+      a.abort();
+      expect(signals[0].aborted).toBe(false);
+      b.abort();
+      await expect(pa).rejects.toMatchObject({ name: 'AbortError' });
+      await expect(pb).rejects.toMatchObject({ name: 'AbortError' });
+      expect(signals[0].aborted).toBe(true);
+    });
+
+    test('a caller without a signal pins the fetch', async () => {
+      const { inner, releases, signals } = pendingInner();
+      const cred = new CachingTokenCredential(inner, now);
+      const ac = new AbortController();
+      const pinned = cred.getToken(SCOPE);
+      const aborting = cred.getToken(SCOPE, { abortSignal: ac.signal });
+      ac.abort();
+      await expect(aborting).rejects.toMatchObject({ name: 'AbortError' });
+      expect(signals[0].aborted).toBe(false);
+      releases[0]({ token: 'ok', expiresOnTimestamp: clock + HOUR });
+      expect((await pinned)?.token).toBe('ok');
+    });
+
+    test('a cancelled fetch is never cached; the next call refetches', async () => {
+      const { inner, releases } = pendingInner();
+      const cred = new CachingTokenCredential(inner, now);
+      const ac = new AbortController();
+      const p = cred.getToken(SCOPE, { abortSignal: ac.signal });
+      ac.abort();
+      await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+      // The inner credential ignores the abort and resolves anyway.
+      releases[0]({ token: 'abandoned', expiresOnTimestamp: clock + HOUR });
+      await new Promise(r => setImmediate(r));
+
+      const next = cred.getToken(SCOPE);
+      expect(inner.getToken).toHaveBeenCalledTimes(2);
+      releases[1]({ token: 'fresh', expiresOnTimestamp: clock + HOUR });
+      expect((await next)?.token).toBe('fresh');
+      expect((await cred.getToken(SCOPE))?.token).toBe('fresh');
+      expect(inner.getToken).toHaveBeenCalledTimes(2);
+    });
   });
 });
 

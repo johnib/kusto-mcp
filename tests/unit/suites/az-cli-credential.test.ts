@@ -323,6 +323,31 @@ describe('wiring', () => {
     );
   });
 
+  describe('aborting the factory credential kills the az tree', () => {
+    test('Windows: taskkill /T /F', async () => {
+      setPlatform('win32');
+      const ac = new AbortController();
+      const cred = createTokenCredential('azure-cli', 60000);
+      const p = cred.getToken(SCOPE, { abortSignal: ac.signal });
+      ac.abort();
+      await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+      expect(nodeSpawn).toHaveBeenCalledTimes(1);
+      const [exe, args] = nodeSpawn.mock.calls[0];
+      expect(String(exe).toLowerCase()).toMatch(/system32\\taskkill\.exe$/);
+      expect(args).toEqual(['/PID', '4242', '/T', '/F']);
+    });
+
+    test('POSIX: SIGKILL to the process group', async () => {
+      setPlatform('linux');
+      const ac = new AbortController();
+      const cred = createTokenCredential('azure-cli', 60000);
+      const p = cred.getToken(SCOPE, { abortSignal: ac.signal });
+      ac.abort();
+      await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+      expect(killSpy).toHaveBeenCalledWith(-4242, 'SIGKILL');
+    });
+  });
+
   test('a timed-out az still classifies as credential_unavailable (#339)', async () => {
     clearIdentity();
     jest.useFakeTimers();

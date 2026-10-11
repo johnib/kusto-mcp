@@ -19,29 +19,17 @@ function abortError(): Error {
 }
 
 /**
- * Settle with `promise`, or reject with an AbortError as soon as `signal`
- * aborts. The underlying fetch keeps running: other callers may share it.
+ * One inner fetch shared by every concurrent caller for a key. The inner
+ * credential gets `controller.signal`, which aborts only once every joined
+ * caller has abandoned the fetch, so an abandoned `az` is killed (#346).
  */
-function raceAbort<T>(
-  promise: Promise<T>,
-  signal: GetTokenOptions['abortSignal'],
-): Promise<T> {
-  if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(abortError());
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(abortError());
-    signal.addEventListener('abort', onAbort);
-    promise.then(
-      value => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(value);
-      },
-      error => {
-        signal.removeEventListener('abort', onAbort);
-        reject(error);
-      },
-    );
-  });
+interface SharedFetch {
+  promise: Promise<AccessToken | null>;
+  controller: AbortController;
+  /** Joined callers with a signal that haven't aborted yet. */
+  waiting: number;
+  /** A caller without a signal joined: it can't abandon, so never cancel. */
+  pinned: boolean;
 }
 
 /**
@@ -49,11 +37,11 @@ function raceAbort<T>(
  * before they expire, and shares one in-flight request between concurrent
  * callers. Without it every Kusto request calls the inner credential, which
  * for AzureCliCredential spawns `az account get-access-token` (#296).
- * Failures and null results are never cached.
+ * Failures, null results and cancelled fetches are never cached.
  */
 export class CachingTokenCredential implements TokenCredential {
   private readonly cache = new Map<string, AccessToken>();
-  private readonly inFlight = new Map<string, Promise<AccessToken | null>>();
+  private readonly inFlight = new Map<string, SharedFetch>();
   private readonly generation = new Map<string, number>();
 
   constructor(
@@ -78,7 +66,7 @@ export class CachingTokenCredential implements TokenCredential {
     // and supersede any ordinary fetch already in flight for this key.
     if (options?.claims) {
       this.cache.delete(key);
-      return raceAbort(this.fetch(key, scopes, options), options.abortSignal);
+      return this.join(key, this.fetch(key, scopes, options), options);
     }
 
     const cached = this.cache.get(key);
@@ -91,8 +79,50 @@ export class CachingTokenCredential implements TokenCredential {
       return cached;
     }
 
-    const pending = this.inFlight.get(key) ?? this.fetch(key, scopes, options);
-    return raceAbort(pending, options?.abortSignal);
+    const shared = this.inFlight.get(key) ?? this.fetch(key, scopes, options);
+    return this.join(key, shared, options);
+  }
+
+  /**
+   * Wait for `shared`, or reject with an AbortError as soon as this caller's
+   * signal aborts. When the last caller that could still abandon the fetch
+   * does, the inner fetch is cancelled too.
+   */
+  private join(
+    key: string,
+    shared: SharedFetch,
+    options?: GetTokenOptions,
+  ): Promise<AccessToken | null> {
+    const signal = options?.abortSignal;
+    if (!signal) {
+      shared.pinned = true;
+      return shared.promise;
+    }
+    shared.waiting++;
+    return new Promise<AccessToken | null>((resolve, reject) => {
+      const onAbort = () => {
+        reject(abortError());
+        shared.waiting--;
+        if (!shared.pinned && shared.waiting === 0) this.cancel(key, shared);
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      shared.promise.then(
+        value => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(value);
+        },
+        error => {
+          signal.removeEventListener('abort', onAbort);
+          reject(error);
+        },
+      );
+    });
+  }
+
+  /** Abort an abandoned fetch; later callers start a fresh one. */
+  private cancel(key: string, shared: SharedFetch): void {
+    if (this.inFlight.get(key) === shared) this.inFlight.delete(key);
+    shared.controller.abort();
   }
 
   /**
@@ -104,26 +134,36 @@ export class CachingTokenCredential implements TokenCredential {
     key: string,
     scopes: string | string[],
     options?: GetTokenOptions,
-  ): Promise<AccessToken | null> {
+  ): SharedFetch {
     const generation = (this.generation.get(key) ?? 0) + 1;
     this.generation.set(key, generation);
-    // The shared fetch must not be cancelled by one caller's signal;
-    // each caller races its own signal instead.
-    const request = this.inner
-      .getToken(scopes, { ...options, abortSignal: undefined })
+    // No caller's own signal reaches the shared fetch: it is aborted only
+    // through cancel(), once every joined caller has given up.
+    const controller = new AbortController();
+    const promise = this.inner
+      .getToken(scopes, { ...options, abortSignal: controller.signal })
       .then(token => {
-        if (this.generation.get(key) === generation) {
+        if (
+          !controller.signal.aborted &&
+          this.generation.get(key) === generation
+        ) {
           if (token) this.cache.set(key, token);
           else this.cache.delete(key);
         }
         return token;
       });
-    this.inFlight.set(key, request);
-    const clear = () => {
-      if (this.inFlight.get(key) === request) this.inFlight.delete(key);
+    const shared: SharedFetch = {
+      promise,
+      controller,
+      waiting: 0,
+      pinned: false,
     };
-    request.then(clear, clear);
-    return request;
+    this.inFlight.set(key, shared);
+    const clear = () => {
+      if (this.inFlight.get(key) === shared) this.inFlight.delete(key);
+    };
+    promise.then(clear, clear);
+    return shared;
   }
 }
 
