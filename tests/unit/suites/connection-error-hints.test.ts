@@ -287,10 +287,33 @@ describe('KustoConnection.initialize failure text (#315)', () => {
     const err = await new KustoConnection(config)
       .initialize(CLUSTER, DB, 'auto')
       .catch(e => e);
-    expect(probe).toHaveBeenCalledWith(CLUSTER, 1000);
+    expect(probe).toHaveBeenCalledWith(CLUSTER, expect.any(Number));
+    expect(probe.mock.calls[0][1]).toBeLessThanOrEqual(1000);
     expect(err.message).toMatch(
       /\nFailed step: reaching the cluster\. Can't resolve the cluster host acme\.kusto\.windows\.net – check KUSTO_CLUSTER_URL\.$/,
     );
+  });
+
+  test('a slow probe cannot push initialize past connectionTimeout', async () => {
+    // The probe waits its whole budget; the SDK fails late in the window.
+    probe.mockImplementation(
+      (_url: string, ms: number) => new Promise(r => setTimeout(r, ms)),
+    );
+    Client.mockImplementation(() => ({
+      execute: jest.fn(
+        () =>
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('cloud info failed')), 700),
+          ),
+      ),
+    }));
+    const started = Date.now();
+    const err = await new KustoConnection(config)
+      .initialize(CLUSTER, DB)
+      .catch(e => e);
+    expect(err).toBeInstanceOf(KustoConnectionError);
+    expect(Date.now() - started).toBeLessThan(1150);
+    expect(probe.mock.calls[0][1]).toBeLessThanOrEqual(1000 - 700);
   });
 
   test('the deadline message is not double-prefixed and says how long it waited', async () => {
@@ -367,6 +390,34 @@ describe('server: connection failures reach the agent with the hint (#315)', () 
       expect(r.isError).toBe(true);
       expect(text(r)).toMatch(
         /Connection not initialized\. Please call initialize-connection first\.\nThe startup auto-connect to https:\/\/acme\.kusto\.windows\.net \(database 'Sales'\) failed: server says 403\nFailed step: opening the database\. You are signed in but have no access to database 'Sales'/,
+      );
+    } finally {
+      await close();
+    }
+  });
+
+  test('a slow probe does not hide the reason from the first tool call', async () => {
+    (probeReachability as jest.Mock).mockImplementation(
+      (_url: string, ms: number) => new Promise(r => setTimeout(r, ms)),
+    );
+    Client.mockImplementation(() => ({
+      execute: jest.fn(
+        () =>
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('cloud info failed')), 700),
+          ),
+      ),
+    }));
+    const { client, close } = await connect({
+      clusterUrl: CLUSTER,
+      defaultDatabase: DB,
+      connectionTimeout: 1000,
+    });
+    try {
+      const r = await client.callTool({ name: 'show-tables', arguments: {} });
+      expect(r.isError).toBe(true);
+      expect(text(r)).toMatch(
+        /The startup auto-connect to https:\/\/acme\.kusto\.windows\.net \(database 'Sales'\) failed: cloud info failed\nFailed step: reaching the cluster\./,
       );
     } finally {
       await close();

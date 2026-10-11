@@ -446,14 +446,17 @@ export class KustoConnection {
 
         // The SDK drops the socket error code on its cloud-metadata lookup,
         // so probe the host once to tell DNS / refused apart. A direct probe
-        // means nothing behind a proxy. Used for the hint only.
+        // means nothing behind a proxy. Used for the hint only, and only
+        // within what is left of the connect deadline, so initialize() stays
+        // bounded by connectionTimeout.
         let hintCategory = category;
-        if (category === 'unknown' && !proxyConfigured) {
+        const probeBudget = Math.min(
+          REACHABILITY_PROBE_TIMEOUT_MS,
+          connectTimeout - (Date.now() - startedAt),
+        );
+        if (category === 'unknown' && !proxyConfigured && probeBudget > 0) {
           hintCategory =
-            (await probeReachability(
-              clusterUrl,
-              Math.min(REACHABILITY_PROBE_TIMEOUT_MS, connectTimeout),
-            )) ?? category;
+            (await probeReachability(clusterUrl, probeBudget)) ?? category;
         }
         const hint = connectionFailureHint({
           category: hintCategory,
