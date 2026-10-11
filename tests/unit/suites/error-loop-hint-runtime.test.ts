@@ -48,6 +48,10 @@ const nonQueryFailures: Array<[string, () => Error]> = [
     () => Object.assign(new Error('connect refused'), { code: 'ECONNREFUSED' }),
   ],
   [
+    'socket timeout (ETIMEDOUT)',
+    () => Object.assign(new Error('socket timed out'), { code: 'ETIMEDOUT' }),
+  ],
+  [
     'DNS (nested cause)',
     () =>
       Object.assign(new Error('getaddrinfo'), {

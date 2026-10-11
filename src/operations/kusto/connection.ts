@@ -177,6 +177,7 @@ const NOT_QUERY_FAULT_CATEGORIES: ReadonlySet<string> = new Set([
   'connection_refused',
   'tls',
   'network',
+  'timeout',
 ]);
 
 /**
