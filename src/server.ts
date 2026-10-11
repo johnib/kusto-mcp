@@ -23,6 +23,11 @@ import {
   withTimeoutHint,
 } from './common/errors.js';
 import { criticalLog, debugLog } from './common/utils.js';
+import {
+  autoConnectKey,
+  beginAutoConnect,
+  clearAutoConnectBackoff,
+} from './common/autoconnect-backoff.js';
 import { getIdentityAttributes } from './common/identity.js';
 import {
   SeverityNumber,
@@ -201,6 +206,9 @@ export function createKustoServer(config: KustoConfig): Server {
   // Why the startup auto-connect failed, shown on later "not initialized"
   // errors (#315). In-process only; never exported.
   let autoConnectFailure: string | null = null;
+  // Set when this launch skipped the startup auto-connect because earlier
+  // launches kept failing (#316). Cleared by a successful manual connect.
+  let autoConnectPaused = false;
 
   // Auto-connection function
   async function tryAutoConnect(): Promise<void> {
@@ -209,6 +217,24 @@ export function createKustoServer(config: KustoConfig): Server {
       debugLog(
         'Auto-connection skipped: missing cluster URL or database configuration',
       );
+      return;
+    }
+
+    const backoff = beginAutoConnect(
+      autoConnectKey(
+        validatedConfig.clusterUrl,
+        validatedConfig.defaultDatabase,
+        String(validatedConfig.authMethod),
+      ),
+    );
+    if (backoff.skip) {
+      autoConnectPaused = true;
+      criticalLog(
+        `Auto-connection paused after repeated failures; next attempt in ~${Math.ceil(backoff.retryInMs / 1000)}s on a later launch. Call initialize-connection to connect now.`,
+      );
+      emitLog(SeverityNumber.INFO, 'INFO', 'Auto-connection skipped', {
+        'kustomcp.connection.autoconnect': 'skipped_backoff',
+      });
       return;
     }
 
@@ -227,6 +253,7 @@ export function createKustoServer(config: KustoConfig): Server {
         validatedConfig.defaultDatabase,
         'auto',
       );
+      clearAutoConnectBackoff();
 
       // A manual connect started while this was pending wins.
       if (manualConnectCount !== manualCountAtStart) {
@@ -362,6 +389,16 @@ export function createKustoServer(config: KustoConfig): Server {
         await awaitAutoConnect();
         if (!connection) {
           toolNotInitializedCounter.add(1, { tool: toolName });
+          if (autoConnectPaused) {
+            span.setAttribute(
+              'kustomcp.connection.autoconnect',
+              'skipped_backoff',
+            );
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              'Connection not initialized: auto-connect is paused after repeated failed attempts at startup. Please call initialize-connection to connect.',
+            );
+          }
           const reason = autoConnectFailure
             ? `\nThe startup auto-connect to ${validatedConfig.clusterUrl} (database '${validatedConfig.defaultDatabase}') failed: ${autoConnectFailure}`
             : '';
@@ -375,7 +412,9 @@ export function createKustoServer(config: KustoConfig): Server {
 
       try {
         const result = await (async () => {
-          if (!request.params.arguments) {
+          // execute-query checks this itself so the failure keeps its
+          // invalid-args telemetry (#318).
+          if (!request.params.arguments && toolName !== 'execute-query') {
             throw new McpError(
               ErrorCode.InvalidParams,
               'Arguments are required',
@@ -399,6 +438,8 @@ export function createKustoServer(config: KustoConfig): Server {
                 args.database,
                 'manual',
               );
+              autoConnectPaused = false;
+              clearAutoConnectBackoff();
               return {
                 content: [
                   { type: 'text', text: JSON.stringify(result, null, 2) },
@@ -440,7 +481,37 @@ export function createKustoServer(config: KustoConfig): Server {
             }
 
             case 'execute-query': {
-              const args = ExecuteQuerySchema.parse(request.params.arguments);
+              const rawArgs = request.params.arguments ?? {};
+              // The schema defaults `limit` to 20, so tell "omitted" from an
+              // explicit 20 by the raw key (#318).
+              span.setAttribute(
+                'kustomcp.query.limit_explicit',
+                rawArgs.limit !== undefined,
+              );
+              let args: z.infer<typeof ExecuteQuerySchema>;
+              try {
+                if (!request.params.arguments) {
+                  throw new McpError(
+                    ErrorCode.InvalidParams,
+                    'Arguments are required',
+                  );
+                }
+                args = ExecuteQuerySchema.parse(rawArgs);
+              } catch (error) {
+                // Invalid arguments still carry the bounded intent, shape and
+                // session dimensions (#318). See peekQuery for why an invalid
+                // call does not count as a query in the session signals.
+                span.setAttribute('kustomcp.query.outcome', 'invalid_args');
+                span.setAttributes(session.peekQuery());
+                span.setAttribute(
+                  'kustomcp.declared.purpose',
+                  classifyPurpose(rawArgs.purpose).purpose,
+                );
+                if (typeof rawArgs.query === 'string') {
+                  span.setAttributes(classifyQueryShape(rawArgs.query));
+                }
+                throw error;
+              }
               const requestedLimit = args.limit || 20;
               // Record the limit and stamp the input-derived attributes before
               // any check that can throw (connection, read-only, execution), so
