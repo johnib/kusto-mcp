@@ -12,6 +12,7 @@ import {
   KustoConnectionError,
   KustoQueryCancelledError,
   KustoTimeoutError,
+  markNotQueryFault,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
@@ -133,6 +134,7 @@ function classifyConnectionFailure(error: unknown): {
     if (status === 401 || status === 403)
       return { category: 'authz', httpStatus: status };
     if (status === 429) return { category: 'throttled', httpStatus: status };
+    if (status === 408) return { category: 'timeout', httpStatus: status };
     if (status >= 500) return { category: 'http_5xx', httpStatus: status };
     if (status >= 400) return { category: 'http_4xx', httpStatus: status };
   }
@@ -160,6 +162,24 @@ function classifyConnectionFailure(error: unknown): {
   if (codes.includes('ERR_NETWORK')) return { category: 'network' };
   return { category: 'unknown' };
 }
+
+// Query failures from these categories can't be fixed by rewriting the query,
+// so they stay out of the error-loop hint streak (#313). HTTP 4xx (Kusto
+// semantic errors) still count; query-limit failures arrive as HTTP 200
+// partial failures, so a 5xx is a service/gateway fault. Timeouts and client
+// cancels are kept out too (marked where they are rethrown below): a timeout
+// carries its own recovery hint (#312), and schema advice is wrong after one.
+const NOT_QUERY_FAULT_CATEGORIES: ReadonlySet<string> = new Set([
+  'auth',
+  'authz',
+  'throttled',
+  'http_5xx',
+  'dns_resolution',
+  'connection_refused',
+  'tls',
+  'network',
+  'timeout',
+]);
 
 /**
  * Map a failure category (+ whether our deadline fired) to a coarse connection
@@ -613,18 +633,34 @@ export class KustoConnection {
           });
 
           // Our own timeout / client cancel keep their type so callers
-          // report them as such.
+          // report them as such. Neither is a fault in the query text, so
+          // mark them before rethrowing to keep them out of the error-loop
+          // streak even if a caller re-wraps them.
           if (
             error instanceof KustoTimeoutError ||
             error instanceof KustoQueryCancelledError
-          )
+          ) {
+            markNotQueryFault(error);
             throw error;
-          if (serverTimeout) throw serverTimeout;
+          }
+          if (serverTimeout) {
+            markNotQueryFault(serverTimeout);
+            throw serverTimeout;
+          }
 
           // Don't wrap as KustoQueryError here since queries.ts will handle it
           // Just rethrow with the detailed error message
           const customError = new Error(errorMessage);
           carryErrorRecording(error, customError);
+          if (
+            error instanceof KustoConnectionError ||
+            outcome === 'throttled' ||
+            NOT_QUERY_FAULT_CATEGORIES.has(
+              classifyConnectionFailure(error).category,
+            )
+          ) {
+            markNotQueryFault(customError);
+          }
           throw customError;
         } finally {
           span.end();

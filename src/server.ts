@@ -11,9 +11,15 @@ import {
 import { z } from 'zod';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import {
+  carryNotQueryFault,
   formatKustoMcpError,
   isKustoMcpError,
+  isNotQueryFault,
+  KustoAuthenticationError,
+  KustoConnectionError,
+  KustoQueryCancelledError,
   KustoTimeoutError,
+  KustoValidationError,
   withTimeoutHint,
 } from './common/errors.js';
 import { criticalLog, debugLog } from './common/utils.js';
@@ -142,6 +148,11 @@ const ReportIssueSchema = z.object({
       'Append non-sensitive environment info (kusto-mcp/node/OS/MCP-client versions, connection state, response format, write mode). Never includes cluster URL, database, identity, query text, or results.',
     ),
 });
+
+// Appended to execute-query errors once this many failed in a row (#313).
+const QUERY_FAILURE_HINT_AFTER = 3;
+const QUERY_FAILURE_HINT =
+  'Several queries failed in a row – check the table schema with show-table and simplify the query.';
 
 /**
  * Create a Kusto MCP server
@@ -474,6 +485,7 @@ export function createKustoServer(config: KustoConfig): Server {
                     withTimeoutHint(error.message, args.query),
                   );
                   carryErrorRecording(error, hinted);
+                  carryNotQueryFault(error, hinted);
                   throw hinted;
                 });
               } finally {
@@ -707,6 +719,35 @@ export function createKustoServer(config: KustoConfig): Server {
           }`;
         }
         criticalLog(`Error handling tool call: ${errorMessage}`);
+
+        // Nudge an agent stuck in a loop of failing queries (#313).
+        if (finishQuery) {
+          // Only failures the agent can fix by rewriting the query count.
+          // Timeouts and client cancels neither count nor reset the streak:
+          // a timeout already carries its own hint (#312), and the two hints
+          // must never stack.
+          const queryFailure = !(
+            error instanceof McpError ||
+            error instanceof KustoTimeoutError ||
+            error instanceof KustoQueryCancelledError ||
+            error instanceof KustoConnectionError ||
+            error instanceof KustoAuthenticationError ||
+            error instanceof KustoValidationError ||
+            isNotQueryFault(error)
+          );
+          finishQuery({
+            status,
+            partial: queryFacts?.partial,
+            countsAsQueryFailure: queryFailure,
+          });
+          finishQuery = undefined;
+          if (
+            queryFailure &&
+            session.consecutiveQueryFailures >= QUERY_FAILURE_HINT_AFTER
+          ) {
+            errorMessage += `\n${QUERY_FAILURE_HINT}`;
+          }
+        }
 
         return {
           content: [{ type: 'text', text: errorMessage }],
