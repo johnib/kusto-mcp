@@ -187,3 +187,79 @@ describe('connection init is bounded by connectionTimeout (I5)', () => {
     }
   });
 });
+
+// #290: a failed or timed-out connect must not leave its validation client
+// open — repeated reconnects would otherwise pile up clients.
+describe('connection init releases its client on failure (#290)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('a rejected validation closes the client', async () => {
+    const { Client } = require('azure-kusto-data');
+    const close = jest.fn();
+    const err = Object.assign(new Error('boom'), { response: { status: 500 } });
+    Client.mockImplementation(() => ({
+      execute: jest.fn().mockRejectedValue(err),
+      close,
+    }));
+    const conn = new KustoConnection({
+      authMethod: AuthenticationMethod.AzureCli,
+    });
+    await expect(
+      conn.initialize('https://help.kusto.windows.net', 'db'),
+    ).rejects.toThrow();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  test('a validation that outlives the deadline is closed', async () => {
+    const { Client } = require('azure-kusto-data');
+    const close = jest.fn();
+    Client.mockImplementation(() => ({
+      execute: jest.fn(() => new Promise(() => {})),
+      close,
+    }));
+    const conn = new KustoConnection({
+      authMethod: AuthenticationMethod.AzureCli,
+      connectionTimeout: 30,
+    });
+    await expect(
+      conn.initialize('https://help.kusto.windows.net', 'db'),
+    ).rejects.toThrow(/timed out/i);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  test('a token step that outlives the deadline never opens a client', async () => {
+    const { Client } = require('azure-kusto-data');
+    const {
+      createTokenCredential,
+    } = require('../../../src/auth/token-credentials.js');
+    createTokenCredential.mockReturnValueOnce({
+      getToken: () =>
+        new Promise(resolve =>
+          setTimeout(
+            () =>
+              resolve({
+                token: 'mock-token',
+                expiresOnTimestamp: Date.now() + 3600000,
+              }),
+            80,
+          ),
+        ),
+    });
+    Client.mockImplementation(() => ({
+      execute: jest.fn().mockResolvedValue({}),
+      close: jest.fn(),
+    }));
+    const conn = new KustoConnection({
+      authMethod: AuthenticationMethod.AzureCli,
+      connectionTimeout: 30,
+    });
+    await expect(
+      conn.initialize('https://help.kusto.windows.net', 'db'),
+    ).rejects.toThrow(/timed out/i);
+    await new Promise(r => setTimeout(r, 150)); // let the token step finish
+    expect(Client).not.toHaveBeenCalled();
+    expect(conn.isInitialized()).toBe(false);
+  });
+});
