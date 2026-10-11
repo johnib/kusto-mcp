@@ -200,6 +200,52 @@ export function createKustoServer(config: KustoConfig): Server {
   // its result if no manual connect started meanwhile, so manual always wins.
   let manualConnectCount = 0;
 
+  // Which initialize-connection call `connection` came from (its
+  // manualConnectCount value; 0 = none or the auto-connect).
+  let connectionGeneration = 0;
+
+  // Manual connects still running, keyed by cluster + database (#290).
+  // `generation` is the count of the newest call waiting on it.
+  type ManualConnect = {
+    generation: number;
+    promise: Promise<Awaited<ReturnType<KustoConnection['initialize']>>>;
+  };
+  const manualConnects = new Map<string, ManualConnect>();
+
+  // Release a connection that never became `connection`. Never throws.
+  function discardConnection(conn: KustoConnection): void {
+    try {
+      if (typeof conn.close === 'function') conn.close();
+    } catch {
+      /* best effort */
+    }
+  }
+
+  // Run one manual connect and store it only once it works, so a failed
+  // connect never replaces a working one (#290). With several running at
+  // once, the newest initialize-connection call that succeeds wins, whatever
+  // the order they finish in: a connect stores its result only if no newer
+  // call's connect already did.
+  async function runManualConnect(
+    clusterUrl: string,
+    database: string,
+    entry: { generation: number },
+  ) {
+    const candidate = new KustoConnection(validatedConfig);
+    const result = await candidate.initialize(clusterUrl, database, 'manual');
+    autoConnectPaused = false;
+    clearAutoConnectBackoff();
+    if (entry.generation > connectionGeneration) {
+      // Not closed: queries already running may still hold the old client.
+      connection = candidate;
+      connectionGeneration = entry.generation;
+    } else {
+      debugLog('Manual connection discarded: a newer one is already in use');
+      discardConnection(candidate);
+    }
+    return result;
+  }
+
   // The startup auto-connect while it is still running; null once it settles.
   let autoConnectInFlight: Promise<void> | null = null;
 
@@ -258,6 +304,7 @@ export function createKustoServer(config: KustoConfig): Server {
       // A manual connect started while this was pending wins.
       if (manualConnectCount !== manualCountAtStart) {
         debugLog('Auto-connection result discarded: manual connection made');
+        discardConnection(autoConnection);
         return;
       }
 
@@ -427,19 +474,38 @@ export function createKustoServer(config: KustoConfig): Server {
                 request.params.arguments,
               );
 
-              // Create a new connection each time initialize-connection is
-              // called; this overrides any existing connection.
               manualConnectCount++;
               autoConnectFailure = null;
-              connection = new KustoConnection(validatedConfig);
 
-              const result = await connection.initialize(
-                args.cluster_url,
-                args.database,
-                'manual',
+              // Same cluster + database as a connect still running: wait for
+              // that one instead of starting another (#290). Joining makes it
+              // count as this, newer, call.
+              const key = `${args.cluster_url}\n${args.database}`;
+              let pending = manualConnects.get(key);
+              span.setAttribute(
+                'kustomcp.connection.shared_inflight',
+                pending !== undefined,
               );
-              autoConnectPaused = false;
-              clearAutoConnectBackoff();
+              if (pending) {
+                pending.generation = manualConnectCount;
+              } else {
+                const entry = {
+                  generation: manualConnectCount,
+                } as ManualConnect;
+                entry.promise = runManualConnect(
+                  args.cluster_url,
+                  args.database,
+                  entry,
+                ).finally(() => {
+                  if (manualConnects.get(key) === entry) {
+                    manualConnects.delete(key);
+                  }
+                });
+                manualConnects.set(key, entry);
+                pending = entry;
+              }
+
+              const result = await pending.promise;
               return {
                 content: [
                   { type: 'text', text: JSON.stringify(result, null, 2) },
