@@ -134,6 +134,7 @@ function classifyConnectionFailure(error: unknown): {
     if (status === 401 || status === 403)
       return { category: 'authz', httpStatus: status };
     if (status === 429) return { category: 'throttled', httpStatus: status };
+    if (status === 408) return { category: 'timeout', httpStatus: status };
     if (status >= 500) return { category: 'http_5xx', httpStatus: status };
     if (status >= 400) return { category: 'http_4xx', httpStatus: status };
   }

@@ -52,6 +52,14 @@ const nonQueryFailures: Array<[string, () => Error]> = [
     () => Object.assign(new Error('socket timed out'), { code: 'ETIMEDOUT' }),
   ],
   [
+    'HTTP 408 request timeout',
+    () =>
+      Object.assign(new Error('Request Timeout'), {
+        code: 'ETIMEDOUT',
+        response: { status: 408 },
+      }),
+  ],
+  [
     'DNS (nested cause)',
     () =>
       Object.assign(new Error('getaddrinfo'), {
