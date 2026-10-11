@@ -114,6 +114,23 @@ describe('auto-connect backoff state (#316)', () => {
     clearAutoConnectBackoff(); // no file: still fine
   });
 
+  test('only attempts within the last hour count (rolling window)', () => {
+    const MIN = 60_000;
+    // 3 attempts 40 minutes apart: at the 3rd, only 2 are within the hour.
+    expect(beginAutoConnect(KEY, T0).skip).toBe(false);
+    expect(beginAutoConnect(KEY, T0 + 40 * MIN).skip).toBe(false);
+    expect(beginAutoConnect(KEY, T0 + 80 * MIN).skip).toBe(false);
+    expect(beginAutoConnect(KEY, T0 + 80 * MIN + 1000).skip).toBe(false);
+    // Now 3 are within the hour (40m, 80m, 80m+1s): the next one backs off.
+    expect(beginAutoConnect(KEY, T0 + 80 * MIN + 2000).skip).toBe(true);
+  });
+
+  test('the stored attempt list stays bounded', () => {
+    for (let i = 0; i < 100; i++) beginAutoConnect(KEY, T0 + i * 10 * 60_000);
+    const rec = JSON.parse(readFileSync(stateFile(), 'utf8'));
+    expect(rec.attempts.length).toBeLessThanOrEqual(20);
+  });
+
   test('an old streak or a clock that went backwards does not block', () => {
     for (let i = 0; i < 3; i++) beginAutoConnect(KEY, T0 + i);
     expect(beginAutoConnect(KEY, T0 + 2 + 61 * 60_000).skip).toBe(false);
@@ -124,10 +141,8 @@ describe('auto-connect backoff state (#316)', () => {
   test.each([
     ['garbage', 'not json{'],
     ['wrong shape', '{"key":1,"failures":"x"}'],
-    [
-      'negative count',
-      JSON.stringify({ key: KEY, failures: -9, lastAttempt: T0 }),
-    ],
+    ['non-numeric attempt', JSON.stringify({ key: KEY, attempts: ['x'] })],
+    ['attempts not a list', JSON.stringify({ key: KEY, attempts: 5 })],
     ['empty', ''],
   ])('a corrupted state file (%s) is ignored and replaced', (_n, content) => {
     mkdirSync(join(process.env.XDG_DATA_HOME as string, 'kusto-mcp'), {
@@ -137,8 +152,7 @@ describe('auto-connect backoff state (#316)', () => {
     expect(beginAutoConnect(KEY, T0)).toEqual({ skip: false, retryInMs: 0 });
     expect(JSON.parse(readFileSync(stateFile(), 'utf8'))).toEqual({
       key: KEY,
-      failures: 1,
-      lastAttempt: T0,
+      attempts: [T0],
     });
   });
 

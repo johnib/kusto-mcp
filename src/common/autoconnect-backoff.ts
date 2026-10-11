@@ -17,9 +17,9 @@ import { debugLog } from './utils.js';
  * launch is a new process, so an in-memory backoff can't help: the state lives
  * in a tiny file next to machine_id. Every startup attempt is counted before it
  * starts (so a launch killed mid-connect still counts) and a success clears it.
- * After THRESHOLD attempts in a row without a success, startup auto-connect is
- * skipped for a capped, doubling cooldown. Manual initialize-connection is
- * never gated.
+ * Once THRESHOLD attempts without a success fall within the last hour, startup
+ * auto-connect is skipped for a capped cooldown that doubles with each further
+ * recent attempt. Manual initialize-connection is never gated.
  *
  * The record is keyed by a local hash of cluster URL + database + auth method,
  * so changing the config starts fresh. Nothing here is sent to telemetry.
@@ -30,13 +30,14 @@ import { debugLog } from './utils.js';
 export const BACKOFF_THRESHOLD = 3;
 const BASE_COOLDOWN_MS = 30_000;
 const MAX_COOLDOWN_MS = 10 * 60_000;
-// Attempts older than this no longer count toward the streak.
-const STALE_AFTER_MS = 60 * 60_000;
+// Rolling window: attempts older than this no longer count.
+const WINDOW_MS = 60 * 60_000;
+// Bounds the file; enough to reach the max cooldown.
+const MAX_ATTEMPTS_KEPT = 20;
 
 interface BackoffRecord {
   key: string;
-  failures: number;
-  lastAttempt: number;
+  attempts: number[]; // start times (epoch ms) of attempts without a success
 }
 
 export interface BackoffDecision {
@@ -59,7 +60,7 @@ export function autoConnectKey(
     .slice(0, 32);
 }
 
-/** Cooldown after `failures` consecutive failed attempts: 0, then 30s → 10 min. */
+/** Cooldown after `failures` recent failed attempts: 0, then 30s → 10 min. */
 export function cooldownMs(failures: number): number {
   if (failures < BACKOFF_THRESHOLD) return 0;
   return Math.min(
@@ -74,9 +75,8 @@ function readRecord(): BackoffRecord | null {
     const r = obj as Partial<BackoffRecord>;
     if (
       typeof r?.key === 'string' &&
-      Number.isInteger(r.failures) &&
-      (r.failures as number) >= 0 &&
-      Number.isFinite(r.lastAttempt)
+      Array.isArray(r.attempts) &&
+      r.attempts.every(t => Number.isFinite(t))
     ) {
       return r as BackoffRecord;
     }
@@ -97,20 +97,19 @@ export function beginAutoConnect(
 ): BackoffDecision {
   try {
     const rec = readRecord();
-    let failures = 0;
-    if (rec && rec.key === key) {
-      const elapsed = now - rec.lastAttempt;
-      // A clock that went backwards or an old streak starts fresh.
-      if (elapsed >= 0 && elapsed <= STALE_AFTER_MS) {
-        const wait = cooldownMs(rec.failures) - elapsed;
-        if (wait > 0) return { skip: true, retryInMs: wait };
-        failures = rec.failures;
-      }
+    // Only this config's attempts inside the window count. Timestamps in the
+    // future (clock went backwards) are dropped too.
+    const recent =
+      rec && rec.key === key
+        ? rec.attempts.filter(t => t <= now && now - t <= WINDOW_MS)
+        : [];
+    if (recent.length > 0) {
+      const wait = cooldownMs(recent.length) - (now - Math.max(...recent));
+      if (wait > 0) return { skip: true, retryInMs: wait };
     }
     const next: BackoffRecord = {
       key,
-      failures: Math.min(failures + 1, 1000),
-      lastAttempt: now,
+      attempts: [...recent, now].slice(-MAX_ATTEMPTS_KEPT),
     };
     mkdirSync(stateDir(), { recursive: true });
     writeFileSync(backoffFile(), `${JSON.stringify(next)}\n`, { mode: 0o600 });
