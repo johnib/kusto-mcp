@@ -16,6 +16,7 @@ import {
   shutdownOtel,
   startTelemetry,
 } from './common/telemetry.js';
+import { createShutdown, settlePendingCancels } from './common/shutdown.js';
 import { createKustoServer } from './server.js';
 import { VERSION } from './common/version.js';
 import {
@@ -211,17 +212,19 @@ if (machine.isFirstRun) {
 // Create the server
 const server = createKustoServer(config);
 
-// Coordinated shutdown that always flushes telemetry before exit. A stdio MCP
-// server is typically killed by the client closing stdin, so buffered spans/
-// metrics/logs would be lost without an awaited flush.
-let shuttingDown = false;
-async function shutdownAndExit(reason: string, code = 0): Promise<void> {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  criticalLog(`Shutting down (${reason})`);
-  await shutdownOtel();
-  process.exit(code);
-}
+// Coordinated shutdown. A stdio MCP server is typically killed by the client
+// closing stdin. Closing the server first makes the SDK abort in-flight tool
+// calls, so a running execute-query sends `.cancel query` to the cluster
+// instead of being left running (#333); those requests get a short bounded
+// drain, then telemetry is flushed and the process exits. Never throws, and
+// always exits within the drain cap plus the telemetry flush bound.
+const shutdownAndExit = createShutdown({
+  closeServer: () => server.close(),
+  drainCancels: settlePendingCancels,
+  flushTelemetry: shutdownOtel,
+  exit: code => process.exit(code),
+  log: criticalLog,
+});
 
 // Run the server
 async function runServer() {
