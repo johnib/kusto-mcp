@@ -9,11 +9,17 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
-import { formatKustoMcpError, isKustoMcpError } from './common/errors.js';
+import {
+  formatKustoMcpError,
+  isKustoMcpError,
+  KustoTimeoutError,
+  withTimeoutHint,
+} from './common/errors.js';
 import { criticalLog, debugLog } from './common/utils.js';
 import { getIdentityAttributes } from './common/identity.js';
 import {
   SeverityNumber,
+  carryErrorRecording,
   emitLog,
   recordSpanError,
   responseBytesHistogram,
@@ -413,11 +419,21 @@ export function createKustoServer(config: KustoConfig): Server {
 
               // Execute the query and get raw results
               // extra.signal aborts on notifications/cancelled from the client.
+              // A timeout here (ours or the server's) gets recovery advice
+              // for the agent (#312). Only execute-query: the show-* tools run
+              // fixed metadata queries with no time range to narrow.
               const rawResult = await executeQuery(
                 conn,
                 modifiedQuery,
                 extra.signal,
-              );
+              ).catch((error: unknown) => {
+                if (!(error instanceof KustoTimeoutError)) throw error;
+                const hinted = new KustoTimeoutError(
+                  withTimeoutHint(error.message, args.query),
+                );
+                carryErrorRecording(error, hinted);
+                throw hinted;
+              });
 
               // Transform using the proper architecture
               const transformedResult = transformQueryResult(
