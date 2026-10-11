@@ -25,7 +25,10 @@ import {
   killProcessTree,
   parseAzCliTokenResponse,
 } from '../../../src/auth/az-cli-credential.js';
-import { createTokenCredential } from '../../../src/auth/token-credentials.js';
+import {
+  CachingTokenCredential,
+  createTokenCredential,
+} from '../../../src/auth/token-credentials.js';
 import {
   captureIdentity,
   clearIdentity,
@@ -312,8 +315,10 @@ describe('killProcessTree never throws', () => {
 });
 
 describe('wiring', () => {
-  test('azure-cli uses AzCliCredential', () => {
-    expect(createTokenCredential('azure-cli', 1500)).toBeInstanceOf(
+  test('azure-cli uses AzCliCredential (inside the token cache)', () => {
+    const cred = createTokenCredential('azure-cli', 1500);
+    expect(cred).toBeInstanceOf(CachingTokenCredential);
+    expect((cred as unknown as { inner: unknown }).inner).toBeInstanceOf(
       AzCliCredential,
     );
   });

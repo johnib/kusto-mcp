@@ -22,9 +22,6 @@ import {
 jest.mock('azure-kusto-data', () => ({
   Client: jest.fn(),
   KustoConnectionStringBuilder: {
-    withAzLoginIdentity: jest.fn(
-      clusterUrl => `connection-string-for-${clusterUrl}`,
-    ),
     withTokenCredential: jest.fn(
       clusterUrl => `connection-string-for-${clusterUrl}`,
     ),

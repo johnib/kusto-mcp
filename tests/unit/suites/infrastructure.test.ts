@@ -32,7 +32,7 @@ describe('Unit Test Infrastructure', () => {
 
     expect(Client).toBeDefined();
     expect(KustoConnectionStringBuilder).toBeDefined();
-    expect(KustoConnectionStringBuilder.withAzLoginIdentity).toBeDefined();
+    expect(KustoConnectionStringBuilder.withTokenCredential).toBeDefined();
   });
 
   test('should load mocked @azure/identity', async () => {

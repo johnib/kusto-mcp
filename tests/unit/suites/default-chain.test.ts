@@ -33,6 +33,7 @@ import {
 } from '@azure/identity';
 import { AzCliCredential } from '../../../src/auth/az-cli-credential.js';
 import {
+  CachingTokenCredential,
   createTokenCredential,
   withTreeKillingAzCli,
 } from '../../../src/auth/token-credentials.js';
@@ -49,8 +50,13 @@ const ENV_KEYS = [
 ];
 let savedEnv: Record<string, string | undefined>;
 
+// createTokenCredential wraps the chain in the token cache (#296); look inside it.
 function sources(cred: unknown): unknown[] {
-  return (cred as { _sources: unknown[] })._sources;
+  const chain =
+    cred instanceof CachingTokenCredential
+      ? (cred as unknown as { inner: unknown }).inner
+      : cred;
+  return (chain as { _sources: unknown[] })._sources;
 }
 function names(cred: unknown): string[] {
   return sources(cred).map(s => (s as object).constructor.name);
@@ -112,7 +118,10 @@ describe('chain shape matches DefaultAzureCredential', () => {
     if (value !== undefined) process.env.AZURE_TOKEN_CREDENTIALS = value;
     const sdk = new DefaultAzureCredential({ processTimeoutInMs: 1500 });
     const ours = createTokenCredential('azure-identity', 1500);
-    expect(ours).toBeInstanceOf(DefaultAzureCredential);
+    expect(ours).toBeInstanceOf(CachingTokenCredential);
+    expect((ours as unknown as { inner: unknown }).inner).toBeInstanceOf(
+      DefaultAzureCredential,
+    );
     expect(names(ours)).toEqual(
       names(sdk).map(n => (n === 'AzureCliCredential' ? 'AzCliCredential' : n)),
     );
