@@ -32,6 +32,19 @@ jest.mock('@azure/identity', () => {
   };
 });
 
+// azure-cli runs our own az credential (#346); give it the same pending token.
+jest.mock('../../../src/auth/az-cli-credential.js', () => ({
+  AzCliCredential: class {
+    constructor(opts: unknown) {
+      azureCliCtor(opts);
+    }
+    getToken = () =>
+      new Promise((resolve, reject) => {
+        pendingToken = { resolve, reject };
+      });
+  },
+}));
+
 jest.mock('azure-kusto-data', () => ({
   Client: jest.fn(),
   KustoConnectionStringBuilder: {
@@ -82,9 +95,9 @@ describe('abandoned connect attempts (#293)', () => {
   });
 
   describe('credential subprocess timeout', () => {
-    test('AzureCliCredential gets processTimeoutInMs', () => {
+    test('the azure-cli credential gets the timeout', () => {
       createTokenCredential('azure-cli', 1500);
-      expect(azureCliCtor).toHaveBeenCalledWith({ processTimeoutInMs: 1500 });
+      expect(azureCliCtor).toHaveBeenCalledWith({ timeoutMs: 1500 });
     });
 
     test('DefaultAzureCredential gets processTimeoutInMs', () => {
@@ -93,8 +106,8 @@ describe('abandoned connect attempts (#293)', () => {
     });
 
     test('an invalid timeout is not passed through (execFile would reject it)', () => {
-      createTokenCredential('azure-cli', NaN);
-      expect(azureCliCtor).toHaveBeenCalledWith({});
+      createTokenCredential('azure-identity', NaN);
+      expect(defaultCtor).toHaveBeenCalledWith({});
     });
 
     test('KustoConnection bounds the credential by its connection timeout', () => {
@@ -102,7 +115,7 @@ describe('abandoned connect attempts (#293)', () => {
         authMethod: AuthenticationMethod.AzureCli,
         connectionTimeout: 1500,
       });
-      expect(azureCliCtor).toHaveBeenCalledWith({ processTimeoutInMs: 1500 });
+      expect(azureCliCtor).toHaveBeenCalledWith({ timeoutMs: 1500 });
     });
 
     test('azure-cli validation uses our bounded credential, not the SDK az login', async () => {

@@ -1,8 +1,5 @@
-import {
-  AzureCliCredential,
-  DefaultAzureCredential,
-  TokenCredential,
-} from '@azure/identity';
+import { DefaultAzureCredential, TokenCredential } from '@azure/identity';
+import { AzCliCredential } from './az-cli-credential.js';
 import { KustoAuthenticationError } from '../common/errors.js';
 import { criticalLog, debugLog } from '../common/utils.js';
 
@@ -30,7 +27,9 @@ export function createTokenCredential(
     switch (method.toLowerCase()) {
       case 'azure-cli':
         debugLog('Using Azure CLI authentication');
-        return new AzureCliCredential(options);
+        // Our own az runner: on timeout it kills the whole process tree, which
+        // the SDK's AzureCliCredential doesn't on Windows (#346).
+        return new AzCliCredential({ timeoutMs: processTimeoutInMs });
 
       case 'azure-identity':
         debugLog('Using Azure Identity authentication');
