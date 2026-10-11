@@ -105,7 +105,13 @@ export function createShutdown(
         /* stderr may already be gone */
       }
       await withinDeadline(async () => {
-        await steps.closeServer();
+        // A close that rejects may already have aborted handlers and started
+        // their `.cancel query` requests, so the drain must still run.
+        try {
+          await steps.closeServer();
+        } catch {
+          /* best effort */
+        }
         await steps.drainCancels();
       }, steps.drainCapMs ?? CANCEL_DRAIN_CAP_MS);
       try {

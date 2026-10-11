@@ -208,6 +208,35 @@ describe('shutdown cancels in-flight queries (#333)', () => {
     expect(unhandled).toEqual([]);
   });
 
+  test('a server close that rejects after starting a cancel still drains it before exit', async () => {
+    const events: string[] = [];
+    const { shutdown, exit } = steps({
+      closeServer: async () => {
+        // The close aborted a handler (which sent .cancel query), then failed.
+        trackPendingCancel(
+          new Promise(r => setTimeout(r, 50)).then(() =>
+            events.push('cancel-delivered'),
+          ),
+        );
+        throw new Error('transport cleanup failed');
+      },
+      drainCancels: settlePendingCancels,
+      // Earlier tests leave never-settling cancels tracked on purpose, so the
+      // drain ends at the cap; this test's cancel lands well before it.
+      drainCapMs: 200,
+      flushTelemetry: async () => {
+        events.push('flush');
+      },
+    });
+    exit.mockImplementation(() => {
+      events.push('exit');
+    });
+
+    await shutdown('client-disconnect');
+
+    expect(events).toEqual(['cancel-delivered', 'flush', 'exit']);
+  });
+
   test('a rejected flush still exits', async () => {
     const { shutdown, exit } = steps({
       flushTelemetry: async () => {
