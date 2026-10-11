@@ -1,3 +1,16 @@
+# [1.17.0](https://github.com/johnib/kusto-mcp/compare/v1.16.0...v1.17.0) (2026-10-11)
+
+
+### Bug Fixes
+
+* wait for the startup auto-connect before failing tool calls ([#327](https://github.com/johnib/kusto-mcp/issues/327)) ([d7f92af](https://github.com/johnib/kusto-mcp/commit/d7f92af0b378b556952ab1c5f72d6d1bedcb2593)), closes [#311](https://github.com/johnib/kusto-mcp/issues/311)
+
+
+### Features
+
+* hint the agent after several failed queries in a row ([#326](https://github.com/johnib/kusto-mcp/issues/326)) [skip ci] ([aa2196f](https://github.com/johnib/kusto-mcp/commit/aa2196fcfee0e01cda7e638b3af7f9a849ba5313)), closes [#313](https://github.com/johnib/kusto-mcp/issues/313)
+* raise default query timeout to 120s and send progress while queries run ([#334](https://github.com/johnib/kusto-mcp/issues/334)) [skip ci] ([8d44b19](https://github.com/johnib/kusto-mcp/commit/8d44b19ac9a056d7471426b6a74c3e49d371e8ad)), closes [#321](https://github.com/johnib/kusto-mcp/issues/321)
+
 # [1.16.0](https://github.com/johnib/kusto-mcp/compare/v1.15.0...v1.16.0) (2026-10-11)
 
 
