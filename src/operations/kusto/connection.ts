@@ -14,6 +14,7 @@ import {
   KustoTimeoutError,
   markNotQueryFault,
 } from '../../common/errors.js';
+import { trackPendingCancel } from '../../common/shutdown.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
   captureIdentity,
@@ -539,17 +540,20 @@ export class KustoConnection {
               try {
                 const cancelProps = new ClientRequestProperties();
                 cancelProps.setClientTimeout(CANCEL_COMMAND_TIMEOUT_MS);
-                client
-                  .execute(
-                    database,
-                    `.cancel query "${clientRequestId}"`,
-                    cancelProps,
-                  )
-                  .catch(err =>
-                    debugLog(
-                      `Best-effort .cancel query failed: ${extractKustoErrorMessage(err)}`,
+                // Tracked so a shutdown can let it reach the cluster (#333).
+                trackPendingCancel(
+                  client
+                    .execute(
+                      database,
+                      `.cancel query "${clientRequestId}"`,
+                      cancelProps,
+                    )
+                    .catch(err =>
+                      debugLog(
+                        `Best-effort .cancel query failed: ${extractKustoErrorMessage(err)}`,
+                      ),
                     ),
-                  );
+                );
               } catch {
                 /* best effort */
               }
