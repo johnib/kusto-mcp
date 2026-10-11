@@ -15,7 +15,7 @@ import {
 jest.mock('azure-kusto-data', () => ({
   Client: jest.fn(),
   KustoConnectionStringBuilder: {
-    withAzLoginIdentity: jest.fn(
+    withTokenCredential: jest.fn(
       clusterUrl => `connection-string-for-${clusterUrl}`,
     ),
   },
@@ -123,6 +123,19 @@ describe('Connection Management Unit Tests', () => {
         'ContosoSales',
         'print now()',
         expect.anything(),
+      );
+
+      // azure-cli must go through our (caching) credential, not the library's
+      // own uncached AzureCliCredential (#296).
+      const { KustoConnectionStringBuilder } = require('azure-kusto-data');
+      const {
+        createTokenCredential,
+      } = require('../../../src/auth/token-credentials.js');
+      expect(
+        KustoConnectionStringBuilder.withTokenCredential,
+      ).toHaveBeenCalledWith(
+        'https://help.kusto.windows.net/',
+        createTokenCredential.mock.results[0].value,
       );
 
       // Verify connection state

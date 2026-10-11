@@ -334,22 +334,14 @@ export class KustoConnection {
             if (v !== undefined && v !== null) span.setAttribute(k, v);
           }
 
-          // Create a connection string with the configured authentication method
-          let connectionString;
-
-          if (this.config.authMethod === 'azure-cli') {
-            debugLog('Using Azure CLI authentication for connection');
-            connectionString =
-              KustoConnectionStringBuilder.withAzLoginIdentity(clusterUrl);
-          } else {
-            debugLog(
-              'Using Azure Identity (DefaultAzureCredential) for connection',
-            );
-            connectionString = KustoConnectionStringBuilder.withTokenCredential(
+          // Both auth methods go through our caching credential. Don't use
+          // withAzLoginIdentity: it builds its own uncached AzureCliCredential,
+          // which spawns `az` on every request (#296).
+          const connectionString =
+            KustoConnectionStringBuilder.withTokenCredential(
               clusterUrl,
               this.tokenCredential,
             );
-          }
 
           if (abandoned) throw new Error('Connection attempt abandoned');
           // Create a temporary client for validation, don't set instance variables yet
