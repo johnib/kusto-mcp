@@ -23,6 +23,11 @@ import {
   withTimeoutHint,
 } from './common/errors.js';
 import { criticalLog, debugLog } from './common/utils.js';
+import {
+  autoConnectKey,
+  beginAutoConnect,
+  clearAutoConnectBackoff,
+} from './common/autoconnect-backoff.js';
 import { getIdentityAttributes } from './common/identity.js';
 import {
   SeverityNumber,
@@ -198,6 +203,10 @@ export function createKustoServer(config: KustoConfig): Server {
   // The startup auto-connect while it is still running; null once it settles.
   let autoConnectInFlight: Promise<void> | null = null;
 
+  // Set when this launch skipped the startup auto-connect because earlier
+  // launches kept failing (#316). Cleared by a successful manual connect.
+  let autoConnectPaused = false;
+
   // Auto-connection function
   async function tryAutoConnect(): Promise<void> {
     // Only attempt auto-connection if both cluster URL and database are configured
@@ -205,6 +214,24 @@ export function createKustoServer(config: KustoConfig): Server {
       debugLog(
         'Auto-connection skipped: missing cluster URL or database configuration',
       );
+      return;
+    }
+
+    const backoff = beginAutoConnect(
+      autoConnectKey(
+        validatedConfig.clusterUrl,
+        validatedConfig.defaultDatabase,
+        String(validatedConfig.authMethod),
+      ),
+    );
+    if (backoff.skip) {
+      autoConnectPaused = true;
+      criticalLog(
+        `Auto-connection paused after repeated failures; next attempt in ~${Math.ceil(backoff.retryInMs / 1000)}s on a later launch. Call initialize-connection to connect now.`,
+      );
+      emitLog(SeverityNumber.INFO, 'INFO', 'Auto-connection skipped', {
+        'kustomcp.connection.autoconnect': 'skipped_backoff',
+      });
       return;
     }
 
@@ -223,6 +250,7 @@ export function createKustoServer(config: KustoConfig): Server {
         validatedConfig.defaultDatabase,
         'auto',
       );
+      clearAutoConnectBackoff();
 
       // A manual connect started while this was pending wins.
       if (manualConnectCount !== manualCountAtStart) {
@@ -355,6 +383,16 @@ export function createKustoServer(config: KustoConfig): Server {
         await awaitAutoConnect();
         if (!connection) {
           toolNotInitializedCounter.add(1, { tool: toolName });
+          if (autoConnectPaused) {
+            span.setAttribute(
+              'kustomcp.connection.autoconnect',
+              'skipped_backoff',
+            );
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              'Connection not initialized: auto-connect is paused after repeated failed attempts at startup. Please call initialize-connection to connect.',
+            );
+          }
           throw new McpError(
             ErrorCode.InvalidRequest,
             'Connection not initialized. Please call initialize-connection first.',
@@ -388,6 +426,8 @@ export function createKustoServer(config: KustoConfig): Server {
                 args.database,
                 'manual',
               );
+              autoConnectPaused = false;
+              clearAutoConnectBackoff();
               return {
                 content: [
                   { type: 'text', text: JSON.stringify(result, null, 2) },
