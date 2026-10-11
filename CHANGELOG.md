@@ -1,3 +1,19 @@
+# [1.16.0](https://github.com/johnib/kusto-mcp/compare/v1.15.0...v1.16.0) (2026-10-11)
+
+
+### Bug Fixes
+
+* classify query timeouts by type, not error text ([#330](https://github.com/johnib/kusto-mcp/issues/330)) [skip ci] ([08ccbc9](https://github.com/johnib/kusto-mcp/commit/08ccbc9f1a0dc90ef41fe75a32bea46989aafa41)), closes [#319](https://github.com/johnib/kusto-mcp/issues/319)
+* report all detected query operator families ([#325](https://github.com/johnib/kusto-mcp/issues/325)) [skip ci] ([1be48e3](https://github.com/johnib/kusto-mcp/commit/1be48e396bbe9247ca2c6d0c282ddd3cd6e5c023)), closes [#317](https://github.com/johnib/kusto-mcp/issues/317)
+* send KUSTO_QUERY_TIMEOUT to the server as servertimeout ([#328](https://github.com/johnib/kusto-mcp/issues/328)) [skip ci] ([3770ead](https://github.com/johnib/kusto-mcp/commit/3770ead9e8722b59603b64be7d6980947ae510ca)), closes [#294](https://github.com/johnib/kusto-mcp/issues/294)
+
+
+### Features
+
+* cancel the Kusto query when the client cancels the tool call ([#331](https://github.com/johnib/kusto-mcp/issues/331)) [skip ci] ([c5d0d22](https://github.com/johnib/kusto-mcp/commit/c5d0d228268dd930e63ed138cd3a3b79a3e15251)), closes [#320](https://github.com/johnib/kusto-mcp/issues/320)
+* suggest show-table before querying an unfamiliar table ([#324](https://github.com/johnib/kusto-mcp/issues/324)) [skip ci] ([e775392](https://github.com/johnib/kusto-mcp/commit/e7753921ce353f4977e5ea1d78e0a4f41d098588)), closes [#314](https://github.com/johnib/kusto-mcp/issues/314)
+* tell the agent how to recover from a query timeout ([#332](https://github.com/johnib/kusto-mcp/issues/332)) ([831cbfa](https://github.com/johnib/kusto-mcp/commit/831cbfab899eb76792665da58d931f5011369e56)), closes [#312](https://github.com/johnib/kusto-mcp/issues/312)
+
 # [1.15.0](https://github.com/johnib/kusto-mcp/compare/v1.14.3...v1.15.0) (2026-10-06)
 
 
