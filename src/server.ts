@@ -8,12 +8,7 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import {
-  ROOT_CONTEXT,
-  SpanStatusCode,
-  context,
-  trace,
-} from '@opentelemetry/api';
+import { SpanStatusCode, trace } from '@opentelemetry/api';
 import {
   formatKustoMcpError,
   isKustoMcpError,
@@ -155,7 +150,7 @@ export function createKustoServer(config: KustoConfig): Server {
   // its result if no manual connect started meanwhile, so manual always wins.
   let manualConnectCount = 0;
 
-  // The auto-connect attempt currently running, if any.
+  // The startup auto-connect while it is still running; null once it settles.
   let autoConnectInFlight: Promise<void> | null = null;
 
   // Auto-connection function
@@ -205,34 +200,13 @@ export function createKustoServer(config: KustoConfig): Server {
     }
   }
 
-  // Start an auto-connect unless one is already running. Runs detached from
-  // the calling tool span so the auto init span stays a root, as at startup.
-  function startAutoConnect(): Promise<void> {
-    if (!autoConnectInFlight) {
-      autoConnectInFlight = context
-        .with(ROOT_CONTEXT, tryAutoConnect)
-        .catch(error => {
-          // tryAutoConnect already handles errors; this is a safety net.
-          criticalLog(
-            `Unexpected error in auto-connection: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        })
-        .finally(() => {
-          autoConnectInFlight = null;
-        });
-    }
-    return autoConnectInFlight;
-  }
-
-  // When a cluster/database is configured but no connection exists yet, wait
-  // for the in-flight auto-connect (or start one), bounded by the connection
-  // timeout so a hung connect can't block the tool call forever.
+  // If the startup auto-connect is still running, wait for it, bounded by the
+  // connection timeout so a hung connect can't block the call forever. Never
+  // starts a new attempt: once the startup one has failed (or none was
+  // configured), the call fails right away as before.
   async function awaitAutoConnect(): Promise<void> {
-    if (
-      connection ||
-      !validatedConfig.clusterUrl ||
-      !validatedConfig.defaultDatabase
-    ) {
+    const pending = autoConnectInFlight;
+    if (connection || !pending) {
       return;
     }
     let timer: NodeJS.Timeout | undefined;
@@ -241,7 +215,7 @@ export function createKustoServer(config: KustoConfig): Server {
       timer.unref?.();
     });
     try {
-      await Promise.race([startAutoConnect(), deadline]);
+      await Promise.race([pending, deadline]);
     } finally {
       clearTimeout(timer);
     }
@@ -754,7 +728,17 @@ export function createKustoServer(config: KustoConfig): Server {
 
   // Trigger auto-connection asynchronously (fire-and-forget)
   // This allows the server to start immediately while attempting connection in the background
-  void startAutoConnect();
+  autoConnectInFlight = tryAutoConnect()
+    .catch(error => {
+      // This catch is redundant since tryAutoConnect already handles errors,
+      // but it's a safety net in case of unexpected issues
+      criticalLog(
+        `Unexpected error in auto-connection: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    })
+    .finally(() => {
+      autoConnectInFlight = null;
+    });
 
   return server;
 }
