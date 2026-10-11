@@ -1,3 +1,13 @@
+## [1.18.1](https://github.com/johnib/kusto-mcp/compare/v1.18.0...v1.18.1) (2026-10-11)
+
+
+### Bug Fixes
+
+* cache Azure tokens instead of spawning az on every query ([#344](https://github.com/johnib/kusto-mcp/issues/344)) [skip ci] ([3e27a85](https://github.com/johnib/kusto-mcp/commit/3e27a8525058468065f412171bf22c84511ef205)), closes [#296](https://github.com/johnib/kusto-mcp/issues/296)
+* keep the working connection when a connect fails, and share concurrent connects ([#343](https://github.com/johnib/kusto-mcp/issues/343)) [skip ci] ([c898490](https://github.com/johnib/kusto-mcp/commit/c8984907f9a5ffefa94af344b63376c2ebb0bba9)), closes [#290](https://github.com/johnib/kusto-mcp/issues/290)
+* kill the whole az process tree on timeout or cancel, for azure-cli and the default chain ([#348](https://github.com/johnib/kusto-mcp/issues/348)) ([7e449d1](https://github.com/johnib/kusto-mcp/commit/7e449d13971bb511289825d5957fbcc962f1786d)), closes [#346](https://github.com/johnib/kusto-mcp/issues/346) [#293](https://github.com/johnib/kusto-mcp/issues/293)
+* stop abandoned connects and time-limit az ([#345](https://github.com/johnib/kusto-mcp/issues/345)) [skip ci] ([50ceb13](https://github.com/johnib/kusto-mcp/commit/50ceb132526fbe3f118a3660500c1f30a70603a6)), closes [#293](https://github.com/johnib/kusto-mcp/issues/293)
+
 # [1.18.0](https://github.com/johnib/kusto-mcp/compare/v1.17.0...v1.18.0) (2026-10-11)
 
 
