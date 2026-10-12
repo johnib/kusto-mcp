@@ -9,6 +9,9 @@ import { AzCliCredential } from './az-cli-credential.js';
 import { KustoAuthenticationError } from '../common/errors.js';
 import { criticalLog, debugLog } from '../common/utils.js';
 
+/** azure-kusto-data's default authorityId for withAzLoginIdentity. */
+export const AZ_LOGIN_DEFAULT_TENANT = 'organizations';
+
 /** Refetch a cached token once it is this close to expiry. */
 export const TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
@@ -223,8 +226,14 @@ export function createTokenCredential(
         debugLog('Using Azure CLI authentication');
         // Our own az runner: on timeout it kills the whole process tree, which
         // the SDK's AzureCliCredential doesn't on Windows (#346). Cached (#296).
+        // `--tenant organizations`, as 1.18.0 sent through azure-kusto-data's
+        // withAzLoginIdentity (its default authorityId): the token comes from
+        // the account's home tenant, not the current subscription's tenant.
         return new CachingTokenCredential(
-          new AzCliCredential({ timeoutMs: processTimeoutInMs }),
+          new AzCliCredential({
+            timeoutMs: processTimeoutInMs,
+            tenantId: AZ_LOGIN_DEFAULT_TENANT,
+          }),
         );
 
       case 'azure-identity':
