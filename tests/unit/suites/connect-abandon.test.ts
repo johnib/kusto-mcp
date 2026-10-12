@@ -97,7 +97,10 @@ describe('abandoned connect attempts (#293)', () => {
   describe('credential subprocess timeout', () => {
     test('the azure-cli credential gets the timeout', () => {
       createTokenCredential('azure-cli', 1500);
-      expect(azureCliCtor).toHaveBeenCalledWith({ timeoutMs: 1500 });
+      expect(azureCliCtor).toHaveBeenCalledWith({
+        timeoutMs: 1500,
+        tenantId: 'organizations',
+      });
     });
 
     test('DefaultAzureCredential gets processTimeoutInMs', () => {
@@ -115,7 +118,10 @@ describe('abandoned connect attempts (#293)', () => {
         authMethod: AuthenticationMethod.AzureCli,
         connectionTimeout: 1500,
       });
-      expect(azureCliCtor).toHaveBeenCalledWith({ timeoutMs: 1500 });
+      expect(azureCliCtor).toHaveBeenCalledWith({
+        timeoutMs: 1500,
+        tenantId: 'organizations',
+      });
     });
 
     test('azure-cli validation uses our bounded credential, not the SDK az login', async () => {

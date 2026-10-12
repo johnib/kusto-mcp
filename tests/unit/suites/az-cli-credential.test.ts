@@ -197,6 +197,23 @@ describe('AzCliCredential.getToken', () => {
     expect(safeSpawn).not.toHaveBeenCalled();
   });
 
+  test('passes the request tenant as --tenant, like the SDK', async () => {
+    const p = new AzCliCredential().getToken(SCOPE, { tenantId: 'contoso-1' });
+    child.exit(0, JSON.stringify({ accessToken: 'tok', expires_on: 2 }));
+    await p;
+    expect(safeSpawn.mock.calls[0][1].slice(-2)).toEqual([
+      '--tenant',
+      'contoso-1',
+    ]);
+  });
+
+  test('rejects an unsafe tenant without spawning', async () => {
+    await expect(
+      new AzCliCredential().getToken(SCOPE, { tenantId: 'x & calc' }),
+    ).rejects.toMatchObject({ name: 'CredentialUnavailableError' });
+    expect(safeSpawn).not.toHaveBeenCalled();
+  });
+
   test('claims challenge → CredentialUnavailableError', async () => {
     await expect(
       new AzCliCredential().getToken(SCOPE, { claims: 'abc' }),
@@ -321,6 +338,17 @@ describe('wiring', () => {
     expect((cred as unknown as { inner: unknown }).inner).toBeInstanceOf(
       AzCliCredential,
     );
+  });
+
+  test('azure-cli asks az for --tenant organizations, as 1.18.0 did', async () => {
+    const cred = createTokenCredential('azure-cli', 1500);
+    const p = cred.getToken(SCOPE);
+    child.exit(0, JSON.stringify({ accessToken: 'tok', expires_on: 2 }));
+    await p;
+    expect(safeSpawn.mock.calls[0][1].slice(-2)).toEqual([
+      '--tenant',
+      'organizations',
+    ]);
   });
 
   describe('aborting the factory credential kills the az tree', () => {

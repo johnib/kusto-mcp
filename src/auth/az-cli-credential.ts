@@ -56,6 +56,8 @@ class AbortError extends Error {
 
 // Same allow-list as @azure/identity's ensureValidScopeForDevTimeCreds.
 const SAFE_SCOPE = /^[0-9a-zA-Z-_.:/]+$/;
+// Same allow-list as @azure/identity's checkTenantId.
+const SAFE_TENANT = /^[0-9a-zA-Z-.]+$/;
 
 /** Parse `az account get-access-token --output json`. Never logs the token. */
 export function parseAzCliTokenResponse(stdout: string): AccessToken {
@@ -152,15 +154,19 @@ function safeWorkingDir(): string {
 export interface AzCliCredentialOptions {
   /** Kill the `az` process tree after this many ms. */
   timeoutMs?: number;
+  /** `--tenant` to pass when the caller's getToken options name none. */
+  tenantId?: string;
 }
 
 export class AzCliCredential implements TokenCredential {
   private readonly timeoutMs?: number;
+  private readonly tenantId?: string;
 
   constructor(options: AzCliCredentialOptions = {}) {
     const t = options.timeoutMs;
     this.timeoutMs =
       typeof t === 'number' && Number.isInteger(t) && t > 0 ? t : undefined;
+    this.tenantId = options.tenantId;
   }
 
   async getToken(
@@ -174,6 +180,11 @@ export class AzCliCredential implements TokenCredential {
     if (!scope || !SAFE_SCOPE.test(scope)) {
       throw new CredentialUnavailableError('Invalid scope for Azure CLI.');
     }
+    // Like the SDK's AzureCliCredential: a per-request tenant wins.
+    const tenantId = options.tenantId ?? this.tenantId;
+    if (tenantId !== undefined && !SAFE_TENANT.test(tenantId)) {
+      throw new CredentialUnavailableError('Invalid tenant for Azure CLI.');
+    }
     const resource = scope.replace(/\/\.default$/, '');
     const args = [
       'account',
@@ -182,6 +193,7 @@ export class AzCliCredential implements TokenCredential {
       'json',
       '--resource',
       resource,
+      ...(tenantId ? ['--tenant', tenantId] : []),
     ];
     return this.run(args, options.abortSignal);
   }
