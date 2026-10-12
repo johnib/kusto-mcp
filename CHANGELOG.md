@@ -1,3 +1,11 @@
+## [1.18.2](https://github.com/johnib/kusto-mcp/compare/v1.18.1...v1.18.2) (2026-10-12)
+
+
+### Bug Fixes
+
+* ask az for the organizations tenant again for azure-cli auth ([#351](https://github.com/johnib/kusto-mcp/issues/351)) ([3e5a5bf](https://github.com/johnib/kusto-mcp/commit/3e5a5bf124b2552ffad2afbaf8109b039216ff46)), closes [#350](https://github.com/johnib/kusto-mcp/issues/350)
+* classify failed default-chain sign-ins by the real cause, not the first step ([#352](https://github.com/johnib/kusto-mcp/issues/352)) [skip ci] ([7fa7845](https://github.com/johnib/kusto-mcp/commit/7fa7845036b79da3a97d3b4ae64e747fd3cf692e))
+
 ## [1.18.1](https://github.com/johnib/kusto-mcp/compare/v1.18.0...v1.18.1) (2026-10-11)
 
 
