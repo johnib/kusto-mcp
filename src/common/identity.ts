@@ -117,17 +117,22 @@ function classifyAuthError(error: unknown): Attributes {
   const attrs: Attributes = { 'kustomcp.auth.token_acquired': false };
   const name = error instanceof Error ? error.name : '';
 
-  // ChainedTokenCredential aggregates each credential's failure; the first
-  // AuthenticationError carries the structured AAD response.
-  const inner =
+  // ChainedTokenCredential aggregates each credential's failure. The first
+  // one is DefaultAzureCredential's EnvironmentCredential (always
+  // unavailable), so look for any step that carries the structured AAD
+  // response, and treat an all-unavailable chain as unavailable.
+  type Inner = {
+    name?: unknown;
+    errorResponse?: { error?: string; errorCodes?: number[] };
+  } | null;
+  const aggregated =
     name === 'AggregateAuthenticationError'
-      ? (error as { errors?: unknown[] }).errors?.[0]
-      : error;
-  const resp = (
-    inner as {
-      errorResponse?: { error?: string; errorCodes?: number[] };
-    } | null
-  )?.errorResponse;
+      ? ((error as { errors?: unknown }).errors as Inner[] | undefined)
+      : undefined;
+  const inners: Inner[] = Array.isArray(aggregated)
+    ? aggregated
+    : [error as Inner];
+  const resp = inners.find(e => e?.errorResponse)?.errorResponse;
 
   if (resp) {
     const code = Array.isArray(resp.errorCodes)
@@ -148,7 +153,10 @@ function classifyAuthError(error: unknown): Attributes {
   // Credential-unavailable (e.g. Azure CLI not installed / not logged in).
   // Classified by CLASS only — we intentionally do NOT read its message, so
   // the granularity is coarse rather than risk echoing environment specifics.
-  if (name === 'CredentialUnavailableError') {
+  if (
+    inners.length > 0 &&
+    inners.every(e => e?.name === 'CredentialUnavailableError')
+  ) {
     attrs['kustomcp.auth.failure_stage'] = 'credential_unavailable';
     return attrs;
   }

@@ -160,6 +160,36 @@ describe('anonymous cohort identity', () => {
       }
     });
 
+    test('a DefaultAzureCredential chain where every step is unavailable -> credential_unavailable', async () => {
+      const cue = (m: string) =>
+        Object.assign(new Error(m), { name: 'CredentialUnavailableError' });
+      const agg = Object.assign(new Error('ChainedTokenCredential authentication failed.'), {
+        name: 'AggregateAuthenticationError',
+        errors: [cue('EnvironmentCredential is unavailable'), cue("Please run 'az login'")],
+      });
+      const a = await captureIdentity('https://help.kusto.windows.net', async () => {
+        throw agg;
+      });
+      expect(a['kustomcp.auth.failure_stage']).toBe('credential_unavailable');
+    });
+
+    test('a chain whose later step got an AAD response reports that response', async () => {
+      const cue = Object.assign(new Error('env'), { name: 'CredentialUnavailableError' });
+      const aad = Object.assign(new Error('secret text'), {
+        name: 'AuthenticationError',
+        errorResponse: { error: 'invalid_grant', errorCodes: [700082] },
+      });
+      const agg = Object.assign(new Error('x'), {
+        name: 'AggregateAuthenticationError',
+        errors: [cue, aad],
+      });
+      const a = await captureIdentity('https://help.kusto.windows.net', async () => {
+        throw agg;
+      });
+      expect(a['kustomcp.auth.failure_stage']).toBe('invalid_grant');
+      expect(a['kustomcp.auth.aadsts']).toBe('AADSTS700082');
+    });
+
     test('classifies credential-unavailable by class only (no message read)', async () => {
       const credErr = Object.assign(
         new Error('Azure CLI not installed / az login required — env specific'),
