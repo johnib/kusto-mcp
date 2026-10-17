@@ -197,7 +197,7 @@ describe('execute-query intent/shape/session telemetry', () => {
   ])(
     'a pre-execution failure (%s) still records its limit',
     async (_label, firstCall) => {
-      // Writes are on by default; turn them off so `.drop` is rejected.
+      // Read-only is the default; pass it explicitly so `.drop` is rejected.
       const { client, close } = await connect({ allowWriteOperations: false });
       try {
         const failed = await client.callTool({

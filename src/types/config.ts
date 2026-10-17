@@ -79,8 +79,8 @@ export interface KustoConfig {
 
   /**
    * Allow write/management commands (any non-".show" dot-command such as
-   * .set, .append, .ingest, .drop). Enabled by default; set to false to run
-   * the server in read-only mode and reject these commands.
+   * .set, .append, .ingest, .drop). Disabled by default: the server runs
+   * read-only and rejects these commands unless this is set to true.
    */
   allowWriteOperations?: boolean;
 }
@@ -98,7 +98,7 @@ export const DEFAULT_CONFIG: Partial<KustoConfig> = {
   minRowsInResponse: 1, // Always return at least 1 row if data exists
   enableQueryStatistics: false, // Disabled by default for backward compatibility
   enablePrompts: true, // Enable prompts by default
-  allowWriteOperations: true, // Allow writes by default (set false for read-only)
+  allowWriteOperations: false, // Read-only by default (set true to allow writes)
 };
 
 /**

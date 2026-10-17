@@ -8,6 +8,7 @@ import {
   debugLog,
   installStderrErrorGuard,
 } from './common/utils.js';
+import { parseAllowWriteOperations } from './common/env-config.js';
 import { loadOrCreateMachineId } from './common/machine-id.js';
 import {
   SeverityNumber,
@@ -95,21 +96,15 @@ if (process.env.KUSTO_ENABLE_PROMPTS) {
   criticalLog('MCP prompts enabled by default');
 }
 
-// Determine read-only enforcement from environment variables. Writes are
-// allowed by default; set KUSTO_ALLOW_WRITE_OPERATIONS=false to run read-only.
-let allowWriteOperations = true;
-if (process.env.KUSTO_ALLOW_WRITE_OPERATIONS) {
-  const value = process.env.KUSTO_ALLOW_WRITE_OPERATIONS.toLowerCase();
-  allowWriteOperations = !(
-    value === 'false' ||
-    value === '0' ||
-    value === 'no'
-  );
-}
+// Determine read-only enforcement from environment variables. The server is
+// read-only by default; set KUSTO_ALLOW_WRITE_OPERATIONS=true to allow writes.
+const allowWriteOperations = parseAllowWriteOperations(
+  process.env.KUSTO_ALLOW_WRITE_OPERATIONS,
+);
 criticalLog(
   allowWriteOperations
-    ? 'Write/management commands enabled (default)'
-    : 'Running in READ-ONLY mode (write/management commands disabled)',
+    ? 'Write/management commands enabled (KUSTO_ALLOW_WRITE_OPERATIONS)'
+    : 'Running in READ-ONLY mode (set KUSTO_ALLOW_WRITE_OPERATIONS=true to allow write/management commands)',
 );
 
 // Create the server configuration from environment variables
