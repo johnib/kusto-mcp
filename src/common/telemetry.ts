@@ -10,6 +10,7 @@ import {
 } from '@opentelemetry/api';
 import { SeverityNumber, logs } from '@opentelemetry/api-logs';
 import type { Resource } from '@opentelemetry/resources';
+import { errorMonitor } from 'node:events';
 import { debugLog } from './utils.js';
 
 export { SeverityNumber } from '@opentelemetry/api-logs';
@@ -345,6 +346,33 @@ export const responseBytesHistogram = lazyHistogram('kustomcp.response.bytes', {
   description: 'Serialized MCP tool response size',
 });
 
+// The last error stdout emitted. Set by `watchStdoutForDisconnect`.
+let stdoutError: unknown;
+
+/**
+ * Remember the error stdout emits when a write to it fails, so
+ * `recordProcessFatal` can tell a client disconnect apart from a crash (#365).
+ *
+ * Listens through `errorMonitor`, which sees an 'error' event without counting
+ * as a handler: the failure still reaches `uncaughtException` and the process
+ * exits exactly as before. The stream's own state can't answer the question —
+ * Node's stdout undoes its destroy on error, so by the time the handler runs
+ * it reports `destroyed: false` and `errored: null`.
+ *
+ * Never throws.
+ */
+export function watchStdoutForDisconnect(
+  stdout: Pick<NodeJS.WriteStream, 'on'> = process.stdout,
+): void {
+  try {
+    stdout.on(errorMonitor, (error: unknown) => {
+      stdoutError = error;
+    });
+  } catch {
+    /* best effort: without it, a disconnect is reported as a fatal error */
+  }
+}
+
 /**
  * Record a process-ending failure before shutdown.
  *
@@ -353,6 +381,11 @@ export const responseBytesHistogram = lazyHistogram('kustomcp.response.bytes', {
  * stderr, and the spin starved the exporters. Two users had to count orphans
  * with `ps` because we gave them no other way to see it. This makes that class
  * of failure countable.
+ *
+ * One exit is not a failure: when the client goes away, the next response
+ * written to stdout fails with EPIPE. That error — the very object stdout
+ * emitted, with code EPIPE — is logged at INFO as a client disconnect and left
+ * out of `kustomcp.process.fatal`, so the counter shows real crashes.
  *
  * Anonymity follows `recordSpanError`: the error *class* and, when present, the
  * Node error `code` (`EPIPE`, `ECONNRESET`, ...). Never the message or stack —
@@ -373,6 +406,17 @@ export function recordProcessFatal(
     };
     const code = (error as NodeJS.ErrnoException | undefined)?.code;
     if (typeof code === 'string') attributes['kustomcp.error.code'] = code;
+
+    if (code === 'EPIPE' && error === stdoutError) {
+      attributes['kustomcp.exit.reason'] = 'client_disconnected';
+      emitLog(
+        SeverityNumber.INFO,
+        'INFO',
+        'Client disconnected; exiting',
+        attributes,
+      );
+      return;
+    }
 
     processFatalCounter.add(1, attributes);
     emitLog(
