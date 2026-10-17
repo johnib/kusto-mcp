@@ -277,13 +277,12 @@ export async function executeQuery(
 
       criticalLog(`Failed to execute query: ${errorMessage}`);
 
+      // A client cancel is not a failure (#366): no ERROR status.
+      if (error instanceof KustoQueryCancelledError) throw error;
+
       recordSpanError(span, error);
 
-      if (
-        error instanceof KustoTimeoutError ||
-        error instanceof KustoQueryCancelledError
-      )
-        throw error;
+      if (error instanceof KustoTimeoutError) throw error;
 
       const wrapped = new KustoQueryError(errorMessage);
       carryErrorRecording(error, wrapped);

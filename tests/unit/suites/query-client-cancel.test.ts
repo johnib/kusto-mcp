@@ -126,9 +126,8 @@ describe('execute-query client cancellation (#320)', () => {
       const [span] = querySpans();
       expect(span.attributes['kustomcp.outcome']).toBe('cancelled_by_client');
       expect(span.attributes['kustomcp.query.timeout_kind']).toBeUndefined();
-      expect(span.attributes['kustomcp.error.type']).toBe(
-        'KustoQueryCancelledError',
-      );
+      // A cancel is not a failure (#366): no error.type on the span.
+      expect(span.attributes['kustomcp.error.type']).toBeUndefined();
     } finally {
       await close();
     }

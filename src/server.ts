@@ -406,7 +406,8 @@ export function createKustoServer(config: KustoConfig): Server {
     const toolName = request.params.name;
     return serverTracer.startActiveSpan(`mcp.tool/${toolName}`, async span => {
       const startedAt = Date.now();
-      let status = 'ok';
+      // Also stamped on the span as kustomcp.tool.status.
+      let status: 'ok' | 'error' | 'cancelled' = 'ok';
       // Facts about an execute-query call, fed to the session tracker in finally.
       let queryFacts: { limit: number; partial: boolean } | undefined;
       let queryReduced = false;
@@ -885,12 +886,19 @@ export function createKustoServer(config: KustoConfig): Server {
         }
         return result;
       } catch (error) {
-        status = 'error';
-        recordSpanError(span, error);
-        toolErrorsCounter.add(1, {
-          tool: toolName,
-          error_type: error instanceof Error ? error.name : 'unknown',
-        });
+        // A client cancel (notifications/cancelled, or the client going away)
+        // is the client's choice, not a failure: no ERROR status and no error
+        // count (#366). The response below is the same either way.
+        if (error instanceof KustoQueryCancelledError) {
+          status = 'cancelled';
+        } else {
+          status = 'error';
+          recordSpanError(span, error);
+          toolErrorsCounter.add(1, {
+            tool: toolName,
+            error_type: error instanceof Error ? error.name : 'unknown',
+          });
+        }
 
         // Format the error message
         let errorMessage: string;
@@ -947,6 +955,7 @@ export function createKustoServer(config: KustoConfig): Server {
           });
         }
         session.recordCall(toolName);
+        span.setAttribute('kustomcp.tool.status', status);
         toolCallsCounter.add(1, {
           tool: toolName,
           status,
