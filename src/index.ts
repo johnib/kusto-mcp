@@ -15,6 +15,7 @@ import {
   recordProcessFatal,
   shutdownOtel,
   startTelemetry,
+  watchStdoutForDisconnect,
 } from './common/telemetry.js';
 import { createShutdown, settlePendingCancels } from './common/shutdown.js';
 import { createKustoServer } from './server.js';
@@ -28,6 +29,10 @@ import {
 // Guard stderr before anything can write to it: once the client disconnects,
 // an unguarded EPIPE here spins the process at ~100% CPU forever (#180, #196).
 installStderrErrorGuard();
+
+// Note stdout's own write failure, so a client disconnect is reported as an
+// exit rather than a crash (#365). Observes only; the error still exits as before.
+watchStdoutForDisconnect();
 
 // Log startup information
 debugLog('Kusto MCP Server - Starting up');
