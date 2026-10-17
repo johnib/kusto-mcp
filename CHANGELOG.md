@@ -1,3 +1,11 @@
+## [1.18.3](https://github.com/johnib/kusto-mcp/compare/v1.18.2...v1.18.3) (2026-10-17)
+
+
+### Bug Fixes
+
+* report client-disconnect EPIPE exits apart from real crashes ([#368](https://github.com/johnib/kusto-mcp/issues/368)) [skip ci] ([2541d0e](https://github.com/johnib/kusto-mcp/commit/2541d0e409043b4e7b6cc509b48a0dadd8647656)), closes [#365](https://github.com/johnib/kusto-mcp/issues/365)
+* stop counting client-cancelled queries as tool errors ([#367](https://github.com/johnib/kusto-mcp/issues/367)) ([dc081b7](https://github.com/johnib/kusto-mcp/commit/dc081b7ef7b2efd50a20889f9e3c923e65a6fe15)), closes [#313](https://github.com/johnib/kusto-mcp/issues/313) [#366](https://github.com/johnib/kusto-mcp/issues/366)
+
 ## [1.18.2](https://github.com/johnib/kusto-mcp/compare/v1.18.1...v1.18.2) (2026-10-12)
 
 
