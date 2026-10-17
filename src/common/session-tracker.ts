@@ -27,7 +27,8 @@ const SCHEMA_TOOLS: ReadonlySet<string> = new Set([
   'show-function',
 ]);
 
-type Outcome = 'success' | 'error' | 'partial' | 'reduced' | 'in_flight';
+type Outcome =
+  'success' | 'error' | 'cancelled' | 'partial' | 'reduced' | 'in_flight';
 
 export const ORDINAL_BUCKETS = ['1', '2', '3', '4-5', '6-10', '11+'] as const;
 export const SCHEMA_CALL_BUCKETS = ['0', '1', '2-3', '4+'] as const;
@@ -35,6 +36,7 @@ export const RETRY_CLASSES = [
   'first',
   'after_success',
   'after_error',
+  'after_cancelled',
   'after_partial',
   'after_reduced',
   'after_in_flight',
@@ -110,20 +112,25 @@ export class SessionTracker {
         attributes,
         finish: result => {
           try {
-            if (result.status !== 'error') this.failureStreak = 0;
-            else if (result.countsAsQueryFailure !== false)
-              this.failureStreak++;
+            // A client cancel neither counts toward nor resets the streak.
+            if (result.status === 'error') {
+              if (result.countsAsQueryFailure !== false) this.failureStreak++;
+            } else if (result.status !== 'cancelled') {
+              this.failureStreak = 0;
+            }
             // Only the most recent query owns the "previous outcome" state.
             if (this.queryCount !== ticket) return;
             this.last = {
               outcome:
                 result.status === 'error'
                   ? 'error'
-                  : result.partial
-                    ? 'partial'
-                    : result.reduced
-                      ? 'reduced'
-                      : 'success',
+                  : result.status === 'cancelled'
+                    ? 'cancelled'
+                    : result.partial
+                      ? 'partial'
+                      : result.reduced
+                        ? 'reduced'
+                        : 'success',
               limit: requestedLimit,
             };
           } catch {

@@ -108,6 +108,18 @@ describe('SessionTracker', () => {
     expect(next['kustomcp.query.limit_escalation']).toBe('same');
   });
 
+  test('a client cancel is its own retry class and leaves the failure streak alone', () => {
+    const t = new SessionTracker();
+    run(t, 20, { status: 'error' });
+    const a = run(t, 20, { status: 'cancelled' });
+    expect(a['kustomcp.query.retry_class']).toBe('after_error');
+    // Neither counted nor reset (#313).
+    expect(t.consecutiveQueryFailures).toBe(1);
+    const next = t.beginQuery(20).attributes;
+    expect(next['kustomcp.query.retry_class']).toBe('after_cancelled');
+    expect(RETRY_CLASSES).toContain(next['kustomcp.query.retry_class']);
+  });
+
   test('unknown tool names collapse to other and never ship verbatim', () => {
     const t = new SessionTracker();
     t.recordCall('secret-tool-name-with-PII');

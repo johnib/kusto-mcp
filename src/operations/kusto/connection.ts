@@ -682,7 +682,11 @@ export class KustoConnection {
             outcome === 'timeout' && !(error instanceof KustoTimeoutError)
               ? new KustoTimeoutError(errorMessage)
               : undefined;
-          recordSpanError(span, serverTimeout ?? error);
+          // A client cancel is not a failure (#366): it keeps its outcome but
+          // gets no ERROR status or error.type.
+          if (outcome !== 'cancelled_by_client') {
+            recordSpanError(span, serverTimeout ?? error);
+          }
           queriesCounter.add(1, {
             operation,
             outcome,
