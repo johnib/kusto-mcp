@@ -25,7 +25,6 @@ import {
   dynamicColumnNames,
   dynamicRowValues,
   dynamicValuesResponse,
-  HUGE_PAYLOAD_LENGTH,
   hugeCellAfterSmallRowsResponse,
   hugeCellFirstResponse,
   pipeAndNewlineResponse,
@@ -308,24 +307,20 @@ describe('Kusto dynamic column values', () => {
         reducedForResponseSize: true,
         originalRowsAvailable: 4,
       });
-      // Documents current behavior: the one-row minimum wins over the cap.
-      expect(text.length).toBeGreaterThan(HUGE_PAYLOAD_LENGTH);
+      // The one kept row is cut to fit: its huge cell becomes a marked string.
+      expect(text.length).toBeLessThanOrEqual(GLOBAL_CHAR_LIMIT);
+      expect(response.data[0].Props).toMatch(/…\[truncated \d+ chars\]$/);
     });
 
-    // BUG (src/common/response-limiter.ts findOptimalRowCount): when even
-    // `minRows` rows exceed maxLength, the minRows response is returned
-    // anyway, so a single ~20k-char JSON cell ships a ~20k-char response
-    // past the 12000-char cap.
-    test.failing(
-      'JSON: huge first row output stays within the 12000-char cap',
-      async () => {
-        const text = await callExecuteQuery(
-          { responseFormat: ResponseFormat.Json },
-          hugeCellFirstResponse(),
-        );
+    // When even `minRows` rows exceed maxLength, long cells are truncated so
+    // a single ~20k-char JSON cell can't ship past the 12000-char cap.
+    test('JSON: huge first row output stays within the 12000-char cap', async () => {
+      const text = await callExecuteQuery(
+        { responseFormat: ResponseFormat.Json },
+        hugeCellFirstResponse(),
+      );
 
-        expect(text.length).toBeLessThanOrEqual(GLOBAL_CHAR_LIMIT);
-      },
-    );
+      expect(text.length).toBeLessThanOrEqual(GLOBAL_CHAR_LIMIT);
+    });
   });
 });

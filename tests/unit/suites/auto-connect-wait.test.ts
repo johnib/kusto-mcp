@@ -127,8 +127,11 @@ describe('tool calls wait for auto-connect (#311)', () => {
         const r = await client.callTool({ name: 'show-tables', arguments: {} });
         expect(Date.now() - started).toBeLessThan(200);
         expect(r.isError).toBe(true);
+        // The third rejection switches to the stop-retrying wording.
         expect(text(r)).toMatch(
-          /Connection not initialized\. Please call initialize-connection first\./,
+          i < 2
+            ? /Connection not initialized\. Please call initialize-connection first\./
+            : /Connection not initialized \(3rd attempt without connecting\)\. Stop retrying show-tables/,
         );
       }
       expect(initCalls).toEqual(['auto']);

@@ -11,6 +11,7 @@ import {
 import { SeverityNumber, logs } from '@opentelemetry/api-logs';
 import type { Resource } from '@opentelemetry/resources';
 import { errorMonitor } from 'node:events';
+import { getFailureCategory } from './errors.js';
 import { debugLog } from './utils.js';
 
 export { SeverityNumber } from '@opentelemetry/api-logs';
@@ -204,6 +205,16 @@ export function emitLog(
 const EXCEPTION_RECORDED = Symbol('kustomcp.exceptionRecorded');
 
 /**
+ * The `kustomcp.error.type` value for an error: its class name, except that a
+ * "Connection not initialized" rejection is `NotInitialized` whatever class
+ * carries it (McpError, or a KustoQueryError after re-wrapping).
+ */
+export function errorTypeName(error: unknown): string {
+  if (getFailureCategory(error) === 'not_connected') return 'NotInitialized';
+  return error instanceof Error && error.name ? error.name : 'Error';
+}
+
+/**
  * Mark a span as failed WITHOUT leaking any message. Kusto error messages can
  * echo identifiers or query fragments, so we record only the error class name
  * (as `kustomcp.error.type`) — never the raw message or a stack that contains it.
@@ -216,7 +227,7 @@ const EXCEPTION_RECORDED = Symbol('kustomcp.exceptionRecorded');
  * the mark survives the new error object.
  */
 export function recordSpanError(span: Span, error: unknown): void {
-  const type = error instanceof Error && error.name ? error.name : 'Error';
+  const type = errorTypeName(error);
   span.setAttribute('kustomcp.error.type', type);
   const obj =
     error && typeof error === 'object'

@@ -143,9 +143,51 @@ export function isNotQueryFault(error: unknown): boolean {
   );
 }
 
-/** Copy the not-a-query-fault mark onto an error that re-wraps `from`. */
+/**
+ * Copy the not-a-query-fault mark and the failure category onto an error that
+ * re-wraps `from`.
+ */
 export function carryNotQueryFault(from: unknown, to: unknown): void {
   if (isNotQueryFault(from)) markNotQueryFault(to);
+  const category = getFailureCategory(from);
+  if (category) setFailureCategory(to, category);
+}
+
+/**
+ * Bounded reason a query failed, exported as `kustomcp.query.failure_category`.
+ * Set from the HTTP status, network code or error class where the failure is
+ * first seen — never from the error message.
+ */
+export const FAILURE_CATEGORIES = [
+  'query_semantic',
+  'auth_forbidden',
+  'throttled',
+  'server_error',
+  'network',
+  'timeout',
+  'cancelled',
+  'not_connected',
+  'other',
+] as const;
+export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
+
+const FAILURE_CATEGORY = Symbol('kustomcp.failureCategory');
+
+export function setFailureCategory(
+  error: unknown,
+  category: FailureCategory,
+): void {
+  if (error && typeof error === 'object' && Object.isExtensible(error)) {
+    (error as Record<symbol, unknown>)[FAILURE_CATEGORY] = category;
+  }
+}
+
+export function getFailureCategory(
+  error: unknown,
+): FailureCategory | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  return (error as Record<symbol, unknown>)[FAILURE_CATEGORY] as
+    FailureCategory | undefined;
 }
 
 const LONG_TIME_WINDOWS: ReadonlySet<unknown> = new Set([

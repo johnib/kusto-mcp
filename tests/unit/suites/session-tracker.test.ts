@@ -178,6 +178,25 @@ describe('purpose', () => {
     });
   });
 
+  test('common synonyms map to their listed label', () => {
+    const cases: Array<[string, string]> = [
+      ['validation', 'validation'],
+      ['Validation', 'validation'],
+      ['reporting', 'reporting_pipeline'],
+      ['usage reporting', 'reporting_pipeline'],
+      ['usage_reporting', 'reporting_pipeline'],
+      ['Usage-Reporting', 'reporting_pipeline'],
+      ['schema', 'schema_discovery'],
+      ['schema_check', 'schema_discovery'],
+      ['schema exploration', 'schema_discovery'],
+      ['point lookup', 'point_lookup'],
+      ['  Point   Lookup ', 'point_lookup'],
+    ];
+    for (const [sent, label] of cases) {
+      expect(classifyPurpose(sent)).toEqual({ purpose: label });
+    }
+  });
+
   test('absent or non-string is unspecified', () => {
     for (const v of [undefined, null, 42, {}, [], '', '   ']) {
       expect(classifyPurpose(v)).toEqual({ purpose: 'unspecified' });

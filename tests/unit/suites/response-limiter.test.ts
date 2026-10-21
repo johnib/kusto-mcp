@@ -214,4 +214,160 @@ describe('Response Limiter Unit Tests', () => {
       expect(endTime - startTime).toBeLessThan(100); // Should be fast
     });
   });
+
+  describe('A single row larger than the cap', () => {
+    const giantRow = (): QueryResult => ({
+      name: 'PrimaryResult',
+      data: [{ id: 1, payload: 'x'.repeat(50_000), tag: 'short' }],
+      metadata: {
+        rowCount: 1,
+        isPartial: false,
+        requestedLimit: 20,
+        hasMoreResults: false,
+      },
+    });
+
+    test.each(['json', 'markdown'] as const)(
+      '%s: truncates the long cell so the response fits, with a marker',
+      format => {
+        const result = limitResponseSize(giantRow(), {
+          maxLength: 12000,
+          minRows: 1,
+          format,
+          formatOptions: { showMetadata: true },
+        });
+
+        expect(result.content.length).toBeLessThanOrEqual(12000);
+        expect(result.finalCharCount).toBe(result.content.length);
+        expect(result.wasReduced).toBe(true);
+        expect(result.optimalRowCount).toBe(1);
+        expect(result.content).toMatch(/…\[truncated \d+ chars\]/);
+        // Short cells are left alone.
+        expect(result.content).toContain('short');
+        expect(result.content).toContain('truncated');
+        if (format === 'json') {
+          const parsed = JSON.parse(result.content);
+          expect(parsed.metadata.reducedForResponseSize).toBe(true);
+          const kept = parsed.data[0].payload as string;
+          const dropped = Number(/truncated (\d+) chars/.exec(kept)![1]);
+          expect(kept.indexOf('…')).toBe(50_000 - dropped);
+        } else {
+          expect(result.content).toContain('Reduced for response size: Yes');
+        }
+      },
+    );
+
+    test('truncates non-string (dynamic) cells too', () => {
+      const data = [{ obj: { blob: 'y'.repeat(30_000) } }];
+      const result = limitResponseSize(
+        {
+          data,
+          metadata: {
+            rowCount: 1,
+            isPartial: false,
+            requestedLimit: 20,
+            hasMoreResults: false,
+          },
+        },
+        { maxLength: 5000, minRows: 1, format: 'json' },
+      );
+      expect(result.content.length).toBeLessThanOrEqual(5000);
+      expect(result.content).toMatch(/truncated \d+ chars/);
+    });
+
+    test.each(['json', 'markdown'] as const)(
+      '%s: a wide row of short cells keeps its values, no markers',
+      format => {
+        const row: Record<string, unknown> = {};
+        for (let i = 0; i < 400; i++) {
+          row[`SomeFairlyLongColumnName_${i}`] = `value-${i}-abcdef`;
+        }
+        const wide = (): QueryResult => ({
+          data: [row],
+          metadata: {
+            rowCount: 1,
+            isPartial: false,
+            requestedLimit: 20,
+            hasMoreResults: false,
+          },
+        });
+        const untruncated = limitResponseSize(wide(), {
+          maxLength: 1_000_000,
+          minRows: 1,
+          format,
+        });
+        const result = limitResponseSize(wide(), {
+          maxLength: 12000,
+          minRows: 1,
+          format,
+        });
+        expect(result.content.length).toBeLessThanOrEqual(
+          untruncated.content.length,
+        );
+        expect(result.content).not.toMatch(/truncated \d+ chars/);
+        expect(result.content).toContain('value-399-abcdef');
+      },
+    );
+
+    test('a wide row plus one huge cell cuts only the huge cell', () => {
+      const row: Record<string, unknown> = { huge: 'z'.repeat(50_000) };
+      for (let i = 0; i < 400; i++) {
+        row[`SomeFairlyLongColumnName_${i}`] = `value-${i}-abcdef`;
+      }
+      const result = limitResponseSize(
+        {
+          data: [row],
+          metadata: {
+            rowCount: 1,
+            isPartial: false,
+            requestedLimit: 20,
+            hasMoreResults: false,
+          },
+        },
+        { maxLength: 12000, minRows: 1, format: 'json' },
+      );
+      const parsed = JSON.parse(result.content);
+      expect(parsed.data[0].SomeFairlyLongColumnName_399).toBe(
+        'value-399-abcdef',
+      );
+      expect(parsed.data[0].huge).toMatch(/truncated \d+ chars\]$/);
+      expect(result.content.length).toBeLessThan(40_000);
+    });
+
+    test('a wide row plus many huge cells stays bounded', () => {
+      const row: Record<string, unknown> = {};
+      for (let i = 0; i < 400; i++) {
+        row[`SomeFairlyLongColumnName_${i}`] = `value-${i}-abcdef`;
+      }
+      for (let i = 0; i < 100; i++) row[`huge_${i}`] = 'z'.repeat(50_000);
+      const result = limitResponseSize(
+        {
+          data: [row],
+          metadata: {
+            rowCount: 1,
+            isPartial: false,
+            requestedLimit: 20,
+            hasMoreResults: false,
+          },
+        },
+        { maxLength: 12000, minRows: 1, format: 'json' },
+      );
+      const parsed = JSON.parse(result.content);
+      expect(parsed.data[0].SomeFairlyLongColumnName_399).toBe(
+        'value-399-abcdef',
+      );
+      expect(parsed.data[0].huge_99).toMatch(/truncated \d+ chars\]$/);
+      expect(result.content.length).toBeLessThan(50_000);
+    });
+
+    test('minRows above the available rows reports only delivered rows', () => {
+      const result = limitResponseSize(giantRow(), {
+        maxLength: 12000,
+        minRows: 5,
+        format: 'json',
+      });
+      expect(result.optimalRowCount).toBe(1);
+      expect(result.content.length).toBeLessThanOrEqual(12000);
+    });
+  });
 });
