@@ -232,7 +232,12 @@ export function createKustoServer(config: KustoConfig): Server {
     entry: { generation: number },
   ) {
     const candidate = new KustoConnection(validatedConfig);
-    const result = await candidate.initialize(clusterUrl, database, 'manual');
+    const result = await candidate.initialize(
+      clusterUrl,
+      database,
+      'manual',
+      connection,
+    );
     autoConnectPaused = false;
     clearAutoConnectBackoff();
     if (entry.generation > connectionGeneration) {

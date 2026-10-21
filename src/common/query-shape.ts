@@ -119,6 +119,15 @@ export const QUERY_TIME_WINDOW_VOCAB = [
   'absolute',
   'unknown',
 ] as const;
+// Span between the earliest and latest datetime() literal, in the ago() buckets.
+export const QUERY_ABSOLUTE_RANGE_VOCAB = [
+  '<=1h',
+  '<=1d',
+  '<=7d',
+  '<=30d',
+  '>30d',
+  'unknown',
+] as const;
 export const QUERY_COMPLEXITY_VOCAB = [
   'trivial',
   'simple',
@@ -134,8 +143,34 @@ const UNIT_SECONDS: Readonly<Record<string, number>> = {
   d: 86400,
 };
 
+// `datetime(2024-01-01)`, `datetime(2024-01-01 10:00:00.5)`,
+// `datetime("2024-01-01T10:00Z")`, matched from just after the word. The parts
+// are only turned into a number of seconds; nothing is copied out. A literal
+// followed by `+`/`-` (`datetime(x) + 2d`) is not its own bound: no match.
+const DATETIME_LITERAL =
+  /\s*\(\s*(["']?)(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.\d{1,7})?)?)?Z?\1\s*\)(?!\s*[-+])/iy;
+const DATETIME_NULL = /\s*\(\s*null\s*\)/iy;
+
+/**
+ * Epoch seconds of the datetime literal starting at `at`, null for
+ * `datetime(null)`, or undefined.
+ */
+function datetimeLiteral(q: string, at: number): number | null | undefined {
+  DATETIME_NULL.lastIndex = at;
+  if (DATETIME_NULL.test(q)) return null;
+  DATETIME_LITERAL.lastIndex = at;
+  const m = DATETIME_LITERAL.exec(q);
+  if (!m) return undefined;
+  const [y, mo, d, h, mi, s] = m.slice(2, 8).map(x => Number(x ?? 0));
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 59) {
+    return undefined;
+  }
+  return Date.UTC(y, mo - 1, d, h, mi, s) / 1000;
+}
+
 type Tok =
-  | { t: 'word' | 'num'; v: string }
+  | { t: 'word'; v: string; ts?: number | null }
+  | { t: 'num'; v: string }
   | {
       t:
         | 'pipe'
@@ -229,7 +264,12 @@ function lex(q: string): Tok[] | undefined {
         else if (q[i] === '-' && i + 1 < n && isWordStart(q[i + 1])) i++;
         else break;
       }
-      toks.push({ t: 'word', v: q.slice(start, i).toLowerCase() });
+      const v = q.slice(start, i).toLowerCase();
+      toks.push(
+        v === 'datetime'
+          ? { t: 'word', v, ts: datetimeLiteral(q, i) }
+          : { t: 'word', v },
+      );
     } else if (isDigit(c)) {
       const start = i;
       i++;
@@ -319,6 +359,8 @@ export function classifyQueryShape(query: string): Attributes {
     let maxAgoSeconds = -1;
     let sawUnparsableAgo = false;
     let sawDatetime = false;
+    let sawUnparsableDatetime = false;
+    const datetimes: number[] = [];
     let atStatementStart = true;
     let expectOperator = false;
     // Words allowed to count as an operator at the very next token (after `(`
@@ -403,6 +445,9 @@ export function classifyQueryShape(query: string): Attributes {
           }
         } else if (tk.v === 'datetime' && next?.t === 'lparen') {
           sawDatetime = true;
+          // datetime(null) is a value, not a bound: skipped.
+          if (tk.ts === undefined) sawUnparsableDatetime = true;
+          else if (tk.ts !== null) datetimes.push(tk.ts);
         }
         continue;
       }
@@ -415,6 +460,17 @@ export function classifyQueryShape(query: string): Attributes {
     if (maxAgoSeconds >= 0) timeWindow = windowBucket(maxAgoSeconds);
     else if (sawUnparsableAgo) timeWindow = 'unknown';
     else if (sawDatetime) timeWindow = 'absolute';
+
+    // Only for queries with datetime() literals. Needs exactly two that
+    // parse, lower bound first, as in `between (a .. b)` or `>= a and <= b`.
+    let absoluteRange: string | undefined;
+    if (sawDatetime) {
+      const [lo, hi] = datetimes;
+      absoluteRange =
+        sawUnparsableDatetime || datetimes.length !== 2 || hi < lo
+          ? 'unknown'
+          : windowBucket(hi - lo);
+    }
 
     const score = pipes + 2 * joins + 2 * unions + lets;
     const complexity =
@@ -436,6 +492,7 @@ export function classifyQueryShape(query: string): Attributes {
       [`${PREFIX}let_count`]: cap(lets, COUNT_CAP),
       [`${PREFIX}time_window`]: timeWindow,
       [`${PREFIX}complexity_class`]: complexity,
+      ...(absoluteRange && { [`${PREFIX}absolute_range`]: absoluteRange }),
     };
   } catch {
     // Telemetry must never fail a query.

@@ -6,6 +6,7 @@
 
 import {
   classifyQueryShape,
+  QUERY_ABSOLUTE_RANGE_VOCAB,
   QUERY_COMPLEXITY_VOCAB,
   QUERY_CONTROL_CMD_VOCAB,
   QUERY_OPERATOR_VOCAB,
@@ -33,6 +34,8 @@ function assertInVocabulary(attrs: Record<string, unknown>): void {
       }
     } else if (key === `${P}time_window`) {
       expect(QUERY_TIME_WINDOW_VOCAB).toContain(value);
+    } else if (key === `${P}absolute_range`) {
+      expect(QUERY_ABSOLUTE_RANGE_VOCAB).toContain(value);
     } else if (key === `${P}complexity_class`) {
       expect(QUERY_COMPLEXITY_VOCAB).toContain(value);
     } else {
@@ -83,6 +86,74 @@ describe('classifyQueryShape', () => {
     ['T | take 5', 'none'],
   ])('time window: %s -> %s', (q, expected) => {
     expect(shape(q)[`${P}time_window`]).toBe(expected);
+  });
+
+  test.each([
+    [
+      'T | where t between (datetime(2024-01-01) .. datetime(2024-01-01 00:30))',
+      '<=1h',
+    ],
+    [
+      'T | where t >= datetime(2024-01-01T00:00:00Z) and t <= datetime(2024-01-02T00:00:00Z)',
+      '<=1d',
+    ],
+    [
+      'T | where t >= datetime("2024-01-01") and t < datetime("2024-01-05 12:00:00.123")',
+      '<=7d',
+    ],
+    [
+      'T | where t between(datetime(2024-01-01)..datetime(2024-01-31))',
+      '<=30d',
+    ],
+    // datetime(null) is a value, not a bound.
+    [
+      'T | where t between (datetime(2024-01-01) .. datetime(2024-01-02)) | extend x = iff(isnull(y), datetime(null), y)',
+      '<=1d',
+    ],
+    // One bound only, a literal that doesn't parse, arithmetic on a literal,
+    // bounds out of order or more than two literals: no range.
+    [
+      'T | where t > datetime(2024-06-01) | where t < datetime(2023-01-01)',
+      'unknown',
+    ],
+    [
+      'T | where t >= datetime(2024-01-01) and t < datetime(2024-01-01) + 2d',
+      'unknown',
+    ],
+    [
+      'T | where t between (datetime(2024-01-01) .. datetime(2024-01-02)) | summarize count() by bin_at(t, 1h, datetime(2024-01-01))',
+      'unknown',
+    ],
+    ['T | where t > datetime(2024-01-01)', 'unknown'],
+    [
+      'T | where t between (datetime(2024-01-01) .. datetime(2024-13-01))',
+      'unknown',
+    ],
+    ['T | where t between (datetime(x) .. datetime(2024-01-02))', 'unknown'],
+    ['T | where t > datetime(null)', 'unknown'],
+  ])('absolute range: %s -> %s', (q, expected) => {
+    const a = shape(q);
+    expect(a[`${P}absolute_range`]).toBe(expected);
+    // The existing lookback bucket is unchanged.
+    expect(a[`${P}time_window`]).toBe('absolute');
+    assertInVocabulary(a);
+  });
+
+  test('absolute range is absent without datetime() literals', () => {
+    expect(shape('T | where t > ago(1d)')).not.toHaveProperty(
+      `${P}absolute_range`,
+    );
+    expect(shape('T | take 5')).not.toHaveProperty(`${P}absolute_range`);
+    // A literal inside a string or comment is not a datetime() call.
+    expect(
+      shape('T | where s == "datetime(2024-01-01)" // datetime(2024-02-01)'),
+    ).not.toHaveProperty(`${P}absolute_range`);
+    // With ago() present, time_window keeps the ago() bucket.
+    const a = shape(
+      'T | where t > ago(2h) and t between (datetime(2024-01-01) .. datetime(2024-03-01))',
+    );
+    expect(a[`${P}time_window`]).toBe('<=1d');
+    expect(a[`${P}absolute_range`]).toBe('>30d');
   });
 
   test('control commands', () => {
@@ -295,6 +366,9 @@ describe('classifyQueryShape', () => {
       'ago',
       '7d',
       'datetime',
+      'datetime(2024-01-01)',
+      'datetime(2024-01-02 03:04)',
+      '..',
       'foo',
       'bar_baz',
       '.show',

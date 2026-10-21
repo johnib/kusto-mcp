@@ -245,6 +245,8 @@ function querySizeClass(length: number): 'xs' | 's' | 'm' | 'l' | 'xl' {
 export class KustoConnection {
   private client: Client | null = null;
   private database: string | null = null;
+  // Cluster + database once connected. Compared only, never exported or hashed.
+  private target: string | undefined;
   private config: KustoConfig;
   private tokenCredential: TokenCredential;
 
@@ -269,12 +271,14 @@ export class KustoConnection {
    * @param clusterUrl The URL of the Kusto cluster
    * @param database The database to connect to
    * @param source Whether this is a manual (tool) or auto connection
+   * @param inUse The connection the server is using now, if any
    * @returns A structured connection result
    */
   async initialize(
     clusterUrl: string,
     database: string,
     source: 'auto' | 'manual' = 'manual',
+    inUse?: KustoConnection | null,
   ): Promise<{ success: boolean; cluster: string; database: string }> {
     return tracer.startActiveSpan('mcp.connection.init', async span => {
       span.setAttribute('kustomcp.connection.source', source);
@@ -396,6 +400,15 @@ export class KustoConnection {
         span.setAttribute('kustomcp.connection.duration_ms', elapsedMs);
         // Onboarding funnel: true only on this install's first-ever success.
         span.setAttribute('kustomcp.connection.first_success', markConnected());
+        // Compared with the connection in use; absent when there is none.
+        this.target =
+          `${clusterUrl.trim().replace(/\/+$/, '')}\n${database.trim()}`.toLowerCase();
+        if (inUse?.target !== undefined) {
+          span.setAttribute(
+            'kustomcp.connection.target_changed',
+            this.target !== inUse.target,
+          );
+        }
         connectionDurationHistogram.record(elapsedMs, {
           source,
           outcome: 'success',
