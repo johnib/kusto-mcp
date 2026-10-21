@@ -192,6 +192,7 @@ type Tok =
         | 'other';
       // On `>`/`>=` (lower bound follows) and `<`/`<=` (upper bound follows).
       bound?: 'lo' | 'hi';
+      comma?: true;
     };
 
 // Pairs the two ends of `between (a .. b)`; never equal to a column word.
@@ -202,7 +203,9 @@ const boundTok = (c: string): Tok =>
     ? { t: 'other', bound: 'lo' }
     : c === '<'
       ? { t: 'other', bound: 'hi' }
-      : { t: 'other' };
+      : c === ','
+        ? { t: 'other', comma: true }
+        : { t: 'other' };
 
 const isWordStart = (c: string) => /[A-Za-z_]/.test(c);
 const isWordChar = (c: string) => /[A-Za-z0-9_]/.test(c);
@@ -511,7 +514,8 @@ export function classifyQueryShape(query: string): Attributes {
     // parse and form one range: `between (a .. b)`, or `c >= a and c <= b`
     // on the same named column, in one statement, with no `or` between and
     // both at the same paren depth with no `)` closing a group opened before
-    // the lower bound (another union/join branch, or a different `between`).
+    // the lower bound (another union/join branch, or a different `between`)
+    // and no `,` between them at that depth (separate extend/print columns).
     let absoluteRange: string | undefined;
     if (sawDatetime) {
       const [lo, hi] = datetimes;
@@ -523,6 +527,8 @@ export function classifyQueryShape(query: string): Attributes {
       const sameGroup = (t: Tok) => {
         if (t.t === 'lparen') depth++;
         else if (t.t === 'rparen') depth--;
+        // A comma at the bounds' own depth separates two expressions.
+        else if (t.t === 'other' && t.comma && depth === 0) return false;
         return depth >= 0;
       };
       const isRange =

@@ -155,6 +155,11 @@ describe('classifyQueryShape', () => {
       'T | where t >= datetime(2024-01-01) | join (U | where t <= datetime(2024-01-02)) on Key',
       'unknown',
     ],
+    [
+      'T | extend after_start = t >= datetime(2024-01-01), before_end = t <= datetime(2024-01-02)',
+      'unknown',
+    ],
+    ['print t >= datetime(2024-01-01), t <= datetime(2024-01-02)', 'unknown'],
     // Days the month doesn't have, and year 0000, don't parse.
     [
       'T | where t between (datetime(0000-01-01) .. datetime(0000-01-02))',
