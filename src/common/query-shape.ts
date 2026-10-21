@@ -149,13 +149,15 @@ const UNIT_SECONDS: Readonly<Record<string, number>> = {
 // followed by `+`/`-` (`datetime(x) + 2d`) is not its own bound: no match.
 const DATETIME_LITERAL =
   /\s*\(\s*(["']?)(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.(\d{1,7}))?)?)?Z?\1\s*\)(?!\s*[-+])/iy;
+type Instant = readonly [number, number];
 const DATETIME_NULL = /\s*\(\s*null\s*\)/iy;
 
 /**
- * Epoch seconds of the datetime literal starting at `at`, null for
+ * [whole epoch seconds, fraction] of the datetime literal starting at `at`
+ * (kept apart so 100ns survives subtraction), null for
  * `datetime(null)`, or undefined.
  */
-function datetimeLiteral(q: string, at: number): number | null | undefined {
+function datetimeLiteral(q: string, at: number): Instant | null | undefined {
   DATETIME_NULL.lastIndex = at;
   if (DATETIME_NULL.test(q)) return null;
   DATETIME_LITERAL.lastIndex = at;
@@ -172,11 +174,11 @@ function datetimeLiteral(q: string, at: number): number | null | undefined {
     return undefined;
   }
   const frac = m[8] ? Number(`0.${m[8]}`) : 0;
-  return date.getTime() / 1000 + h * 3600 + mi * 60 + s + frac;
+  return [date.getTime() / 1000 + h * 3600 + mi * 60 + s, frac];
 }
 
 type Tok =
-  | { t: 'word'; v: string; ts?: number | null }
+  | { t: 'word'; v: string; ts?: Instant | null }
   | { t: 'num'; v: string }
   | {
       t:
@@ -382,7 +384,7 @@ export function classifyQueryShape(query: string): Attributes {
     // Parsed datetime() literals: value, token index, and which bound of a
     // range the preceding tokens make it (`> x`, `between (x`; `< x`, `.. x`).
     const datetimes: {
-      ts: number;
+      ts: Instant;
       k: number;
       bound?: 'lo' | 'hi';
       col?: string;
@@ -508,11 +510,15 @@ export function classifyQueryShape(query: string): Attributes {
     // Only for queries with datetime() literals. Needs exactly two that
     // parse and form one range: `between (a .. b)`, or `c >= a and c <= b`
     // on the same named column, in one statement, with no `or` between and
-    // no `)` closing a group opened before the lower bound (another union
-    // branch, or the end of a different `between`).
+    // both at the same paren depth with no `)` closing a group opened before
+    // the lower bound (another union/join branch, or a different `between`).
     let absoluteRange: string | undefined;
     if (sawDatetime) {
       const [lo, hi] = datetimes;
+      const width =
+        datetimes.length === 2
+          ? hi.ts[0] - lo.ts[0] + (hi.ts[1] - lo.ts[1])
+          : -1;
       let depth = 0;
       const sameGroup = (t: Tok) => {
         if (t.t === 'lparen') depth++;
@@ -526,12 +532,13 @@ export function classifyQueryShape(query: string): Attributes {
         hi.bound === 'hi' &&
         lo.col !== undefined &&
         lo.col === hi.col &&
-        hi.ts >= lo.ts &&
+        width >= 0 &&
         !toks
           .slice(lo.k, hi.k)
           .some(t => t.t === 'semi' || (t.t === 'word' && t.v === 'or')) &&
-        toks.slice(lo.k, hi.k).every(sameGroup);
-      absoluteRange = isRange ? windowBucket(hi.ts - lo.ts) : 'unknown';
+        toks.slice(lo.k, hi.k).every(sameGroup) &&
+        depth === 0;
+      absoluteRange = isRange ? windowBucket(width) : 'unknown';
     }
 
     const score = pipes + 2 * joins + 2 * unions + lets;

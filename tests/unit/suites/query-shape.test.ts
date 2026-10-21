@@ -151,10 +151,9 @@ describe('classifyQueryShape', () => {
       'T | where a between (datetime(2024-01-01) .. now()) and b between (now() .. datetime(2024-01-02))',
       'unknown',
     ],
-    // Grouping inside one range is fine.
     [
-      'T | where (t >= datetime(2024-01-01) and (t <= datetime(2024-01-02)))',
-      '<=1d',
+      'T | where t >= datetime(2024-01-01) | join (U | where t <= datetime(2024-01-02)) on Key',
+      'unknown',
     ],
     // Days the month doesn't have, and year 0000, don't parse.
     [
@@ -176,6 +175,10 @@ describe('classifyQueryShape', () => {
     // Fractional seconds count: just over an hour is not <=1h.
     [
       'T | where t between (datetime(2024-01-01 00:00:00.0) .. datetime(2024-01-01 01:00:00.1))',
+      '<=1d',
+    ],
+    [
+      'T | where t between (datetime(2024-01-01 00:00:00.0000000) .. datetime(2024-01-01 01:00:00.0000001))',
       '<=1d',
     ],
     // Leap day and year 0001 do.
