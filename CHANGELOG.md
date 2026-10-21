@@ -1,3 +1,18 @@
+# [1.19.0](https://github.com/johnib/kusto-mcp/compare/v1.18.3...v1.19.0) (2026-10-21)
+
+
+### Bug Fixes
+
+* handle empty and oversized query results [skip ci] ([#373](https://github.com/johnib/kusto-mcp/issues/373)) ([ffbaaa9](https://github.com/johnib/kusto-mcp/commit/ffbaaa96611a4157636d13ff505971a5fd80e8d3))
+* sharpen execute-query guidance and purpose labels ([#371](https://github.com/johnib/kusto-mcp/issues/371)) ([b5a3607](https://github.com/johnib/kusto-mcp/commit/b5a3607f477891ad9885b73252dca95914295dbf))
+* steer agents to connect before querying [skip ci] ([#372](https://github.com/johnib/kusto-mcp/issues/372)) ([415a63c](https://github.com/johnib/kusto-mcp/commit/415a63c8ae05842b839913821eda52ea2b77ff7a))
+
+
+### Features
+
+* **telemetry:** classify query failures and retries [skip ci] ([#374](https://github.com/johnib/kusto-mcp/issues/374)) ([982dcce](https://github.com/johnib/kusto-mcp/commit/982dcced8289122e84a8e8f11f02c99b35bce2e3))
+* **telemetry:** measure session length, time range and target switches ([#375](https://github.com/johnib/kusto-mcp/issues/375)) ([6747fa9](https://github.com/johnib/kusto-mcp/commit/6747fa93a69cace20d4155c875bca395633ea1fc))
+
 ## [1.18.3](https://github.com/johnib/kusto-mcp/compare/v1.18.2...v1.18.3) (2026-10-17)
 
 
