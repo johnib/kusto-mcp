@@ -405,6 +405,32 @@ describe('execute-query span', () => {
     }
   });
 
+  test('a missing database (400 EntityNotFound) stays out of the streak', async () => {
+    const s = await startServer();
+    try {
+      await s.init();
+      for (let i = 0; i < 3; i++)
+        execute.mockRejectedValueOnce(
+          Object.assign(withStatus(400), {
+            response: {
+              status: 400,
+              data: { error: { code: 'BadRequest_EntityNotFound' } },
+            },
+          }),
+        );
+      for (let i = 0; i < 3; i++) await s.query();
+      const attrs = toolSpans().map(sp => sp.attributes);
+      expect(attrs.map(a => a['kustomcp.session.failure_streak'])).toEqual([
+        '0',
+        '0',
+        '0',
+      ]);
+      expect(last(attrs)['kustomcp.hint.fired']).toBe('none');
+    } finally {
+      await s.close();
+    }
+  });
+
   test('3rd not-connected call: not_initialized_stop hint fired', async () => {
     const s = await startServer();
     try {

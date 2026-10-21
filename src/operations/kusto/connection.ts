@@ -783,6 +783,9 @@ export class KustoConnection {
             error instanceof KustoConnectionError ||
             // Not outcome === 'throttled': that one is matched in the message.
             failure.category === 'throttled' ||
+            // A 400 that isn't a KQL error (e.g. a missing database).
+            (failure.httpStatus === 400 &&
+              failure.category !== 'query_semantic') ||
             NOT_QUERY_FAULT_CATEGORIES.has(
               classifyConnectionFailure(error).category,
             )
