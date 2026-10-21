@@ -163,6 +163,18 @@ const QUERY_FAILURE_HINT =
 const EMPTY_RESULT_HINT =
   'No rows matched. If this is unexpected, check the datetime() range and filter values (e.g. case, exact IDs) before concluding there is no data.';
 
+// 1 -> "1st", 3 -> "3rd", 11 -> "11th", 22 -> "22nd".
+const ORDINAL_RULES = new Intl.PluralRules('en-US', { type: 'ordinal' });
+const ORDINAL_SUFFIX: Record<string, string> = {
+  one: 'st',
+  two: 'nd',
+  few: 'rd',
+  other: 'th',
+};
+function ordinal(n: number): string {
+  return `${n}${ORDINAL_SUFFIX[ORDINAL_RULES.select(n)] ?? 'th'}`;
+}
+
 /**
  * Create a Kusto MCP server
  *
@@ -236,7 +248,12 @@ export function createKustoServer(config: KustoConfig): Server {
     entry: { generation: number },
   ) {
     const candidate = new KustoConnection(validatedConfig);
-    const result = await candidate.initialize(clusterUrl, database, 'manual');
+    const result = await candidate
+      .initialize(clusterUrl, database, 'manual')
+      .catch(error => {
+        manualConnectFailed = true;
+        throw error;
+      });
     autoConnectPaused = false;
     clearAutoConnectBackoff();
     if (entry.generation > connectionGeneration) {
@@ -259,6 +276,14 @@ export function createKustoServer(config: KustoConfig): Server {
   // Set when this launch skipped the startup auto-connect because earlier
   // launches kept failing (#316). Cleared by a successful manual connect.
   let autoConnectPaused = false;
+  // Tool calls rejected as "not initialized". A connection is never dropped
+  // once made, so these are always consecutive. Agents that never call
+  // initialize-connection keep retrying; from the third rejection the error
+  // tells them to stop. In-process only; never exported.
+  let notInitializedCount = 0;
+  // Set once an initialize-connection call fails, so the stop-retrying
+  // error points at the failed connect instead of asking for one.
+  let manualConnectFailed = false;
 
   // Auto-connection function
   async function tryAutoConnect(): Promise<void> {
@@ -373,7 +398,13 @@ export function createKustoServer(config: KustoConfig): Server {
         {
           name: 'execute-query',
           description:
-            'Runs KQL queries and returns results. If you have not inspected the table yet, call show-table first to see its columns. By default, limits results to 20 rows to prevent context overflow. Use the "limit" parameter to specify a different maximum. If results are marked as partial, consider revising your query to use aggregations, filters, or summarizations. Avoid the search operator on large tables; it often times out. Filter a specific table with where/has instead. Optionally set "purpose" to the closest intent.',
+            'Runs KQL queries and returns results. ' +
+            (validatedConfig.clusterUrl && validatedConfig.defaultDatabase
+              ? ''
+              : validatedConfig.clusterUrl
+                ? 'No database is configured, so nothing connects at startup: call initialize-connection before the first query. '
+                : 'No cluster is configured: call initialize-connection before the first query. ') +
+            'If you have not inspected the table yet, call show-table first to see its columns. By default, limits results to 20 rows to prevent context overflow. Use the "limit" parameter to specify a different maximum. If results are marked as partial, consider revising your query to use aggregations, filters, or summarizations. Avoid the search operator on large tables; it often times out. Filter a specific table with where/has instead. Optionally set "purpose" to the closest intent.',
           inputSchema: z.toJSONSchema(ExecuteQuerySchema),
         },
         {
@@ -441,6 +472,19 @@ export function createKustoServer(config: KustoConfig): Server {
         await awaitAutoConnect();
         if (!connection) {
           toolNotInitializedCounter.add(1, { tool: toolName });
+          notInitializedCount++;
+          // From the third rejection in a row, tell the agent to stop retrying.
+          const attempt =
+            notInitializedCount >= 3
+              ? ` (${ordinal(notInitializedCount)} attempt without connecting)`
+              : '';
+          const stop = !attempt
+            ? ''
+            : manualConnects.size > 0
+              ? ` Stop retrying ${toolName}: initialize-connection is still running, so wait for it to finish.`
+              : manualConnectFailed
+                ? ` Stop retrying ${toolName}: initialize-connection failed, so fix the cluster URL or auth and call it again.`
+                : ` Stop retrying ${toolName}: call initialize-connection with a cluster URL first.`;
           if (autoConnectPaused) {
             span.setAttribute(
               'kustomcp.connection.autoconnect',
@@ -448,7 +492,7 @@ export function createKustoServer(config: KustoConfig): Server {
             );
             throw new McpError(
               ErrorCode.InvalidRequest,
-              'Connection not initialized: auto-connect is paused after repeated failed attempts at startup. Please call initialize-connection to connect.',
+              `Connection not initialized${attempt}: auto-connect is paused after repeated failed attempts at startup.${stop || ' Please call initialize-connection to connect.'}`,
             );
           }
           const reason = autoConnectFailure
@@ -456,7 +500,9 @@ export function createKustoServer(config: KustoConfig): Server {
             : '';
           throw new McpError(
             ErrorCode.InvalidRequest,
-            `Connection not initialized. Please call initialize-connection first.${reason}`,
+            attempt
+              ? `Connection not initialized${attempt}.${stop}${reason}`
+              : `Connection not initialized. Please call initialize-connection first.${reason}`,
           );
         }
         return connection;
