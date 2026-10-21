@@ -159,6 +159,10 @@ const QUERY_FAILURE_HINT_AFTER = 3;
 const QUERY_FAILURE_HINT =
   'Several queries failed in a row – check the table schema with show-table and simplify the query.';
 
+// Added to a successful execute-query that returned no rows.
+const EMPTY_RESULT_HINT =
+  'No rows matched. If this is unexpected, check the datetime() range and filter values (e.g. case, exact IDs) before concluding there is no data.';
+
 /**
  * Create a Kusto MCP server
  *
@@ -727,7 +731,9 @@ export function createKustoServer(config: KustoConfig): Server {
                     queryStatistics: transformedResult.queryStatistics,
                   }),
                 },
-                message: undefined, // Will be set by response limiter if needed
+                // Zero rows is often a too-narrow filter, not missing data.
+                message:
+                  availableData.length === 0 ? EMPTY_RESULT_HINT : undefined,
               };
 
               // Determine response format from config
@@ -748,6 +754,16 @@ export function createKustoServer(config: KustoConfig): Server {
                 'kustomcp.response.was_reduced',
                 limitResult.wasReduced,
               );
+              // What the agent actually got, after the limiter trimmed it.
+              span.setAttribute(
+                'kustomcp.result.delivered_row_count',
+                limitResult.optimalRowCount,
+              );
+              span.setAttribute(
+                'kustomcp.response.chars',
+                limitResult.content.length,
+              );
+              span.setAttribute('kustomcp.response.max_chars', globalCharLimit);
               queryFacts = { limit: requestedLimit, partial: isPartial };
               queryReduced = limitResult.wasReduced;
               debugLog(`Using ${responseFormat} response format`);

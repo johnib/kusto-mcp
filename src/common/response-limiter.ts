@@ -22,36 +22,80 @@ export interface ResponseLimitResult {
   finalCharCount: number;
 }
 
+/** A cell's text: strings as-is, anything else as its JSON. */
+function cellText(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
 /**
- * Create a response with a specific number of rows
+ * Cut a cell value to `maxChars`, marking how much was dropped. A cell is only
+ * cut when that makes it shorter (the marker itself costs ~20 chars), so
+ * smaller caps never grow the response and short values are kept intact.
+ */
+function truncateCell(value: unknown, maxChars: number): unknown {
+  const text = cellText(value);
+  if (text.length <= maxChars) return value;
+  const cut = `${text.slice(0, maxChars)}…[truncated ${text.length - maxChars} chars]`;
+  return cut.length < text.length ? cut : value;
+}
+
+/**
+ * Create a response with a specific number of rows. With `maxCellChars`, every
+ * cell longer than that is truncated — used when the kept rows alone overflow.
  */
 function createResponseWithRowCount(
   baseResponse: QueryResult,
   rowCount: number,
   options: ResponseLimitOptions,
+  maxCellChars?: number,
 ): string {
+  let rows = baseResponse.data.slice(0, rowCount);
+  let cellsTruncated = false;
+  if (maxCellChars !== undefined) {
+    rows = rows.map(row =>
+      Object.fromEntries(
+        Object.entries(row).map(([k, v]) => {
+          const cut = truncateCell(v, maxCellChars);
+          if (cut !== v) cellsTruncated = true;
+          return [k, cut];
+        }),
+      ),
+    );
+  }
+  const reduced = rowCount < baseResponse.data.length || cellsTruncated;
   // Create a modified response with the specified row count
   const limitedResponse: QueryResult = {
     ...baseResponse,
-    data: baseResponse.data.slice(0, rowCount),
+    data: rows,
     metadata: {
       ...baseResponse.metadata,
       rowCount: rowCount,
-      isPartial:
-        rowCount < baseResponse.data.length || baseResponse.metadata.isPartial,
+      isPartial: reduced || baseResponse.metadata.isPartial,
       hasMoreResults:
         rowCount < baseResponse.data.length ||
         baseResponse.metadata.hasMoreResults,
       // Add global limiting metadata
-      reducedForResponseSize: rowCount < baseResponse.data.length,
+      reducedForResponseSize: reduced,
       originalRowsAvailable: baseResponse.data.length,
       globalCharLimit: options.maxLength,
       responseCharCount: 0, // Will be updated after formatting
     },
-    message:
-      rowCount < baseResponse.data.length
-        ? 'Row count reduced to fit response size limit. Use more specific filters for larger datasets.'
-        : baseResponse.message,
+    message: reduced
+      ? [
+          rowCount < baseResponse.data.length &&
+            'Row count reduced to fit response size limit. Use more specific filters for larger datasets.',
+          cellsTruncated &&
+            'Long cell values truncated to fit response size limit. Project fewer or shorter columns (e.g. substring()) to see full values.',
+        ]
+          .filter(Boolean)
+          .join(' ')
+      : baseResponse.message,
   };
 
   // Format the response
@@ -122,10 +166,12 @@ export function findOptimalRowCount(
     };
   }
 
-  // Binary search to find optimal row count
-  let low = options.minRows;
+  // Binary search to find optimal row count. minRows can't exceed what exists,
+  // or the reported row count would claim rows that were never delivered.
+  const minRows = Math.min(options.minRows, originalRowCount);
+  let low = minRows;
   let high = originalRowCount;
-  let bestFitRowCount = options.minRows;
+  let bestFitRowCount = minRows;
   let bestFitContent = '';
 
   while (low <= high) {
@@ -145,12 +191,49 @@ export function findOptimalRowCount(
 
   // If we couldn't find any valid row count within limits, return minimum
   if (!bestFitContent) {
-    bestFitContent = createResponseWithRowCount(
-      baseResponse,
-      options.minRows,
-      options,
-    );
-    bestFitRowCount = options.minRows;
+    bestFitContent = createResponseWithRowCount(baseResponse, minRows, options);
+    bestFitRowCount = minRows;
+  }
+
+  // The minimum rows alone can still overflow (one huge cell). Truncate long
+  // cells, binary-searching the largest per-cell length that fits.
+  if (bestFitContent.length > options.maxLength) {
+    let lo = 0;
+    let hi = 0;
+    let cellCount = 0;
+    for (const row of baseResponse.data.slice(0, bestFitRowCount)) {
+      for (const v of Object.values(row)) {
+        hi = Math.max(hi, cellText(v).length);
+        cellCount++;
+      }
+    }
+    let fit = '';
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const test = createResponseWithRowCount(
+        baseResponse,
+        bestFitRowCount,
+        options,
+        mid,
+      );
+      if (test.length <= options.maxLength) {
+        fit = test;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    // Nothing fits: the row is wide rather than one huge cell. Give each cell
+    // an equal share of the budget, so short values survive and huge ones
+    // can't add up to megabytes.
+    bestFitContent =
+      fit ||
+      createResponseWithRowCount(
+        baseResponse,
+        bestFitRowCount,
+        options,
+        Math.floor(options.maxLength / Math.max(cellCount, 1)),
+      );
   }
 
   return {
