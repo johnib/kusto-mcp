@@ -159,6 +159,10 @@ const QUERY_FAILURE_HINT_AFTER = 3;
 const QUERY_FAILURE_HINT =
   'Several queries failed in a row – check the table schema with show-table and simplify the query.';
 
+// Added to a successful execute-query that returned no rows.
+const EMPTY_RESULT_HINT =
+  'No rows matched. If this is unexpected, check the datetime() range and filter values (e.g. case, exact IDs) before concluding there is no data.';
+
 // 1 -> "1st", 3 -> "3rd", 11 -> "11th", 22 -> "22nd".
 const ORDINAL_RULES = new Intl.PluralRules('en-US', { type: 'ordinal' });
 const ORDINAL_SUFFIX: Record<string, string> = {
@@ -400,7 +404,7 @@ export function createKustoServer(config: KustoConfig): Server {
               : validatedConfig.clusterUrl
                 ? 'No database is configured, so nothing connects at startup: call initialize-connection before the first query. '
                 : 'No cluster is configured: call initialize-connection before the first query. ') +
-            'If you have not inspected the table yet, call show-table first to see its columns. By default, limits results to 20 rows to prevent context overflow. Use the "limit" parameter to specify a different maximum. If results are marked as partial, consider revising your query to use aggregations, filters, or summarizations. Optionally set "purpose" to the closest intent.',
+            'If you have not inspected the table yet, call show-table first to see its columns. By default, limits results to 20 rows to prevent context overflow. Use the "limit" parameter to specify a different maximum. If results are marked as partial, consider revising your query to use aggregations, filters, or summarizations. Avoid the search operator on large tables; it often times out. Filter a specific table with where/has instead. Optionally set "purpose" to the closest intent.',
           inputSchema: z.toJSONSchema(ExecuteQuerySchema),
         },
         {
@@ -633,7 +637,8 @@ export function createKustoServer(config: KustoConfig): Server {
 
               // Intent / shape / behavior telemetry. Query shape and session
               // signals are closed-vocabulary. `purpose` is an optional label:
-              // known values are reported as-is; any other value the caller
+              // known values and common synonyms are reported as the listed
+              // label; any other value the caller
               // chose is exported verbatim as `purpose_unlisted` (maintainer's
               // decision, so new categories can be discovered). Each helper is
               // failure-safe.
@@ -772,7 +777,9 @@ export function createKustoServer(config: KustoConfig): Server {
                     queryStatistics: transformedResult.queryStatistics,
                   }),
                 },
-                message: undefined, // Will be set by response limiter if needed
+                // Zero rows is often a too-narrow filter, not missing data.
+                message:
+                  availableData.length === 0 ? EMPTY_RESULT_HINT : undefined,
               };
 
               // Determine response format from config
@@ -793,6 +800,16 @@ export function createKustoServer(config: KustoConfig): Server {
                 'kustomcp.response.was_reduced',
                 limitResult.wasReduced,
               );
+              // What the agent actually got, after the limiter trimmed it.
+              span.setAttribute(
+                'kustomcp.result.delivered_row_count',
+                limitResult.optimalRowCount,
+              );
+              span.setAttribute(
+                'kustomcp.response.chars',
+                limitResult.content.length,
+              );
+              span.setAttribute('kustomcp.response.max_chars', globalCharLimit);
               queryFacts = { limit: requestedLimit, partial: isPartial };
               queryReduced = limitResult.wasReduced;
               debugLog(`Using ${responseFormat} response format`);
