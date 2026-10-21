@@ -201,7 +201,7 @@ function classifyQueryFailure(
     if (outcome === 'cancelled_by_client') return 'cancelled';
     if (outcome === 'timeout') return 'timeout';
     if (error instanceof KustoConnectionError) return 'not_connected';
-    if (outcome === 'throttled') return 'throttled';
+    // Not outcome === 'throttled': that one is matched in the message.
     switch (classifyConnectionFailure(error).category) {
       case 'auth':
       case 'authz':

@@ -148,6 +148,16 @@ describe('kusto.query failure_category and http.status_code', () => {
       'other',
       400,
     ],
+    // A '429' in the message (e.g. an identifier) is not throttling.
+    [
+      'HTTP 400 whose message mentions 429',
+      () =>
+        Object.assign(new Error("Failed to resolve 'Event429'"), {
+          response: { status: 400 },
+        }),
+      'query_semantic',
+      400,
+    ],
     ['HTTP 401', () => withStatus(401), 'auth_forbidden', 401],
     ['HTTP 403', () => withStatus(403), 'auth_forbidden', 403],
     [
