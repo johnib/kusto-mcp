@@ -507,10 +507,18 @@ export function classifyQueryShape(query: string): Attributes {
 
     // Only for queries with datetime() literals. Needs exactly two that
     // parse and form one range: `between (a .. b)`, or `c >= a and c <= b`
-    // on the same named column, in one statement, with no `or` between.
+    // on the same named column, in one statement, with no `or` between and
+    // no `)` closing a group opened before the lower bound (another union
+    // branch, or the end of a different `between`).
     let absoluteRange: string | undefined;
     if (sawDatetime) {
       const [lo, hi] = datetimes;
+      let depth = 0;
+      const sameGroup = (t: Tok) => {
+        if (t.t === 'lparen') depth++;
+        else if (t.t === 'rparen') depth--;
+        return depth >= 0;
+      };
       const isRange =
         !sawUnparsableDatetime &&
         datetimes.length === 2 &&
@@ -521,7 +529,8 @@ export function classifyQueryShape(query: string): Attributes {
         hi.ts >= lo.ts &&
         !toks
           .slice(lo.k, hi.k)
-          .some(t => t.t === 'semi' || (t.t === 'word' && t.v === 'or'));
+          .some(t => t.t === 'semi' || (t.t === 'word' && t.v === 'or')) &&
+        toks.slice(lo.k, hi.k).every(sameGroup);
       absoluteRange = isRange ? windowBucket(hi.ts - lo.ts) : 'unknown';
     }
 

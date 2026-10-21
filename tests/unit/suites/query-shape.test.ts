@@ -143,6 +143,19 @@ describe('classifyQueryShape', () => {
       'let A = T | where t >= datetime(2024-01-01); let B = T | where t <= datetime(2024-01-02); union A, B',
       'unknown',
     ],
+    [
+      'union (T | where t >= datetime(2024-01-01)), (U | where t <= datetime(2024-01-02))',
+      'unknown',
+    ],
+    [
+      'T | where a between (datetime(2024-01-01) .. now()) and b between (now() .. datetime(2024-01-02))',
+      'unknown',
+    ],
+    // Grouping inside one range is fine.
+    [
+      'T | where (t >= datetime(2024-01-01) and (t <= datetime(2024-01-02)))',
+      '<=1d',
+    ],
     // Days the month doesn't have, and year 0000, don't parse.
     [
       'T | where t between (datetime(0000-01-01) .. datetime(0000-01-02))',
