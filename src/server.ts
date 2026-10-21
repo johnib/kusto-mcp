@@ -190,6 +190,9 @@ function ordinal(n: number): string {
  */
 const serverTracer = trace.getTracer('kusto-mcp-server');
 
+/** Extra wait past connectionTimeout for the startup auto-connect to settle. */
+export const AUTO_CONNECT_WAIT_GRACE_MS = 1000;
+
 export function createKustoServer(config: KustoConfig): Server {
   // Validate the configuration
   const validatedConfig = validateConfig(config);
@@ -373,7 +376,13 @@ export function createKustoServer(config: KustoConfig): Server {
     }
     let timer: NodeJS.Timeout | undefined;
     const deadline = new Promise<void>(resolve => {
-      timer = setTimeout(resolve, validatedConfig.connectionTimeout ?? 20000);
+      // initialize() is itself bounded by connectionTimeout (probe included);
+      // the grace lets a failure finishing right at that bound record its reason.
+      timer = setTimeout(
+        resolve,
+        (validatedConfig.connectionTimeout ?? 20000) +
+          AUTO_CONNECT_WAIT_GRACE_MS,
+      );
       timer.unref?.();
     });
     try {

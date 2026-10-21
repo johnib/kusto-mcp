@@ -7,7 +7,10 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createKustoServer } from '../../../src/server.js';
+import {
+  AUTO_CONNECT_WAIT_GRACE_MS,
+  createKustoServer,
+} from '../../../src/server.js';
 import { KustoConfig } from '../../../src/types/config.js';
 import {
   executeQuery,
@@ -255,7 +258,8 @@ describe('tool calls wait for auto-connect (#311)', () => {
       const r = await client.callTool({ name: 'show-tables', arguments: {} });
       expect(r.isError).toBeFalsy();
       const deadlineTimers = setSpy.mock.results.filter(
-        (_res, i) => setSpy.mock.calls[i][1] === TIMEOUT,
+        (_res, i) =>
+          setSpy.mock.calls[i][1] === TIMEOUT + AUTO_CONNECT_WAIT_GRACE_MS,
       );
       expect(deadlineTimers).toHaveLength(1);
       expect(clearSpy).toHaveBeenCalledWith(deadlineTimers[0].value);

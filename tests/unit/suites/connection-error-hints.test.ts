@@ -397,30 +397,42 @@ describe('server: connection failures reach the agent with the hint (#315)', () 
   });
 
   test('a slow probe does not hide the reason from the first tool call', async () => {
-    (probeReachability as jest.Mock).mockImplementation(
-      (_url: string, ms: number) => new Promise(r => setTimeout(r, ms)),
-    );
-    Client.mockImplementation(() => ({
-      execute: jest.fn(
-        () =>
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('cloud info failed')), 700),
-          ),
-      ),
-    }));
-    const { client, close } = await connect({
-      clusterUrl: CLUSTER,
-      defaultDatabase: DB,
-      connectionTimeout: 1000,
+    // Fake clock: the probe uses its whole budget and the SDK fails late in
+    // the window, so the auto-connect settles exactly at connectionTimeout.
+    // Real timers made this a race against the tool call's own wait.
+    jest.useFakeTimers({
+      doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'],
     });
     try {
-      const r = await client.callTool({ name: 'show-tables', arguments: {} });
-      expect(r.isError).toBe(true);
-      expect(text(r)).toMatch(
-        /The startup auto-connect to https:\/\/acme\.kusto\.windows\.net \(database 'Sales'\) failed: cloud info failed\nFailed step: reaching the cluster\./,
+      (probeReachability as jest.Mock).mockImplementation(
+        (_url: string, ms: number) => new Promise(r => setTimeout(r, ms)),
       );
+      Client.mockImplementation(() => ({
+        execute: jest.fn(
+          () =>
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('cloud info failed')), 700),
+            ),
+        ),
+      }));
+      const { client, close } = await connect({
+        clusterUrl: CLUSTER,
+        defaultDatabase: DB,
+        connectionTimeout: 1000,
+      });
+      try {
+        const pending = client.callTool({ name: 'show-tables', arguments: {} });
+        await jest.advanceTimersByTimeAsync(5000);
+        const r = await pending;
+        expect(r.isError).toBe(true);
+        expect(text(r)).toMatch(
+          /The startup auto-connect to https:\/\/acme\.kusto\.windows\.net \(database 'Sales'\) failed: cloud info failed\nFailed step: reaching the cluster\./,
+        );
+      } finally {
+        await close();
+      }
     } finally {
-      await close();
+      jest.useRealTimers();
     }
   });
 
