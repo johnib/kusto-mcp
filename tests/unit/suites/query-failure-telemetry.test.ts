@@ -382,6 +382,33 @@ describe('execute-query span', () => {
     }
   });
 
+  test('3rd not-connected call: not_initialized_stop hint fired', async () => {
+    const s = await startServer();
+    try {
+      for (let i = 0; i < 3; i++) await s.query();
+      const attrs = toolSpans().map(sp => sp.attributes['kustomcp.hint.fired']);
+      expect(attrs).toEqual(['none', 'none', 'not_initialized_stop']);
+    } finally {
+      await s.close();
+    }
+  });
+
+  test('0 rows: empty_result hint fired', async () => {
+    const s = await startServer();
+    try {
+      await s.init();
+      execute.mockResolvedValueOnce(rows(0));
+      const r = await s.query();
+      expect(text(r)).toContain('No rows matched');
+      await s.query();
+      const [empty, next] = toolSpans();
+      expect(empty.attributes['kustomcp.hint.fired']).toBe('empty_result');
+      expect(next.attributes['kustomcp.hint.fired']).toBe('none');
+    } finally {
+      await s.close();
+    }
+  });
+
   test('invalid arguments still carry failure_streak and hint.fired', async () => {
     const s = await startServer();
     try {
