@@ -162,10 +162,15 @@ function datetimeLiteral(q: string, at: number): number | null | undefined {
   const m = DATETIME_LITERAL.exec(q);
   if (!m) return undefined;
   const [y, mo, d, h, mi, s] = m.slice(2, 8).map(x => Number(x ?? 0));
-  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || s > 59) {
+  if (h > 23 || mi > 59 || s > 59) return undefined;
+  // setUTCFullYear keeps years 0-99 as is; a day the month doesn't have
+  // (2024-02-30) rolls over and is rejected below.
+  const date = new Date(0);
+  date.setUTCFullYear(y, mo - 1, d);
+  if (date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) {
     return undefined;
   }
-  return Date.UTC(y, mo - 1, d, h, mi, s) / 1000;
+  return date.getTime() / 1000 + h * 3600 + mi * 60 + s;
 }
 
 type Tok =
@@ -181,7 +186,16 @@ type Tok =
         | 'dot'
         | 'eq'
         | 'other';
+      // On `>`/`>=` (lower bound follows) and `<`/`<=` (upper bound follows).
+      bound?: 'lo' | 'hi';
     };
+
+const boundTok = (c: string): Tok =>
+  c === '>'
+    ? { t: 'other', bound: 'lo' }
+    : c === '<'
+      ? { t: 'other', bound: 'hi' }
+      : { t: 'other' };
 
 const isWordStart = (c: string) => /[A-Za-z_]/.test(c);
 const isWordChar = (c: string) => /[A-Za-z0-9_]/.test(c);
@@ -286,9 +300,9 @@ function lex(q: string): Tok[] | undefined {
         toks.push({ t: 'eq' });
       } else if ('=!<>'.includes(c) && (q[i + 1] === '=' || q[i + 1] === '~')) {
         // ==, =~, =>, !=, !~, <=, >= are comparison operators, not assignment.
-        toks.push({ t: 'other' });
+        toks.push(boundTok(c));
         i++;
-      } else toks.push({ t: 'other' });
+      } else toks.push(boundTok(c));
       i++;
     }
   }
@@ -360,7 +374,14 @@ export function classifyQueryShape(query: string): Attributes {
     let sawUnparsableAgo = false;
     let sawDatetime = false;
     let sawUnparsableDatetime = false;
-    const datetimes: number[] = [];
+    // Parsed datetime() literals: value, token index, and which bound of a
+    // range the preceding tokens make it (`> x`, `between (x`; `< x`, `.. x`).
+    const datetimes: {
+      ts: number;
+      k: number;
+      bound?: 'lo' | 'hi';
+      col?: string;
+    }[] = [];
     let atStatementStart = true;
     let expectOperator = false;
     // Words allowed to count as an operator at the very next token (after `(`
@@ -447,7 +468,25 @@ export function classifyQueryShape(query: string): Attributes {
           sawDatetime = true;
           // datetime(null) is a value, not a bound: skipped.
           if (tk.ts === undefined) sawUnparsableDatetime = true;
-          else if (tk.ts !== null) datetimes.push(tk.ts);
+          else if (tk.ts !== null) {
+            const p1 = toks[k - 1];
+            const p2 = toks[k - 2];
+            if (p1?.t === 'other' && p1.bound) {
+              // `col >= datetime(..)`: keep the column word to pair bounds.
+              const col = p2?.t === 'word' ? p2.v : undefined;
+              datetimes.push({ ts: tk.ts, k, bound: p1.bound, col });
+            } else if (
+              p1?.t === 'lparen' &&
+              p2?.t === 'word' &&
+              p2.v === 'between'
+            ) {
+              datetimes.push({ ts: tk.ts, k, bound: 'lo' });
+            } else if (p1?.t === 'dot' && p2?.t === 'dot') {
+              datetimes.push({ ts: tk.ts, k, bound: 'hi' });
+            } else {
+              datetimes.push({ ts: tk.ts, k });
+            }
+          }
         }
         continue;
       }
@@ -462,14 +501,20 @@ export function classifyQueryShape(query: string): Attributes {
     else if (sawDatetime) timeWindow = 'absolute';
 
     // Only for queries with datetime() literals. Needs exactly two that
-    // parse, lower bound first, as in `between (a .. b)` or `>= a and <= b`.
+    // parse and form one range: `between (a .. b)`, or `c >= a and c <= b`
+    // on the same column with no `or` between them.
     let absoluteRange: string | undefined;
     if (sawDatetime) {
       const [lo, hi] = datetimes;
-      absoluteRange =
-        sawUnparsableDatetime || datetimes.length !== 2 || hi < lo
-          ? 'unknown'
-          : windowBucket(hi - lo);
+      const isRange =
+        !sawUnparsableDatetime &&
+        datetimes.length === 2 &&
+        lo.bound === 'lo' &&
+        hi.bound === 'hi' &&
+        lo.col === hi.col &&
+        hi.ts >= lo.ts &&
+        !toks.slice(lo.k, hi.k).some(t => t.t === 'word' && t.v === 'or');
+      absoluteRange = isRange ? windowBucket(hi.ts - lo.ts) : 'unknown';
     }
 
     const score = pipes + 2 * joins + 2 * unions + lets;

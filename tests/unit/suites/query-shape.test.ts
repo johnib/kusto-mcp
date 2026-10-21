@@ -124,6 +124,39 @@ describe('classifyQueryShape', () => {
       'T | where t between (datetime(2024-01-01) .. datetime(2024-01-02)) | summarize count() by bin_at(t, 1h, datetime(2024-01-01))',
       'unknown',
     ],
+    // Two literals that are not one filter range.
+    ['print datetime(2024-01-01), datetime(2024-01-02)', 'unknown'],
+    ['T | extend a=datetime(2024-01-01), b=datetime(2024-01-02)', 'unknown'],
+    [
+      'T | where t >= datetime(2024-01-01) or t <= datetime(2024-01-02)',
+      'unknown',
+    ],
+    [
+      'T | where a >= datetime(2024-01-01) and b <= datetime(2024-01-02)',
+      'unknown',
+    ],
+    // Days the month doesn't have don't parse.
+    [
+      'T | where t between (datetime(2024-02-30) .. datetime(2024-03-01))',
+      'unknown',
+    ],
+    [
+      'T | where t between (datetime(2023-02-29) .. datetime(2023-03-01))',
+      'unknown',
+    ],
+    [
+      'T | where t between (datetime(2024-04-31) .. datetime(2024-05-01))',
+      'unknown',
+    ],
+    // Leap day and year 0001 do.
+    [
+      'T | where t between (datetime(2024-02-29) .. datetime(2024-03-01))',
+      '<=1d',
+    ],
+    [
+      'T | where t between (datetime(0001-01-01) .. datetime(0001-01-01 00:30))',
+      '<=1h',
+    ],
     ['T | where t > datetime(2024-01-01)', 'unknown'],
     [
       'T | where t between (datetime(2024-01-01) .. datetime(2024-13-01))',
