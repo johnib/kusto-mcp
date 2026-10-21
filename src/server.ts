@@ -476,9 +476,11 @@ export function createKustoServer(config: KustoConfig): Server {
               : '';
           const stop = !attempt
             ? ''
-            : manualConnectFailed
-              ? ` Stop retrying ${toolName}: initialize-connection failed, so fix the cluster URL or auth and call it again.`
-              : ` Stop retrying ${toolName}: call initialize-connection with a cluster URL first.`;
+            : manualConnects.size > 0
+              ? ` Stop retrying ${toolName}: initialize-connection is still running, so wait for it to finish.`
+              : manualConnectFailed
+                ? ` Stop retrying ${toolName}: initialize-connection failed, so fix the cluster URL or auth and call it again.`
+                : ` Stop retrying ${toolName}: call initialize-connection with a cluster URL first.`;
           if (autoConnectPaused) {
             span.setAttribute(
               'kustomcp.connection.autoconnect',

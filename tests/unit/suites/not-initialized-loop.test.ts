@@ -169,6 +169,32 @@ describe('repeated "Connection not initialized" rejections', () => {
     }
   });
 
+  test('while initialize-connection is still running, say to wait for it', async () => {
+    let release!: () => void;
+    MockConnection.mockImplementation(() => ({
+      initialize: (cluster: string, database: string) =>
+        new Promise(resolve => {
+          release = () => resolve({ cluster, database });
+        }),
+    }));
+    const { client, close } = await connect({});
+    const init = client.callTool({
+      name: 'initialize-connection',
+      arguments: { cluster_url: 'https://x.kusto.windows.net', database: 'd' },
+    });
+    try {
+      const results = [];
+      for (let i = 0; i < 3; i++) results.push(await query(client));
+      expect(text(results[2])).toMatch(
+        /Connection not initialized \(3rd attempt without connecting\)\. Stop retrying execute-query: initialize-connection is still running, so wait for it to finish\.$/,
+      );
+    } finally {
+      release();
+      expect((await init).isError).toBeFalsy();
+      await close();
+    }
+  });
+
   test('keeps the auto-connect-paused wording, with the count and stop sentence', async () => {
     const config = {
       clusterUrl: 'https://auto.kusto.windows.net',
