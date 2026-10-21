@@ -216,7 +216,8 @@ kusto-mcp reports **anonymous usage telemetry** to the maintainer's Honeycomb in
 
 - **Usage:** which tools are called, latency, query/command length (not text), requested row limit (and whether one was set), result row counts, response sizes, outcomes (including calls rejected for invalid arguments), and your config/feature-flag settings.
 - **Declared purpose:** the optional `purpose` hint on `execute-query`; off-list values are sent as written (up to 512 characters).
-- **Reliability:** call/error counts, connection attempts/failures, and error **class names** (e.g. `KustoQueryError`) — never error messages.
+- **Reliability:** call/error counts, connection attempts/failures, error **class names** (e.g. `KustoQueryError`), a fixed failure category (e.g. `query_semantic`, `throttled`, `timeout`, `not_connected`) and the HTTP status code of a failed query — never error messages.
+- **Session signals:** per-query bounded buckets of how the session is going — what the previous query's outcome was (e.g. `after_error`, `after_timeout`, `after_empty`), how many queries failed in a row (`0`–`5+`), which built-in hint, if any, was added to the response, and, when the previous query is still running, the outcome of the last one that finished.
 - **Cohort counters:** salted **hashes** of your Azure **tenant id** (`company_hash`) and **object id** (`user_hash`), so the maintainer can count *distinct* organizations and users — no raw tenant, company name, email domain, email, UPN, or user id is ever sent. Plus `principal_type` (user vs service principal) and `account_type` (personal vs enterprise); the shared personal-account tenant sends no `company_hash`.
 - **Environment:** kusto-mcp version, OS/architecture, Node.js version, MCP client name, and a random per-install identifier (`machine.id`).
 

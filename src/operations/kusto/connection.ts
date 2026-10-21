@@ -9,10 +9,12 @@ import {
 import { createTokenCredential } from '../../auth/token-credentials.js';
 import {
   extractKustoErrorMessage,
+  FailureCategory,
   KustoConnectionError,
   KustoQueryCancelledError,
   KustoTimeoutError,
   markNotQueryFault,
+  setFailureCategory,
 } from '../../common/errors.js';
 import { trackPendingCancel } from '../../common/shutdown.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
@@ -177,6 +179,55 @@ const NOT_QUERY_FAULT_CATEGORIES: ReadonlySet<string> = new Set([
   'network',
   'timeout',
 ]);
+
+/**
+ * Map a failed query to a bounded `kustomcp.query.failure_category` (+ the
+ * HTTP status when the response carried one). Reads the outcome, the error
+ * class, the HTTP status and the network code — never the message. Kusto
+ * answers a KQL syntax/semantic error with HTTP 400.
+ */
+function classifyQueryFailure(
+  error: unknown,
+  outcome: ReturnType<typeof classifyQueryOutcome>['outcome'],
+): { category: FailureCategory; httpStatus?: number } {
+  const response = (
+    error as {
+      response?: { status?: unknown; data?: { error?: { code?: unknown } } };
+    }
+  )?.response;
+  const httpStatus =
+    typeof response?.status === 'number' ? response.status : undefined;
+  const category = ((): FailureCategory => {
+    if (outcome === 'cancelled_by_client') return 'cancelled';
+    if (outcome === 'timeout') return 'timeout';
+    if (error instanceof KustoConnectionError) return 'not_connected';
+    if (outcome === 'throttled') return 'throttled';
+    switch (classifyConnectionFailure(error).category) {
+      case 'auth':
+      case 'authz':
+        return 'auth_forbidden';
+      case 'throttled':
+        return 'throttled';
+      case 'timeout':
+        // Socket ETIMEDOUT / HTTP 408: not our query deadline (outcome stays
+        // 'error', no timeout hint), so keep 'timeout' for outcome=timeout.
+        return httpStatus === undefined ? 'network' : 'other';
+      case 'http_5xx':
+        return 'server_error';
+      case 'dns_resolution':
+      case 'connection_refused':
+      case 'tls':
+      case 'network':
+        return 'network';
+    }
+    // A missing database is also a 400, but rewriting the KQL can't fix it.
+    return httpStatus === 400 &&
+      response?.data?.error?.code !== 'BadRequest_EntityNotFound'
+      ? 'query_semantic'
+      : 'other';
+  })();
+  return { category, httpStatus };
+}
 
 /**
  * Map a failure category (+ whether our deadline fired) to a coarse connection
@@ -670,6 +721,16 @@ export class KustoConnection {
           criticalLog(`Failed to execute query: ${errorMessage}`);
 
           span.setAttribute('kustomcp.outcome', outcome);
+          const failure = classifyQueryFailure(error, outcome);
+          span.setAttribute(
+            'kustomcp.query.failure_category',
+            failure.category,
+          );
+          if (failure.httpStatus !== undefined) {
+            span.setAttribute('kustomcp.http.status_code', failure.httpStatus);
+          }
+          // Carried through the re-wrapping layers to the execute-query span.
+          setFailureCategory(error, failure.category);
           if (timeoutKind) {
             // Our wrapper fired (raise queryTimeout / heavy query) vs the server
             // reporting its own timeout (cluster-side pressure).
@@ -682,6 +743,7 @@ export class KustoConnection {
             outcome === 'timeout' && !(error instanceof KustoTimeoutError)
               ? new KustoTimeoutError(errorMessage)
               : undefined;
+          if (serverTimeout) setFailureCategory(serverTimeout, 'timeout');
           // A client cancel is not a failure (#366): it keeps its outcome but
           // gets no ERROR status or error.type.
           if (outcome !== 'cancelled_by_client') {
@@ -716,6 +778,7 @@ export class KustoConnection {
           // Just rethrow with the detailed error message
           const customError = new Error(errorMessage);
           carryErrorRecording(error, customError);
+          setFailureCategory(customError, failure.category);
           if (
             error instanceof KustoConnectionError ||
             outcome === 'throttled' ||

@@ -28,19 +28,43 @@ const SCHEMA_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 type Outcome =
-  'success' | 'error' | 'cancelled' | 'partial' | 'reduced' | 'in_flight';
+  | 'success'
+  | 'empty'
+  | 'error'
+  | 'timeout'
+  | 'not_connected'
+  | 'cancelled'
+  | 'partial'
+  | 'reduced'
+  | 'in_flight';
 
 export const ORDINAL_BUCKETS = ['1', '2', '3', '4-5', '6-10', '11+'] as const;
 export const SCHEMA_CALL_BUCKETS = ['0', '1', '2-3', '4+'] as const;
 export const RETRY_CLASSES = [
   'first',
   'after_success',
+  'after_empty',
   'after_error',
+  'after_timeout',
+  'after_not_connected',
   'after_cancelled',
   'after_partial',
   'after_reduced',
   'after_in_flight',
 ] as const;
+/** `last_completed_outcome`: like RETRY_CLASSES, without the `after_` prefix. */
+export const LAST_COMPLETED_OUTCOMES = [
+  'none',
+  'success',
+  'empty',
+  'error',
+  'timeout',
+  'not_connected',
+  'cancelled',
+  'partial',
+  'reduced',
+] as const;
+export const FAILURE_STREAK_BUCKETS = ['0', '1', '2', '3-4', '5+'] as const;
 export const LIMIT_ESCALATIONS = [
   'first',
   'same',
@@ -56,6 +80,13 @@ function ordinalBucket(n: number): string {
   return '11+';
 }
 
+/** Bucket for `kustomcp.session.failure_streak`. */
+export function failureStreakBucket(n: number): string {
+  if (n <= 2) return String(n);
+  if (n <= 4) return '3-4';
+  return '5+';
+}
+
 function schemaBucket(n: number): string {
   if (n <= 1) return String(n);
   if (n <= 3) return '2-3';
@@ -66,8 +97,25 @@ export interface QueryResult {
   status: string;
   partial?: boolean;
   reduced?: boolean;
+  /** Rows returned; 0 on a success makes the outcome `empty`. */
+  rowCount?: number;
+  /** `kustomcp.query.failure_category` of a failed query. */
+  failureCategory?: string;
   /** False for failures the query text can't fix (connection, auth, read-only block). */
   countsAsQueryFailure?: boolean;
+}
+
+function outcomeOf(result: QueryResult): Outcome {
+  if (result.status === 'error') {
+    if (result.failureCategory === 'timeout') return 'timeout';
+    if (result.failureCategory === 'not_connected') return 'not_connected';
+    return 'error';
+  }
+  if (result.status === 'cancelled') return 'cancelled';
+  if (result.partial) return 'partial';
+  if (result.reduced) return 'reduced';
+  if (result.rowCount === 0) return 'empty';
+  return 'success';
 }
 
 export class SessionTracker {
@@ -75,6 +123,8 @@ export class SessionTracker {
   private queryCount = 0;
   private schemaCalls = 0;
   private last: { outcome: Outcome; limit: number } | undefined;
+  // Outcome of the query that finished last, whichever started last.
+  private lastCompleted: Outcome | undefined;
   private failureStreak = 0;
 
   /** `execute-query` calls that failed in a row, in completion order. */
@@ -118,21 +168,11 @@ export class SessionTracker {
             } else if (result.status !== 'cancelled') {
               this.failureStreak = 0;
             }
+            const outcome = outcomeOf(result);
+            this.lastCompleted = outcome;
             // Only the most recent query owns the "previous outcome" state.
             if (this.queryCount !== ticket) return;
-            this.last = {
-              outcome:
-                result.status === 'error'
-                  ? 'error'
-                  : result.status === 'cancelled'
-                    ? 'cancelled'
-                    : result.partial
-                      ? 'partial'
-                      : result.reduced
-                        ? 'reduced'
-                        : 'success',
-              limit: requestedLimit,
-            };
+            this.last = { outcome, limit: requestedLimit };
           } catch {
             /* telemetry must never fail a call */
           }
@@ -169,6 +209,10 @@ export class SessionTracker {
         this.schemaCalls,
       ),
       'kustomcp.query.retry_class': prev ? `after_${prev.outcome}` : 'first',
+      // The previous query hasn't finished: report the last one that did.
+      ...(prev?.outcome === 'in_flight' && {
+        'kustomcp.session.last_completed_outcome': this.lastCompleted ?? 'none',
+      }),
     };
   }
 
