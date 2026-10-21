@@ -160,6 +160,27 @@ describe('classifyQueryShape', () => {
       'unknown',
     ],
     ['print t >= datetime(2024-01-01), t <= datetime(2024-01-02)', 'unknown'],
+    // Parenthesized conjuncts are one range; separate stages are not.
+    [
+      'T | where (t >= datetime(2024-01-01)) and (t <= datetime(2024-01-02))',
+      '<=1d',
+    ],
+    [
+      'T | where ((t >= datetime(2024-01-01))) and ((t <= datetime(2024-01-02)))',
+      '<=1d',
+    ],
+    [
+      'T | extend after_start = t >= datetime(2024-01-01) | extend before_end = t <= datetime(2024-01-02)',
+      'unknown',
+    ],
+    [
+      'union (T | where t >= datetime(2024-01-01)), (U | where t <= datetime(2024-01-02))',
+      'unknown',
+    ],
+    [
+      'T | where (t >= datetime(2024-01-01)) and x > 1 | where (t <= datetime(2024-01-02))',
+      'unknown',
+    ],
     // Days the month doesn't have, and year 0000, don't parse.
     [
       'T | where t between (datetime(0000-01-01) .. datetime(0000-01-02))',

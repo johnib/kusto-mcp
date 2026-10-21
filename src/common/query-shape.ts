@@ -513,9 +513,10 @@ export function classifyQueryShape(query: string): Attributes {
     // Only for queries with datetime() literals. Needs exactly two that
     // parse and form one range: `between (a .. b)`, or `c >= a and c <= b`
     // on the same named column, in one statement, with no `or` between and
-    // both at the same paren depth with no `)` closing a group opened before
-    // the lower bound (another union/join branch, or a different `between`)
-    // and no `,` between them at that depth (separate extend/print columns).
+    // both at the same paren depth. Between them, no `|` or `,` at or above
+    // that depth (another stage, union/join branch or extend/print column).
+    // Only comparison bounds may step outside their group, and only through
+    // parens and `and`: `(c >= a) and (c <= b)`; a `between` may not.
     let absoluteRange: string | undefined;
     if (sawDatetime) {
       const [lo, hi] = datetimes;
@@ -527,9 +528,10 @@ export function classifyQueryShape(query: string): Attributes {
       const sameGroup = (t: Tok) => {
         if (t.t === 'lparen') depth++;
         else if (t.t === 'rparen') depth--;
-        // A comma at the bounds' own depth separates two expressions.
-        else if (t.t === 'other' && t.comma && depth === 0) return false;
-        return depth >= 0;
+        else if (depth <= 0 && (t.t === 'pipe' || (t.t === 'other' && t.comma)))
+          return false;
+        else if (depth < 0 && !(t.t === 'word' && t.v === 'and')) return false;
+        return depth >= 0 || lo.col !== BETWEEN;
       };
       const isRange =
         !sawUnparsableDatetime &&
