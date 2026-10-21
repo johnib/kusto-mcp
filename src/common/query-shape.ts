@@ -541,14 +541,19 @@ export function classifyQueryShape(query: string): Attributes {
           split = true;
       }
       let depth = 0;
+      let minDepth = 0;
+      // Depths of each `and`: one must join the bounds where they meet.
+      const ands: number[] = [];
       const open: boolean[] = [];
       const sameGroup = (t: Tok) => {
+        if (t.t === 'word' && t.v === 'and') ands.push(depth);
         if (t.t === 'lparen') {
           depth++;
           if (depth > 0) open.push(false);
         } else if (t.t === 'rparen') {
           if (depth > 0) open.pop();
           depth--;
+          minDepth = Math.min(minDepth, depth);
           // Leaving the lower bound's subquery or branch.
           if (depth < 0 && enclosing[-depth - 1]) return false;
         } else if (t.t === 'pipe' || (t.t === 'other' && t.comma)) {
@@ -571,7 +576,7 @@ export function classifyQueryShape(query: string): Attributes {
           .some(t => t.t === 'semi' || (t.t === 'word' && t.v === 'or')) &&
         toks.slice(lo.k, hi.k).every(sameGroup) &&
         !open.some(Boolean) &&
-        (lo.col !== BETWEEN || depth === 0);
+        (lo.col === BETWEEN ? depth === 0 : ands.includes(minDepth));
       absoluteRange = isRange ? windowBucket(width) : 'unknown';
     }
 

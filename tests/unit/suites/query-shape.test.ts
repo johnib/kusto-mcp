@@ -193,6 +193,15 @@ describe('classifyQueryShape', () => {
       'T | where x in (U | where t >= datetime(2024-01-01)) and t <= datetime(2024-01-02)',
       'unknown',
     ],
+    // Only an `and` joins the bounds into one range.
+    [
+      'T | where (t >= datetime(2024-01-01)) != (t <= datetime(2024-01-02))',
+      'unknown',
+    ],
+    [
+      'T | where (t >= datetime(2024-01-01) and x > 1) == (t <= datetime(2024-01-02))',
+      'unknown',
+    ],
     [
       'T | where x in (U | where (t >= datetime(2024-01-01)) and t <= datetime(2024-01-02))',
       '<=1d',
