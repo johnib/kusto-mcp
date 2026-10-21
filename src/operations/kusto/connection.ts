@@ -781,7 +781,8 @@ export class KustoConnection {
           setFailureCategory(customError, failure.category);
           if (
             error instanceof KustoConnectionError ||
-            outcome === 'throttled' ||
+            // Not outcome === 'throttled': that one is matched in the message.
+            failure.category === 'throttled' ||
             NOT_QUERY_FAULT_CATEGORIES.has(
               classifyConnectionFailure(error).category,
             )

@@ -382,6 +382,29 @@ describe('execute-query span', () => {
     }
   });
 
+  test('a 400 whose message mentions 429 still counts toward the streak', async () => {
+    const s = await startServer();
+    try {
+      await s.init();
+      for (let i = 0; i < 3; i++)
+        execute.mockRejectedValueOnce(
+          Object.assign(new Error("Failed to resolve 'Event429'"), {
+            response: { status: 400 },
+          }),
+        );
+      for (let i = 0; i < 3; i++) await s.query();
+      const attrs = toolSpans().map(sp => sp.attributes);
+      expect(attrs.map(a => a['kustomcp.session.failure_streak'])).toEqual([
+        '1',
+        '2',
+        '3-4',
+      ]);
+      expect(last(attrs)['kustomcp.hint.fired']).toBe('failure_streak');
+    } finally {
+      await s.close();
+    }
+  });
+
   test('3rd not-connected call: not_initialized_stop hint fired', async () => {
     const s = await startServer();
     try {
