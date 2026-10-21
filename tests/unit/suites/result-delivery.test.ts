@@ -11,7 +11,7 @@ import {
 } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { createKustoServer } from '../../../src/server.js';
-import { KustoConfig } from '../../../src/types/config.js';
+import { KustoConfig, ResponseFormat } from '../../../src/types/config.js';
 import { executeQuery } from '../../../src/operations/kusto/index.js';
 
 jest.mock('../../../src/common/version.js', () => ({ VERSION: '0.0.0-test' }));
@@ -82,7 +82,7 @@ async function run(
 describe('execute-query result delivery', () => {
   beforeAll(() => provider.register());
 
-  test.each(['json', 'markdown'] as const)(
+  test.each([ResponseFormat.Json, ResponseFormat.Markdown])(
     '%s: zero rows appends the empty-result hint',
     async responseFormat => {
       const { text, attrs } = await run(rows([]), { responseFormat });
@@ -92,7 +92,7 @@ describe('execute-query result delivery', () => {
     },
   );
 
-  test.each(['json', 'markdown'] as const)(
+  test.each([ResponseFormat.Json, ResponseFormat.Markdown])(
     '%s: rows returned means no empty-result hint',
     async responseFormat => {
       const { text } = await run(
