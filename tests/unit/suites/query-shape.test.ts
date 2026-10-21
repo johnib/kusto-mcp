@@ -170,6 +170,26 @@ describe('classifyQueryShape', () => {
       '<=1d',
     ],
     [
+      'T | where (t >= datetime(2024-01-01)) and t <= datetime(2024-01-02)',
+      '<=1d',
+    ],
+    [
+      'T | where t >= datetime(2024-01-01) and (t <= datetime(2024-01-02))',
+      '<=1d',
+    ],
+    [
+      'T | where t >= datetime(2024-01-01) and x > 1 and t <= datetime(2024-01-02)',
+      '<=1d',
+    ],
+    [
+      'T | where t >= datetime(2024-01-01) and x in ((U | project x)) and t <= datetime(2024-01-02)',
+      '<=1d',
+    ],
+    [
+      'T | where t >= datetime(2024-01-01) and x in (U | where t <= datetime(2024-01-02) | project x)',
+      'unknown',
+    ],
+    [
       'T | extend after_start = t >= datetime(2024-01-01) | extend before_end = t <= datetime(2024-01-02)',
       'unknown',
     ],

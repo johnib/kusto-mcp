@@ -512,11 +512,10 @@ export function classifyQueryShape(query: string): Attributes {
 
     // Only for queries with datetime() literals. Needs exactly two that
     // parse and form one range: `between (a .. b)`, or `c >= a and c <= b`
-    // on the same named column, in one statement, with no `or` between and
-    // both at the same paren depth. Between them, no `|` or `,` at or above
-    // that depth (another stage, union/join branch or extend/print column).
-    // Only comparison bounds may step outside their group, and only through
-    // parens and `and`: `(c >= a) and (c <= b)`; a `between` may not.
+    // on the same named column, in one statement, with no `or` between,
+    // no `|` or `,` splitting them into separate stages, union/join branches
+    // or extend/print columns. Parens around either comparison are fine:
+    // `(c >= a) and c <= b`.
     let absoluteRange: string | undefined;
     if (sawDatetime) {
       const [lo, hi] = datetimes;
@@ -524,13 +523,23 @@ export function classifyQueryShape(query: string): Attributes {
         datetimes.length === 2
           ? hi.ts[0] - lo.ts[0] + (hi.ts[1] - lo.ts[1])
           : -1;
+      // Walk from the lower bound to the upper one. `|` or `,` at the lower
+      // bound's level (or outside it) splits stages, branches or columns;
+      // inside a group still open at the upper bound it is a subquery.
       let depth = 0;
+      const open: boolean[] = [];
       const sameGroup = (t: Tok) => {
-        if (t.t === 'lparen') depth++;
-        else if (t.t === 'rparen') depth--;
-        else if (depth <= 0 && (t.t === 'pipe' || (t.t === 'other' && t.comma)))
-          return false;
-        else if (depth < 0 && !(t.t === 'word' && t.v === 'and')) return false;
+        if (t.t === 'lparen') {
+          depth++;
+          if (depth > 0) open.push(false);
+        } else if (t.t === 'rparen') {
+          if (depth > 0) open.pop();
+          depth--;
+        } else if (t.t === 'pipe' || (t.t === 'other' && t.comma)) {
+          if (depth <= 0) return false;
+          open[open.length - 1] = true;
+        }
+        // A `between` must close where it opened.
         return depth >= 0 || lo.col !== BETWEEN;
       };
       const isRange =
@@ -545,7 +554,8 @@ export function classifyQueryShape(query: string): Attributes {
           .slice(lo.k, hi.k)
           .some(t => t.t === 'semi' || (t.t === 'word' && t.v === 'or')) &&
         toks.slice(lo.k, hi.k).every(sameGroup) &&
-        depth === 0;
+        !open.some(Boolean) &&
+        (lo.col !== BETWEEN || depth === 0);
       absoluteRange = isRange ? windowBucket(width) : 'unknown';
     }
 
