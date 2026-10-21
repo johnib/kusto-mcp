@@ -200,9 +200,11 @@ export function findOptimalRowCount(
   if (bestFitContent.length > options.maxLength) {
     let lo = 0;
     let hi = 0;
+    let cellCount = 0;
     for (const row of baseResponse.data.slice(0, bestFitRowCount)) {
       for (const v of Object.values(row)) {
         hi = Math.max(hi, cellText(v).length);
+        cellCount++;
       }
     }
     let fit = '';
@@ -221,15 +223,16 @@ export function findOptimalRowCount(
         hi = mid - 1;
       }
     }
-    // Nothing fits: the row is wide rather than one huge cell. Keep every
-    // value that is shorter than the whole budget instead of all markers.
+    // Nothing fits: the row is wide rather than one huge cell. Give each cell
+    // an equal share of the budget, so short values survive and huge ones
+    // can't add up to megabytes.
     bestFitContent =
       fit ||
       createResponseWithRowCount(
         baseResponse,
         bestFitRowCount,
         options,
-        options.maxLength,
+        Math.floor(options.maxLength / Math.max(cellCount, 1)),
       );
   }
 

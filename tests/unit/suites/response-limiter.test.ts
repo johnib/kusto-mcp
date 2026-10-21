@@ -334,6 +334,32 @@ describe('Response Limiter Unit Tests', () => {
       expect(result.content.length).toBeLessThan(40_000);
     });
 
+    test('a wide row plus many huge cells stays bounded', () => {
+      const row: Record<string, unknown> = {};
+      for (let i = 0; i < 400; i++) {
+        row[`SomeFairlyLongColumnName_${i}`] = `value-${i}-abcdef`;
+      }
+      for (let i = 0; i < 100; i++) row[`huge_${i}`] = 'z'.repeat(50_000);
+      const result = limitResponseSize(
+        {
+          data: [row],
+          metadata: {
+            rowCount: 1,
+            isPartial: false,
+            requestedLimit: 20,
+            hasMoreResults: false,
+          },
+        },
+        { maxLength: 12000, minRows: 1, format: 'json' },
+      );
+      const parsed = JSON.parse(result.content);
+      expect(parsed.data[0].SomeFairlyLongColumnName_399).toBe(
+        'value-399-abcdef',
+      );
+      expect(parsed.data[0].huge_99).toMatch(/truncated \d+ chars\]$/);
+      expect(result.content.length).toBeLessThan(50_000);
+    });
+
     test('minRows above the available rows reports only delivered rows', () => {
       const result = limitResponseSize(giantRow(), {
         maxLength: 12000,
