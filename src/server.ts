@@ -256,7 +256,7 @@ export function createKustoServer(config: KustoConfig): Server {
   ) {
     const candidate = new KustoConnection(validatedConfig);
     const result = await candidate
-      .initialize(clusterUrl, database, 'manual')
+      .initialize(clusterUrl, database, 'manual', connection)
       .catch(error => {
         manualConnectFailed = true;
         throw error;

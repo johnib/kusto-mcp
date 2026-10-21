@@ -120,6 +120,22 @@ describe('SessionTracker', () => {
     expect(RETRY_CLASSES).toContain(next['kustomcp.query.retry_class']);
   });
 
+  test('ordinals past 10 split into 11-20, 21-50 and 51+', () => {
+    const t = new SessionTracker();
+    const seen: unknown[] = [];
+    for (let i = 1; i <= 60; i++) {
+      seen.push(run(t, 20, { status: 'ok' })['kustomcp.session.query_ordinal']);
+    }
+    expect(seen[9]).toBe('6-10');
+    expect(seen[10]).toBe('11-20');
+    expect(seen[19]).toBe('11-20');
+    expect(seen[20]).toBe('21-50');
+    expect(seen[49]).toBe('21-50');
+    expect(seen[50]).toBe('51+');
+    expect(seen[59]).toBe('51+');
+    for (const v of seen) expect(ORDINAL_BUCKETS).toContain(v);
+  });
+
   test('unknown tool names collapse to other and never ship verbatim', () => {
     const t = new SessionTracker();
     t.recordCall('secret-tool-name-with-PII');

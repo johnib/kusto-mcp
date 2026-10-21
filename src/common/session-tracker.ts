@@ -38,7 +38,16 @@ type Outcome =
   | 'reduced'
   | 'in_flight';
 
-export const ORDINAL_BUCKETS = ['1', '2', '3', '4-5', '6-10', '11+'] as const;
+export const ORDINAL_BUCKETS = [
+  '1',
+  '2',
+  '3',
+  '4-5',
+  '6-10',
+  '11-20',
+  '21-50',
+  '51+',
+] as const;
 export const SCHEMA_CALL_BUCKETS = ['0', '1', '2-3', '4+'] as const;
 export const RETRY_CLASSES = [
   'first',
@@ -77,7 +86,9 @@ function ordinalBucket(n: number): string {
   if (n <= 3) return String(n);
   if (n <= 5) return '4-5';
   if (n <= 10) return '6-10';
-  return '11+';
+  if (n <= 20) return '11-20';
+  if (n <= 50) return '21-50';
+  return '51+';
 }
 
 /** Bucket for `kustomcp.session.failure_streak`. */

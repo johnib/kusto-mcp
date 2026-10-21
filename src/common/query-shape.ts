@@ -119,6 +119,15 @@ export const QUERY_TIME_WINDOW_VOCAB = [
   'absolute',
   'unknown',
 ] as const;
+// Span between the earliest and latest datetime() literal, in the ago() buckets.
+export const QUERY_ABSOLUTE_RANGE_VOCAB = [
+  '<=1h',
+  '<=1d',
+  '<=7d',
+  '<=30d',
+  '>30d',
+  'unknown',
+] as const;
 export const QUERY_COMPLEXITY_VOCAB = [
   'trivial',
   'simple',
@@ -134,8 +143,43 @@ const UNIT_SECONDS: Readonly<Record<string, number>> = {
   d: 86400,
 };
 
+// `datetime(2024-01-01)`, `datetime(2024-01-01 10:00:00.5)`,
+// `datetime("2024-01-01T10:00Z")`, matched from just after the word. The parts
+// are only turned into a number of seconds; nothing is copied out. A literal
+// followed by `+`/`-` (`datetime(x) + 2d`) is not its own bound: no match.
+const DATETIME_LITERAL =
+  /\s*\(\s*(["']?)(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.(\d{1,7}))?)?)?Z?\1\s*\)(?!\s*[-+])/iy;
+type Instant = readonly [number, number];
+const DATETIME_NULL = /\s*\(\s*null\s*\)/iy;
+
+/**
+ * [whole epoch seconds, fraction] of the datetime literal starting at `at`
+ * (kept apart so 100ns survives subtraction), null for
+ * `datetime(null)`, or undefined.
+ */
+function datetimeLiteral(q: string, at: number): Instant | null | undefined {
+  DATETIME_NULL.lastIndex = at;
+  if (DATETIME_NULL.test(q)) return null;
+  DATETIME_LITERAL.lastIndex = at;
+  const m = DATETIME_LITERAL.exec(q);
+  if (!m) return undefined;
+  const [y, mo, d, h, mi, s] = m.slice(2, 8).map(x => Number(x ?? 0));
+  // Kusto datetimes start at year 0001.
+  if (y < 1 || h > 23 || mi > 59 || s > 59) return undefined;
+  // setUTCFullYear keeps years 0-99 as is; a day the month doesn't have
+  // (2024-02-30) rolls over and is rejected below.
+  const date = new Date(0);
+  date.setUTCFullYear(y, mo - 1, d);
+  if (date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) {
+    return undefined;
+  }
+  const frac = m[8] ? Number(`0.${m[8]}`) : 0;
+  return [date.getTime() / 1000 + h * 3600 + mi * 60 + s, frac];
+}
+
 type Tok =
-  | { t: 'word' | 'num'; v: string }
+  | { t: 'word'; v: string; ts?: Instant | null }
+  | { t: 'num'; v: string }
   | {
       t:
         | 'pipe'
@@ -146,7 +190,22 @@ type Tok =
         | 'dot'
         | 'eq'
         | 'other';
+      // On `>`/`>=` (lower bound follows) and `<`/`<=` (upper bound follows).
+      bound?: 'lo' | 'hi';
+      comma?: true;
     };
+
+// Pairs the two ends of `between (a .. b)`; never equal to a column word.
+const BETWEEN = '(between)';
+
+const boundTok = (c: string): Tok =>
+  c === '>'
+    ? { t: 'other', bound: 'lo' }
+    : c === '<'
+      ? { t: 'other', bound: 'hi' }
+      : c === ','
+        ? { t: 'other', comma: true }
+        : { t: 'other' };
 
 const isWordStart = (c: string) => /[A-Za-z_]/.test(c);
 const isWordChar = (c: string) => /[A-Za-z0-9_]/.test(c);
@@ -229,7 +288,12 @@ function lex(q: string): Tok[] | undefined {
         else if (q[i] === '-' && i + 1 < n && isWordStart(q[i + 1])) i++;
         else break;
       }
-      toks.push({ t: 'word', v: q.slice(start, i).toLowerCase() });
+      const v = q.slice(start, i).toLowerCase();
+      toks.push(
+        v === 'datetime'
+          ? { t: 'word', v, ts: datetimeLiteral(q, i) }
+          : { t: 'word', v },
+      );
     } else if (isDigit(c)) {
       const start = i;
       i++;
@@ -246,9 +310,9 @@ function lex(q: string): Tok[] | undefined {
         toks.push({ t: 'eq' });
       } else if ('=!<>'.includes(c) && (q[i + 1] === '=' || q[i + 1] === '~')) {
         // ==, =~, =>, !=, !~, <=, >= are comparison operators, not assignment.
-        toks.push({ t: 'other' });
+        toks.push(boundTok(c));
         i++;
-      } else toks.push({ t: 'other' });
+      } else toks.push(boundTok(c));
       i++;
     }
   }
@@ -319,6 +383,15 @@ export function classifyQueryShape(query: string): Attributes {
     let maxAgoSeconds = -1;
     let sawUnparsableAgo = false;
     let sawDatetime = false;
+    let sawUnparsableDatetime = false;
+    // Parsed datetime() literals: value, token index, and which bound of a
+    // range the preceding tokens make it (`> x`, `between (x`; `< x`, `.. x`).
+    const datetimes: {
+      ts: Instant;
+      k: number;
+      bound?: 'lo' | 'hi';
+      col?: string;
+    }[] = [];
     let atStatementStart = true;
     let expectOperator = false;
     // Words allowed to count as an operator at the very next token (after `(`
@@ -403,6 +476,27 @@ export function classifyQueryShape(query: string): Attributes {
           }
         } else if (tk.v === 'datetime' && next?.t === 'lparen') {
           sawDatetime = true;
+          // datetime(null) is a value, not a bound: skipped.
+          if (tk.ts === undefined) sawUnparsableDatetime = true;
+          else if (tk.ts !== null) {
+            const p1 = toks[k - 1];
+            const p2 = toks[k - 2];
+            if (p1?.t === 'other' && p1.bound) {
+              // `col >= datetime(..)`: keep the column word to pair bounds.
+              const col = p2?.t === 'word' ? p2.v : undefined;
+              datetimes.push({ ts: tk.ts, k, bound: p1.bound, col });
+            } else if (
+              p1?.t === 'lparen' &&
+              p2?.t === 'word' &&
+              p2.v === 'between'
+            ) {
+              datetimes.push({ ts: tk.ts, k, bound: 'lo', col: BETWEEN });
+            } else if (p1?.t === 'dot' && p2?.t === 'dot') {
+              datetimes.push({ ts: tk.ts, k, bound: 'hi', col: BETWEEN });
+            } else {
+              datetimes.push({ ts: tk.ts, k });
+            }
+          }
         }
         continue;
       }
@@ -415,6 +509,76 @@ export function classifyQueryShape(query: string): Attributes {
     if (maxAgoSeconds >= 0) timeWindow = windowBucket(maxAgoSeconds);
     else if (sawUnparsableAgo) timeWindow = 'unknown';
     else if (sawDatetime) timeWindow = 'absolute';
+
+    // Only for queries with datetime() literals. Needs exactly two that
+    // parse and form one range: `between (a .. b)`, or `c >= a and c <= b`
+    // on the same named column, in one statement, with no `or` between,
+    // no `|` or `,` splitting them into separate stages, union/join branches
+    // or extend/print columns. Parens around either comparison are fine:
+    // `(c >= a) and c <= b`.
+    let absoluteRange: string | undefined;
+    if (sawDatetime) {
+      const [lo, hi] = datetimes;
+      const width =
+        datetimes.length === 2
+          ? hi.ts[0] - lo.ts[0] + (hi.ts[1] - lo.ts[1])
+          : -1;
+      // Walk from the lower bound to the upper one. `|` or `,` at the lower
+      // bound's level (or outside it) splits stages, branches or columns;
+      // inside a group still open at the upper bound it is a subquery.
+      // Groups around the lower bound, innermost first: true when one holds a
+      // `|` or `,` before it, i.e. the bound sits in a subquery or branch.
+      const enclosing: boolean[] = [];
+      for (let i = (lo?.k ?? 0) - 1, d = 0, split = false; i >= 0; i--) {
+        const t = toks[i];
+        if (t.t === 'semi') break;
+        if (t.t === 'rparen') d++;
+        else if (t.t === 'lparen' && d > 0) d--;
+        else if (t.t === 'lparen') {
+          enclosing.push(split);
+          split = false;
+        } else if (d === 0 && (t.t === 'pipe' || (t.t === 'other' && t.comma)))
+          split = true;
+      }
+      let depth = 0;
+      let minDepth = 0;
+      // Depths of each `and`: one must join the bounds where they meet.
+      const ands: number[] = [];
+      const open: boolean[] = [];
+      const sameGroup = (t: Tok) => {
+        if (t.t === 'word' && t.v === 'and') ands.push(depth);
+        if (t.t === 'lparen') {
+          depth++;
+          if (depth > 0) open.push(false);
+        } else if (t.t === 'rparen') {
+          if (depth > 0) open.pop();
+          depth--;
+          minDepth = Math.min(minDepth, depth);
+          // Leaving the lower bound's subquery or branch.
+          if (depth < 0 && enclosing[-depth - 1]) return false;
+        } else if (t.t === 'pipe' || (t.t === 'other' && t.comma)) {
+          if (depth <= 0) return false;
+          open[open.length - 1] = true;
+        }
+        // A `between` must close where it opened.
+        return depth >= 0 || lo.col !== BETWEEN;
+      };
+      const isRange =
+        !sawUnparsableDatetime &&
+        datetimes.length === 2 &&
+        lo.bound === 'lo' &&
+        hi.bound === 'hi' &&
+        lo.col !== undefined &&
+        lo.col === hi.col &&
+        width >= 0 &&
+        !toks
+          .slice(lo.k, hi.k)
+          .some(t => t.t === 'semi' || (t.t === 'word' && t.v === 'or')) &&
+        toks.slice(lo.k, hi.k).every(sameGroup) &&
+        !open.some(Boolean) &&
+        (lo.col === BETWEEN ? depth === 0 : ands.includes(minDepth));
+      absoluteRange = isRange ? windowBucket(width) : 'unknown';
+    }
 
     const score = pipes + 2 * joins + 2 * unions + lets;
     const complexity =
@@ -436,6 +600,7 @@ export function classifyQueryShape(query: string): Attributes {
       [`${PREFIX}let_count`]: cap(lets, COUNT_CAP),
       [`${PREFIX}time_window`]: timeWindow,
       [`${PREFIX}complexity_class`]: complexity,
+      ...(absoluteRange && { [`${PREFIX}absolute_range`]: absoluteRange }),
     };
   } catch {
     // Telemetry must never fail a query.
