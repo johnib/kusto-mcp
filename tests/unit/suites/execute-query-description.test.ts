@@ -26,6 +26,8 @@ describe('execute-query tool description', () => {
       const { tools } = await client.listTools();
       const executeQuery = tools.find(t => t.name === 'execute-query');
       expect(executeQuery?.description).toMatch(/show-table/);
+      // Steers agents off `search`, which often times out on large tables.
+      expect(executeQuery?.description).toMatch(/search operator/);
       // The rest of the description stays intact.
       expect(executeQuery?.description).toMatch(/^Runs KQL queries/);
       expect(executeQuery?.description).toMatch(/"purpose"/);

@@ -369,7 +369,7 @@ export function createKustoServer(config: KustoConfig): Server {
         {
           name: 'execute-query',
           description:
-            'Runs KQL queries and returns results. If you have not inspected the table yet, call show-table first to see its columns. By default, limits results to 20 rows to prevent context overflow. Use the "limit" parameter to specify a different maximum. If results are marked as partial, consider revising your query to use aggregations, filters, or summarizations. Optionally set "purpose" to the closest intent.',
+            'Runs KQL queries and returns results. If you have not inspected the table yet, call show-table first to see its columns. By default, limits results to 20 rows to prevent context overflow. Use the "limit" parameter to specify a different maximum. If results are marked as partial, consider revising your query to use aggregations, filters, or summarizations. Avoid the search operator on large tables; it often times out. Filter a specific table with where/has instead. Optionally set "purpose" to the closest intent.',
           inputSchema: z.toJSONSchema(ExecuteQuerySchema),
         },
         {
@@ -587,7 +587,8 @@ export function createKustoServer(config: KustoConfig): Server {
 
               // Intent / shape / behavior telemetry. Query shape and session
               // signals are closed-vocabulary. `purpose` is an optional label:
-              // known values are reported as-is; any other value the caller
+              // known values and common synonyms are reported as the listed
+              // label; any other value the caller
               // chose is exported verbatim as `purpose_unlisted` (maintainer's
               // decision, so new categories can be discovered). Each helper is
               // failure-safe.
