@@ -189,14 +189,16 @@ describe('execute-query intent/shape/session telemetry', () => {
         });
         return { query: '.drop table T', limit: 100 };
       },
+      'after_error',
     ],
     [
       'connection not initialized',
       async () => ({ query: 'T | take 1', limit: 100 }),
+      'after_not_connected',
     ],
   ])(
     'a pre-execution failure (%s) still records its limit',
-    async (_label, firstCall) => {
+    async (_label, firstCall, retryClass) => {
       // Writes are on by default; turn them off so `.drop` is rejected.
       const { client, close } = await connect({ allowWriteOperations: false });
       try {
@@ -233,7 +235,7 @@ describe('execute-query intent/shape/session telemetry', () => {
           '1',
         );
         expect(second.attributes['kustomcp.query.retry_class']).toBe(
-          'after_error',
+          retryClass,
         );
         expect(second.attributes['kustomcp.query.limit_escalation']).toBe(
           'same',

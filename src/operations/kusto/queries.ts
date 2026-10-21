@@ -6,6 +6,7 @@ import {
   KustoQueryError,
   KustoTimeoutError,
   markNotQueryFault,
+  setFailureCategory,
 } from '../../common/errors.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
@@ -260,6 +261,7 @@ export async function executeQuery(
         // e.g. after a failed initialize-connection: not the query's fault.
         const notConnected = new KustoQueryError('Connection not initialized');
         markNotQueryFault(notConnected);
+        setFailureCategory(notConnected, 'not_connected');
         throw notConnected;
       }
 
@@ -437,6 +439,7 @@ export async function executeManagementCommand(
         // e.g. after a failed initialize-connection: not the query's fault.
         const notConnected = new KustoQueryError('Connection not initialized');
         markNotQueryFault(notConnected);
+        setFailureCategory(notConnected, 'not_connected');
         throw notConnected;
       }
 

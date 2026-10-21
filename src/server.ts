@@ -13,6 +13,7 @@ import { SpanStatusCode, trace } from '@opentelemetry/api';
 import {
   carryNotQueryFault,
   formatKustoMcpError,
+  getFailureCategory,
   isKustoMcpError,
   isNotQueryFault,
   KustoAuthenticationError,
@@ -20,6 +21,7 @@ import {
   KustoQueryCancelledError,
   KustoTimeoutError,
   KustoValidationError,
+  setFailureCategory,
   withTimeoutHint,
 } from './common/errors.js';
 import { criticalLog, debugLog } from './common/utils.js';
@@ -33,6 +35,7 @@ import {
   SeverityNumber,
   carryErrorRecording,
   emitLog,
+  errorTypeName,
   recordSpanError,
   responseBytesHistogram,
   queryRowsHistogram,
@@ -44,7 +47,11 @@ import {
 import { appendRowLimit, assertQueryAllowed } from './common/kql-safety.js';
 import { classifyPurpose, QUERY_PURPOSES } from './common/query-purpose.js';
 import { classifyQueryShape } from './common/query-shape.js';
-import { QueryResult, SessionTracker } from './common/session-tracker.js';
+import {
+  failureStreakBucket,
+  QueryResult,
+  SessionTracker,
+} from './common/session-tracker.js';
 import { VERSION } from './common/version.js';
 import {
   executeQuery,
@@ -444,9 +451,17 @@ export function createKustoServer(config: KustoConfig): Server {
       // Also stamped on the span as kustomcp.tool.status.
       let status: 'ok' | 'error' | 'cancelled' = 'ok';
       // Facts about an execute-query call, fed to the session tracker in finally.
-      let queryFacts: { limit: number; partial: boolean } | undefined;
+      let queryFacts:
+        { limit: number; partial: boolean; rowCount?: number } | undefined;
       let queryReduced = false;
       let finishQuery: ((r: QueryResult) => void) | undefined;
+      // Which shipped hint, if any, was appended to an execute-query result.
+      let hintFired:
+        | 'none'
+        | 'failure_streak'
+        | 'timeout'
+        | 'empty_result'
+        | 'not_initialized_stop' = 'none';
 
       span.setAttribute('kustomcp.tool.name', toolName);
       // MCP client (host app) identity — a first-order "who uses this" signal.
@@ -485,25 +500,30 @@ export function createKustoServer(config: KustoConfig): Server {
               : manualConnectFailed
                 ? ` Stop retrying ${toolName}: initialize-connection failed, so fix the cluster URL or auth and call it again.`
                 : ` Stop retrying ${toolName}: call initialize-connection with a cluster URL first.`;
+          if (stop) hintFired = 'not_initialized_stop';
           if (autoConnectPaused) {
             span.setAttribute(
               'kustomcp.connection.autoconnect',
               'skipped_backoff',
             );
-            throw new McpError(
+            const paused = new McpError(
               ErrorCode.InvalidRequest,
               `Connection not initialized${attempt}: auto-connect is paused after repeated failed attempts at startup.${stop || ' Please call initialize-connection to connect.'}`,
             );
+            setFailureCategory(paused, 'not_connected');
+            throw paused;
           }
           const reason = autoConnectFailure
             ? `\nThe startup auto-connect to ${validatedConfig.clusterUrl} (database '${validatedConfig.defaultDatabase}') failed: ${autoConnectFailure}`
             : '';
-          throw new McpError(
+          const notConnected = new McpError(
             ErrorCode.InvalidRequest,
             attempt
               ? `Connection not initialized${attempt}.${stop}${reason}`
               : `Connection not initialized. Please call initialize-connection first.${reason}`,
           );
+          setFailureCategory(notConnected, 'not_connected');
+          throw notConnected;
         }
         return connection;
       };
@@ -721,6 +741,7 @@ export function createKustoServer(config: KustoConfig): Server {
                   const hinted = new KustoTimeoutError(
                     withTimeoutHint(error.message, args.query),
                   );
+                  if (hinted.message !== error.message) hintFired = 'timeout';
                   carryErrorRecording(error, hinted);
                   carryNotQueryFault(error, hinted);
                   throw hinted;
@@ -781,6 +802,7 @@ export function createKustoServer(config: KustoConfig): Server {
                 message:
                   availableData.length === 0 ? EMPTY_RESULT_HINT : undefined,
               };
+              if (availableData.length === 0) hintFired = 'empty_result';
 
               // Determine response format from config
               const responseFormat = validatedConfig.responseFormat || 'json';
@@ -810,7 +832,11 @@ export function createKustoServer(config: KustoConfig): Server {
                 limitResult.content.length,
               );
               span.setAttribute('kustomcp.response.max_chars', globalCharLimit);
-              queryFacts = { limit: requestedLimit, partial: isPartial };
+              queryFacts = {
+                limit: requestedLimit,
+                partial: isPartial,
+                rowCount: availableData.length,
+              };
               queryReduced = limitResult.wasReduced;
               debugLog(`Using ${responseFormat} response format`);
               debugLog(
@@ -959,7 +985,8 @@ export function createKustoServer(config: KustoConfig): Server {
           recordSpanError(span, error);
           toolErrorsCounter.add(1, {
             tool: toolName,
-            error_type: error instanceof Error ? error.name : 'unknown',
+            error_type:
+              error instanceof Error ? errorTypeName(error) : 'unknown',
           });
         }
 
@@ -991,9 +1018,18 @@ export function createKustoServer(config: KustoConfig): Server {
             error instanceof KustoValidationError ||
             isNotQueryFault(error)
           );
+          const failureCategory =
+            getFailureCategory(error) ??
+            (error instanceof KustoQueryCancelledError
+              ? 'cancelled'
+              : error instanceof KustoTimeoutError
+                ? 'timeout'
+                : 'other');
+          span.setAttribute('kustomcp.query.failure_category', failureCategory);
           finishQuery({
             status,
             partial: queryFacts?.partial,
+            failureCategory,
             countsAsQueryFailure: queryFailure,
           });
           finishQuery = undefined;
@@ -1002,6 +1038,7 @@ export function createKustoServer(config: KustoConfig): Server {
             session.consecutiveQueryFailures >= QUERY_FAILURE_HINT_AFTER
           ) {
             errorMessage += `\n${QUERY_FAILURE_HINT}`;
+            hintFired = 'failure_streak';
           }
         }
 
@@ -1015,7 +1052,16 @@ export function createKustoServer(config: KustoConfig): Server {
             status,
             partial: queryFacts?.partial,
             reduced: queryReduced,
+            rowCount: queryFacts?.rowCount,
           });
+        }
+        if (toolName === 'execute-query') {
+          // Streak as it stands after this call, i.e. what the #313 hint read.
+          span.setAttribute(
+            'kustomcp.session.failure_streak',
+            failureStreakBucket(session.consecutiveQueryFailures),
+          );
+          span.setAttribute('kustomcp.hint.fired', hintFired);
         }
         session.recordCall(toolName);
         span.setAttribute('kustomcp.tool.status', status);
