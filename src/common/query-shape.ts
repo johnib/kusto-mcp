@@ -148,7 +148,7 @@ const UNIT_SECONDS: Readonly<Record<string, number>> = {
 // are only turned into a number of seconds; nothing is copied out. A literal
 // followed by `+`/`-` (`datetime(x) + 2d`) is not its own bound: no match.
 const DATETIME_LITERAL =
-  /\s*\(\s*(["']?)(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.\d{1,7})?)?)?Z?\1\s*\)(?!\s*[-+])/iy;
+  /\s*\(\s*(["']?)(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.(\d{1,7}))?)?)?Z?\1\s*\)(?!\s*[-+])/iy;
 const DATETIME_NULL = /\s*\(\s*null\s*\)/iy;
 
 /**
@@ -162,7 +162,8 @@ function datetimeLiteral(q: string, at: number): number | null | undefined {
   const m = DATETIME_LITERAL.exec(q);
   if (!m) return undefined;
   const [y, mo, d, h, mi, s] = m.slice(2, 8).map(x => Number(x ?? 0));
-  if (h > 23 || mi > 59 || s > 59) return undefined;
+  // Kusto datetimes start at year 0001.
+  if (y < 1 || h > 23 || mi > 59 || s > 59) return undefined;
   // setUTCFullYear keeps years 0-99 as is; a day the month doesn't have
   // (2024-02-30) rolls over and is rejected below.
   const date = new Date(0);
@@ -170,7 +171,8 @@ function datetimeLiteral(q: string, at: number): number | null | undefined {
   if (date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) {
     return undefined;
   }
-  return date.getTime() / 1000 + h * 3600 + mi * 60 + s;
+  const frac = m[8] ? Number(`0.${m[8]}`) : 0;
+  return date.getTime() / 1000 + h * 3600 + mi * 60 + s + frac;
 }
 
 type Tok =
@@ -189,6 +191,9 @@ type Tok =
       // On `>`/`>=` (lower bound follows) and `<`/`<=` (upper bound follows).
       bound?: 'lo' | 'hi';
     };
+
+// Pairs the two ends of `between (a .. b)`; never equal to a column word.
+const BETWEEN = '(between)';
 
 const boundTok = (c: string): Tok =>
   c === '>'
@@ -480,9 +485,9 @@ export function classifyQueryShape(query: string): Attributes {
               p2?.t === 'word' &&
               p2.v === 'between'
             ) {
-              datetimes.push({ ts: tk.ts, k, bound: 'lo' });
+              datetimes.push({ ts: tk.ts, k, bound: 'lo', col: BETWEEN });
             } else if (p1?.t === 'dot' && p2?.t === 'dot') {
-              datetimes.push({ ts: tk.ts, k, bound: 'hi' });
+              datetimes.push({ ts: tk.ts, k, bound: 'hi', col: BETWEEN });
             } else {
               datetimes.push({ ts: tk.ts, k });
             }
@@ -502,7 +507,7 @@ export function classifyQueryShape(query: string): Attributes {
 
     // Only for queries with datetime() literals. Needs exactly two that
     // parse and form one range: `between (a .. b)`, or `c >= a and c <= b`
-    // on the same column with no `or` between them.
+    // on the same named column, in one statement, with no `or` between.
     let absoluteRange: string | undefined;
     if (sawDatetime) {
       const [lo, hi] = datetimes;
@@ -511,9 +516,12 @@ export function classifyQueryShape(query: string): Attributes {
         datetimes.length === 2 &&
         lo.bound === 'lo' &&
         hi.bound === 'hi' &&
+        lo.col !== undefined &&
         lo.col === hi.col &&
         hi.ts >= lo.ts &&
-        !toks.slice(lo.k, hi.k).some(t => t.t === 'word' && t.v === 'or');
+        !toks
+          .slice(lo.k, hi.k)
+          .some(t => t.t === 'semi' || (t.t === 'word' && t.v === 'or'));
       absoluteRange = isRange ? windowBucket(hi.ts - lo.ts) : 'unknown';
     }
 

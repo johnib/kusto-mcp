@@ -135,7 +135,19 @@ describe('classifyQueryShape', () => {
       'T | where a >= datetime(2024-01-01) and b <= datetime(2024-01-02)',
       'unknown',
     ],
-    // Days the month doesn't have don't parse.
+    [
+      "T | where ['a'] >= datetime(2024-01-01) and ['b'] <= datetime(2024-01-02)",
+      'unknown',
+    ],
+    [
+      'let A = T | where t >= datetime(2024-01-01); let B = T | where t <= datetime(2024-01-02); union A, B',
+      'unknown',
+    ],
+    // Days the month doesn't have, and year 0000, don't parse.
+    [
+      'T | where t between (datetime(0000-01-01) .. datetime(0000-01-02))',
+      'unknown',
+    ],
     [
       'T | where t between (datetime(2024-02-30) .. datetime(2024-03-01))',
       'unknown',
@@ -147,6 +159,11 @@ describe('classifyQueryShape', () => {
     [
       'T | where t between (datetime(2024-04-31) .. datetime(2024-05-01))',
       'unknown',
+    ],
+    // Fractional seconds count: just over an hour is not <=1h.
+    [
+      'T | where t between (datetime(2024-01-01 00:00:00.0) .. datetime(2024-01-01 01:00:00.1))',
+      '<=1d',
     ],
     // Leap day and year 0001 do.
     [
