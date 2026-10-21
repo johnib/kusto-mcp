@@ -453,7 +453,7 @@ export class KustoConnection {
         span.setAttribute('kustomcp.connection.first_success', markConnected());
         // Compared with the connection in use; absent when there is none.
         this.target =
-          `${clusterUrl.trim().replace(/\/+$/, '')}\n${database.trim()}`.toLowerCase();
+          `${clusterUrl.trim().replace(/\/+$/, '')}\n${database.trim().replace(/\/+$/, '')}`.toLowerCase();
         if (inUse?.target !== undefined) {
           span.setAttribute(
             'kustomcp.connection.target_changed',

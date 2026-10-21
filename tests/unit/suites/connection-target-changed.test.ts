@@ -83,13 +83,19 @@ describe('connection target_changed', () => {
     expect(a1).not.toHaveProperty(KEY);
 
     // Same target, modulo case (ADX names are case-insensitive) and a
-    // trailing slash on the URL.
+    // trailing slash on the URL or database.
     const { attrs: a2 } = await connect(
       'https://SecretCluster.kusto.windows.net/',
       'dba',
       inUse,
     );
     expect(a2[KEY]).toBe(false);
+    const { attrs: a2b } = await connect(
+      'https://secretcluster.kusto.windows.net',
+      'DbA/',
+      inUse,
+    );
+    expect(a2b[KEY]).toBe(false);
 
     const { attrs: a3 } = await connect(
       'https://secretcluster.kusto.windows.net',

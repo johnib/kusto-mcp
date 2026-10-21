@@ -526,6 +526,20 @@ export function classifyQueryShape(query: string): Attributes {
       // Walk from the lower bound to the upper one. `|` or `,` at the lower
       // bound's level (or outside it) splits stages, branches or columns;
       // inside a group still open at the upper bound it is a subquery.
+      // Groups around the lower bound, innermost first: true when one holds a
+      // `|` or `,` before it, i.e. the bound sits in a subquery or branch.
+      const enclosing: boolean[] = [];
+      for (let i = (lo?.k ?? 0) - 1, d = 0, split = false; i >= 0; i--) {
+        const t = toks[i];
+        if (t.t === 'semi') break;
+        if (t.t === 'rparen') d++;
+        else if (t.t === 'lparen' && d > 0) d--;
+        else if (t.t === 'lparen') {
+          enclosing.push(split);
+          split = false;
+        } else if (d === 0 && (t.t === 'pipe' || (t.t === 'other' && t.comma)))
+          split = true;
+      }
       let depth = 0;
       const open: boolean[] = [];
       const sameGroup = (t: Tok) => {
@@ -535,6 +549,8 @@ export function classifyQueryShape(query: string): Attributes {
         } else if (t.t === 'rparen') {
           if (depth > 0) open.pop();
           depth--;
+          // Leaving the lower bound's subquery or branch.
+          if (depth < 0 && enclosing[-depth - 1]) return false;
         } else if (t.t === 'pipe' || (t.t === 'other' && t.comma)) {
           if (depth <= 0) return false;
           open[open.length - 1] = true;

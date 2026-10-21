@@ -190,6 +190,14 @@ describe('classifyQueryShape', () => {
       'unknown',
     ],
     [
+      'T | where x in (U | where t >= datetime(2024-01-01)) and t <= datetime(2024-01-02)',
+      'unknown',
+    ],
+    [
+      'T | where x in (U | where (t >= datetime(2024-01-01)) and t <= datetime(2024-01-02))',
+      '<=1d',
+    ],
+    [
       'T | extend after_start = t >= datetime(2024-01-01) | extend before_end = t <= datetime(2024-01-02)',
       'unknown',
     ],
