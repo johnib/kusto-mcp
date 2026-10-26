@@ -3,6 +3,7 @@
 [![CI](https://github.com/johnib/kusto-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/johnib/kusto-mcp/actions/workflows/ci.yml)
 [![npm version](https://badge.fury.io/js/kusto-mcp.svg)](https://badge.fury.io/js/kusto-mcp)
 [![npm downloads](https://img.shields.io/npm/dm/kusto-mcp.svg)](https://www.npmjs.com/package/kusto-mcp)
+[![Kusto MCP on mcprush](https://mcprush.com/badge/kusto-mcp/score.svg)](https://mcprush.com/to/kusto-mcp?ref=badge)
 
 **Turn your AI assistant into a data analyst in 2 minutes.**
 
