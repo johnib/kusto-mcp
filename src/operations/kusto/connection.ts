@@ -424,6 +424,11 @@ export class KustoConnection {
       // a connect that is still running after the deadline from opening one.
       let tempClient: Client | undefined;
       let abandoned = false;
+      // Token counters for the whole attempt — our fetch plus the SDK's own
+      // request during validation (the cache hit) — stamped when it settles.
+      const cache = this.tokenCredential as Partial<CachingTokenCredential>;
+      const statsBefore = cache.stats ? { ...cache.stats } : undefined;
+      let tokenObtained = false;
       try {
         debugLog(
           `Initializing connection to ${clusterUrl}, database: ${database}`,
@@ -467,25 +472,17 @@ export class KustoConnection {
           const tokenStart = stepStartedAt;
           let tokenError: unknown;
           let gotToken = false;
-          const cache = this.tokenCredential as Partial<CachingTokenCredential>;
-          const before = cache.stats ? { ...cache.stats } : undefined;
           const captured = await captureIdentity(
             scope,
             async s => {
-              const request = this.tokenCredential.getToken(s);
-              // The cache counts a fetch or hit synchronously when the
-              // request starts: stamp it now, so a request the deadline
-              // abandons still reports it before the span ends.
-              recordTokenStats(span, cache, before, false);
               try {
-                const token = await request;
+                const token = await this.tokenCredential.getToken(s);
                 gotToken = !!token?.token;
+                tokenObtained = gotToken;
                 return token;
               } catch (error) {
                 tokenError = error;
                 throw error;
-              } finally {
-                recordTokenStats(span, cache, before, gotToken);
               }
             },
             () => timedOut,
@@ -578,6 +575,7 @@ export class KustoConnection {
           source,
           outcome: 'success',
         });
+        recordTokenStats(span, cache, statsBefore, true);
         span.setStatus({ code: SpanStatusCode.OK });
         emitLog(SeverityNumber.INFO, 'INFO', 'Connection established', {
           'kustomcp.connection.source': source,
@@ -649,6 +647,8 @@ export class KustoConnection {
           source,
           outcome,
         });
+        // A fetch counts when it starts, so one the deadline abandoned is in.
+        recordTokenStats(span, cache, statsBefore, tokenObtained);
         recordSpanError(span, error);
         emitLog(SeverityNumber.ERROR, 'ERROR', 'Connection failed', {
           'kustomcp.connection.source': source,
