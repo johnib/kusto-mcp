@@ -511,8 +511,13 @@ export class KustoConnection {
           const captured = await captureIdentity(
             scope,
             async s => {
+              const request = this.tokenCredential.getToken(s);
+              // The cache counts a fetch or hit synchronously when the
+              // request starts: stamp it now, so a request the deadline
+              // abandons still reports it before the span ends.
+              recordTokenStats(span, cache, before, false);
               try {
-                const token = await this.tokenCredential.getToken(s);
+                const token = await request;
                 gotToken = !!token?.token;
                 return token;
               } catch (error) {

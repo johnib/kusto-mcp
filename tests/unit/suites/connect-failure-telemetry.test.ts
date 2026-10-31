@@ -10,10 +10,11 @@ import {
 } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 
-let azBehavior: 'ok' | 'fail' = 'ok';
+let azBehavior: 'ok' | 'fail' | 'hang' = 'ok';
 jest.mock('../../../src/auth/az-cli-credential.js', () => ({
   AzCliCredential: class AzCliCredential {
     async getToken() {
+      if (azBehavior === 'hang') return new Promise(() => {});
       if (azBehavior === 'fail') {
         const e = new Error('Please run az login');
         e.name = 'CredentialUnavailableError';
@@ -78,11 +79,11 @@ function httpError(status: number, code?: string) {
   });
 }
 
-async function connect() {
+async function connect(connectionTimeout = 5000) {
   exporter.reset();
   const conn = new KustoConnection({
     authMethod: AuthenticationMethod.AzureCli,
-    connectionTimeout: 5000,
+    connectionTimeout,
   });
   const err = await conn.initialize(CLUSTER, 'db').then(
     () => undefined,
@@ -114,7 +115,7 @@ describe('mcp.connection.init failure attributes', () => {
     expect(attrs['kustomcp.auth.token_cache_hits']).toBe(0);
     expect(attrs['kustomcp.auth.credential_used']).toBe('az');
     expect(attrs['kustomcp.connection.pipeline']).toBe('v2');
-    expect(attrs).not.toHaveProperty('kustomcp.connection.failed_step');
+    expect(attrs['kustomcp.connection.failed_step']).toBeUndefined();
   });
 
   test('token failure: failed_step=token, a fetch, no credential_used', async () => {
@@ -123,7 +124,17 @@ describe('mcp.connection.init failure attributes', () => {
     expect(attrs['kustomcp.connection.failed_step']).toBe('token');
     expect(typeof attrs['kustomcp.connection.failed_step_ms']).toBe('number');
     expect(attrs['kustomcp.auth.token_fetches']).toBe(1);
-    expect(attrs).not.toHaveProperty('kustomcp.auth.credential_used');
+    expect(attrs['kustomcp.auth.credential_used']).toBeUndefined();
+  });
+
+  test('a token the deadline abandons still reports its fetch', async () => {
+    azBehavior = 'hang';
+    const { attrs } = await connect(50);
+    expect(attrs['kustomcp.connection.timed_out']).toBe(true);
+    expect(attrs['kustomcp.connection.failed_step']).toBe('token');
+    expect(attrs['kustomcp.auth.token_fetches']).toBe(1);
+    expect(attrs['kustomcp.auth.token_cache_hits']).toBe(0);
+    expect(attrs['kustomcp.auth.credential_used']).toBeUndefined();
   });
 
   test('missing database: failed_step=query and the Kusto error code', async () => {
