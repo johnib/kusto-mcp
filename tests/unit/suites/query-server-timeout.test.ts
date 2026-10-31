@@ -93,4 +93,10 @@ describe('executeQuery sends the query timeout to the server (#294)', () => {
     expect(props.getTimeout()).toBe(3600000);
     expect(props.getClientTimeout()).toBe(2 * 3600000 + 30000);
   });
+
+  test('the client timeout stays a valid timer at the largest accepted queryTimeout', async () => {
+    // Above 2^31-1 ms, Node fires a timer after ~1ms.
+    const props = await propsForQuery(2 ** 31 - 1);
+    expect(props.getClientTimeout()).toBe(2 ** 31 - 1);
+  });
 });
