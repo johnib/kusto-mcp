@@ -52,6 +52,10 @@
 - Releases are semantic-release on merge to `master`, squash-merged — so the **PR title**
   carries the semantic prefix. Only `fix:` and `feat:` publish; use `chore:`/`docs:` for
   changes that must not release.
+- Stacked PRs, all based on `master`: after each squash merge, check
+  `git diff origin/master <lower branch>`. Empty → `git merge -s ours origin/master`
+  into the next branch. Not empty (e.g. a release commit) → a normal merge. Never
+  `-X ours`: it doubled a code block (#408).
 - The empty `stderr.on('error', () => {})` in `installStderrErrorGuard`
   (`src/common/utils.ts`) is the *entire* fix for the orphan CPU spin (#180, #196). It
   looks like a no-op. Never remove it in a cleanup or `/simplify` pass.
