@@ -374,11 +374,20 @@ export class KustoConnection {
   private readonly requestCredential: TokenCredential = {
     getToken: (scopes, options) =>
       this.tokenCredential.getToken(scopes, {
+        // During a connect, a request without its own bounds (the SDK's,
+        // during validation) gets the attempt's: a cache miss there can't
+        // outlive the connect deadline.
+        ...(this.connectBounds && {
+          abortSignal: this.connectBounds.signal,
+          [AZ_DEADLINE_AT]: this.connectBounds.deadlineAt,
+        }),
         ...options,
         [OBSERVE]: this.observed,
         ...(this.subscriptionTenant && { [SUBSCRIPTION_TENANT]: true }),
       } as GetTokenOptions),
   };
+  // Set while initialize() runs: the attempt's abort signal and deadline.
+  private connectBounds?: { signal: AbortSignal; deadlineAt: number };
 
   /**
    * Create a new KustoConnection
@@ -462,6 +471,10 @@ export class KustoConnection {
         // cache cancels the inner fetch (killing `az`) once no other caller
         // still waits on it.
         const deadlineAbort = new AbortController();
+        this.connectBounds = {
+          signal: deadlineAbort.signal,
+          deadlineAt: startedAt + connectTimeout,
+        };
         const deadline = new Promise<never>((_, reject) => {
           deadlineTimer = setTimeout(() => {
             timedOut = true;
@@ -799,6 +812,8 @@ export class KustoConnection {
         throw wrapped;
       } finally {
         if (deadlineTimer) clearTimeout(deadlineTimer);
+        // Later requests (queries) carry their own bounds.
+        this.connectBounds = undefined;
         span.end();
       }
     });
