@@ -87,7 +87,7 @@ describe('shared cache across connections', () => {
     const shared = createTokenCredential('azure-cli', 5000);
     // Stop the one tenant retry from also refetching, to see the clear alone.
     (
-      shared as { fallBackToSubscriptionTenant: () => boolean }
+      shared as unknown as { fallBackToSubscriptionTenant: () => boolean }
     ).fallBackToSubscriptionTenant = () => false;
     respond = async () => {
       throw httpError(401);
