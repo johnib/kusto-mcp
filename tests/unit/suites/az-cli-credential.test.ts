@@ -255,6 +255,22 @@ describe('AzCliCredential.getToken', () => {
       expect(nodeSpawn).not.toHaveBeenCalled();
     });
 
+    test('a shorter per-request bound (what is left of the deadline) wins', async () => {
+      setPlatform('darwin');
+      jest.useFakeTimers();
+      const p = new AzCliCredential({ timeoutMs: 1500 }).getToken(SCOPE, {
+        kustoMcpAzTimeoutMs: 400,
+      } as never);
+      const settled = expect(p).rejects.toMatchObject({
+        azReason: 'timeout',
+      });
+      jest.advanceTimersByTime(399);
+      expect(killSpy).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+      await settled;
+      expect(killSpy).toHaveBeenCalledWith(-4242, 'SIGKILL');
+    });
+
     test('a late exit after the timeout is ignored', async () => {
       setPlatform('linux');
       jest.useFakeTimers();
