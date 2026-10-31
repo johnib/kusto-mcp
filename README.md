@@ -150,11 +150,13 @@ Add this to your Claude Desktop configuration file:
 
 3. **That's it!** Your AI assistant can now connect to your Azure Data Explorer clusters.
 
+**How sign-in works.** By default the server uses Azure's standard credential chain (`DefaultAzureCredential`): environment-variable service principals, workload or managed identity, then the Azure CLI (`az`), Azure PowerShell and the Azure Developer CLI. On a developer machine that normally means your `az login`. Set `KUSTO_AUTH_METHOD=azure-cli` to use only the Azure CLI. The CLI is asked for a token from your account's home tenant; if your cluster is in another tenant, set `AZURE_TENANT_ID` (see [Choosing the tenant](docs/CONFIGURATION.md#choosing-the-tenant)).
+
 ## Test It Works
 
 Ask your AI assistant:
 
-> "Connect to my Azure Data Explorer cluster at `https://your-cluster.kusto.windows.net` and show me the available tables"
+> "Connect to my Azure Data Explorer cluster at `https://your-cluster.kusto.windows.net`, database `YourDatabase`, and show me the available tables"
 
 You should see your AI successfully connect and list your database tables.
 
@@ -170,15 +172,19 @@ You should see your AI successfully connect and list your database tables.
 
 ## Common Issues
 
-**🔒 Permission denied?**
+A failed connect names the step that failed and one fix. The common ones:
 
-- Run `az login` and make sure you have access to the Azure Data Explorer cluster
-- Verify you're logged into the correct Azure tenant
-
-**🔌 Can't connect to cluster?**
-
-- Double-check the cluster URL format: `https://your-cluster.kusto.windows.net`
-- Ensure the cluster is accessible from your network
+| Message says | What to do |
+| --- | --- |
+| Azure CLI is not installed or not on PATH | Install it (`winget install Microsoft.AzureCLI`), run `az login`, restart your AI tool |
+| Azure CLI is not signed in | Run `az login` |
+| Your Azure sign-in expired or was revoked / needs MFA | Run `az login` again |
+| Azure CLI did not return a token in time | Run `az account get-access-token --resource https://kusto.kusto.windows.net` to see how long it takes; raise `KUSTO_CONNECTION_TIMEOUT` (ms) if it is slow |
+| rejected your token (HTTP 401) / not in the cluster's tenant | Set `AZURE_TENANT_ID` to the cluster's tenant id in the MCP server env |
+| You are signed in but have no access (HTTP 403) | Ask the database admin for the Viewer role |
+| rejected the request (HTTP 400) | Check the database name; names are case-sensitive |
+| Can't resolve the cluster host / refused the connection | Check the cluster URL, VPN and proxy |
+| Config warning: … | A setting was not valid and its default was used; fix the named setting |
 
 **❓ AI doesn't see the tools?**
 
@@ -194,7 +200,7 @@ This MCP server provides your AI assistant with tools to:
 - Initialize connections to Azure Data Explorer clusters
 - Browse database tables and schemas
 - Execute KQL queries with intelligent result limiting
-- Handle authentication securely through Azure CLI
+- Handle authentication through Azure's standard credential chain (Azure CLI on a developer machine)
 - Report a bug or request a feature on GitHub (`report-issue`)
 
 Results are automatically formatted and sized appropriately for AI context windows, so your assistant gets the data it needs without being overwhelmed.

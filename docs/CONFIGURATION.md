@@ -4,13 +4,19 @@ This document covers all configuration options for the Kusto MCP Server.
 
 ## Environment Variables
 
-Create a `.env` file based on the provided `.env.example`:
+Set these in the `env` block of your MCP host's server configuration. The server reads only its process environment; it does not load a `.env` file. A value that is set but not valid is reported (stderr, and with a failed connect's message) and its default is used.
 
 ```bash
-# Kusto Configuration
-KUSTO_AUTH_METHOD=azure-cli  # Options: azure-identity, azure-cli
-KUSTO_QUERY_TIMEOUT=120000  # Timeout in milliseconds (default: 120000)
+# Connection
+KUSTO_CLUSTER_URL=https://mycluster.kusto.windows.net  # Optional: connect at startup (https:// is added if missing)
+KUSTO_DEFAULT_DATABASE=MyDatabase  # Optional: needed with KUSTO_CLUSTER_URL for the startup connect
+KUSTO_AUTH_METHOD=azure-identity  # Options: azure-identity (default, the full credential chain), azure-cli
 KUSTO_CONNECTION_TIMEOUT=20000  # Connection init timeout in ms (default: 20000)
+AZURE_TENANT_ID=<tenant-id>  # Optional: the tenant the Azure CLI step asks for (see "Choosing the tenant")
+AZURE_TOKEN_CREDENTIALS=dev  # Optional, standard Azure SDK: limit the chain (dev, prod, or one credential name)
+
+# Queries
+KUSTO_QUERY_TIMEOUT=120000  # Timeout in milliseconds (default: 120000)
 KUSTO_RESPONSE_FORMAT=json  # Options: json, markdown (default: json)
 KUSTO_MARKDOWN_MAX_CELL_LENGTH=1000  # Maximum characters per table cell (default: 1000)
 
@@ -21,8 +27,9 @@ KUSTO_MIN_RESPONSE_ROWS=1  # Minimum rows to return when data exists (default: 1
 # Safety
 KUSTO_ALLOW_WRITE_OPERATIONS=true  # Allow write/management commands (default: true). Set false for read-only.
 
-# OpenTelemetry Configuration (optional)
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317/v1/traces
+# OpenTelemetry: send to your own collector instead (OTLP over HTTP, base URL;
+# /v1/traces, /v1/metrics and /v1/logs are appended)
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
 ## Read-Only Mode
@@ -40,7 +47,7 @@ control/management commands are rejected.
 
 ### Azure CLI Authentication (Recommended)
 
-1. Set `KUSTO_AUTH_METHOD=azure-cli` in your `.env` file
+1. Set `KUSTO_AUTH_METHOD=azure-cli` in your MCP server's `env`
 2. Ensure you're logged in with Azure CLI:
 
    ```bash
@@ -337,8 +344,7 @@ The server maintains connection state for efficiency. Connections are automatica
 
 ### Environment Variables
 
-- Store sensitive configuration in `.env` files
-- Never commit `.env` files to version control
+- Keep secrets (e.g. `AZURE_CLIENT_SECRET`) out of committed MCP host config files; prefer the host's secret or input mechanism where it has one
 - Use environment-specific configuration for different deployments
 
 ### Authentication Tokens
