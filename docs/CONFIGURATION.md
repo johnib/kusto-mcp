@@ -4,7 +4,7 @@ This document covers all configuration options for the Kusto MCP Server.
 
 ## Environment Variables
 
-Set these in the `env` block of your MCP host's server configuration. The server reads only its process environment; it does not load a `.env` file. For `KUSTO_AUTH_METHOD`, `KUSTO_CONNECTION_TIMEOUT`, `KUSTO_QUERY_TIMEOUT`, `KUSTO_MARKDOWN_MAX_CELL_LENGTH`, `KUSTO_MAX_RESPONSE_LENGTH` (minimum 100) and `KUSTO_MIN_RESPONSE_ROWS`, a value that is set but not valid is reported (stderr, and with a failed connect's message) and its default is used. An invalid `AZURE_TOKEN_CREDENTIALS` makes every connect fail with the reason; the server never falls back to the full credential chain.
+Set these in the `env` block of your MCP host's server configuration. The server reads only its process environment; it does not load a `.env` file. For `KUSTO_AUTH_METHOD`, `KUSTO_CONNECTION_TIMEOUT`, `KUSTO_QUERY_TIMEOUT`, `KUSTO_MARKDOWN_MAX_CELL_LENGTH`, `KUSTO_MAX_RESPONSE_LENGTH` (minimum 100) and `KUSTO_MIN_RESPONSE_ROWS`, a value that is set but not valid is reported (stderr, and with a failed connect's message) and its default is used. With the default `azure-identity` method, an invalid `AZURE_TOKEN_CREDENTIALS` makes every connect fail with the reason; the server never falls back to the full credential chain. The `azure-cli` method does not read this variable.
 
 ```bash
 # Connection
@@ -375,7 +375,7 @@ The server maintains connection state for efficiency. Connections are automatica
 4. **OpenTelemetry Problems**
    - Verify OTLP endpoint is accessible
    - Check network connectivity to the collector
-   - Ensure correct endpoint format (include /v1/traces)
+   - Give only the OTLP HTTP base URL (normally port 4318), with no `/v1/traces` path: the server adds `/v1/traces`, `/v1/metrics` and `/v1/logs` itself
 
 ### Debug Mode
 
