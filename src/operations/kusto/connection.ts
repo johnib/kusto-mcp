@@ -8,7 +8,10 @@ import {
 } from 'azure-kusto-data';
 import { kustoTokenScope } from '../../auth/kusto-scope.js';
 import { OBSERVE, TokenObservation } from '../../auth/observe.js';
-import { credentialProcessTimeout } from '../../auth/process-timeout.js';
+import {
+  AZ_DEADLINE_AT,
+  credentialProcessTimeout,
+} from '../../auth/process-timeout.js';
 import { SUBSCRIPTION_TENANT } from '../../auth/subscription-tenant.js';
 import {
   CachingTokenCredential,
@@ -545,7 +548,9 @@ export class KustoConnection {
               try {
                 const token = await this.requestCredential.getToken(s, {
                   abortSignal: deadlineAbort.signal,
-                });
+                  // az measures its kill bound from this when it spawns.
+                  [AZ_DEADLINE_AT]: startedAt + connectTimeout,
+                } as GetTokenOptions);
                 gotToken = !!token?.token;
                 tokenObtained = gotToken;
                 return token;

@@ -255,6 +255,26 @@ describe('AzCliCredential.getToken', () => {
       expect(nodeSpawn).not.toHaveBeenCalled();
     });
 
+    test("with a caller's deadline, az measures its bound when it spawns (before the deadline)", async () => {
+      setPlatform('darwin');
+      jest.useFakeTimers();
+      // 3.5s of a 5s budget went to metadata / earlier chain steps.
+      const deadlineAt = Date.now() + 1500;
+      const p = new AzCliCredential({ timeoutMs: 19000 }).getToken(SCOPE, {
+        kustoMcpAzDeadlineAt: deadlineAt,
+      } as never);
+      const settled = expect(p).rejects.toMatchObject({
+        azReason: 'timeout',
+      });
+      // Half of the 1.5s left: az fails as an az timeout at 750ms, well
+      // before the caller's deadline (the fixed 19s bound would be after).
+      jest.advanceTimersByTime(749);
+      expect(killSpy).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+      await settled;
+      expect(killSpy).toHaveBeenCalledWith(-4242, 'SIGKILL');
+    });
+
     test('a late exit after the timeout is ignored', async () => {
       setPlatform('linux');
       jest.useFakeTimers();
