@@ -14,6 +14,8 @@ let metadataDelayMs = 0;
 // short-lived (inside the cache's refresh margin), so that request misses.
 let sdkAsksForToken = false;
 let tokenLifetimeMs = 3600_000;
+// After the answered tokens, fail instead of hang.
+let tokenError: Error | undefined;
 jest.mock('../../../src/auth/az-cli-credential.js', () => ({
   AzCliCredential: class AzCliCredential {
     readonly allowsSubscriptionTenant = true;
@@ -32,6 +34,7 @@ jest.mock('../../../src/auth/az-cli-credential.js', () => ({
           expiresOnTimestamp: Date.now() + tokenLifetimeMs,
         });
       }
+      if (tokenError) return Promise.reject(tokenError);
       return new Promise(() => {});
     }
   },
@@ -92,6 +95,7 @@ beforeEach(() => {
   metadataDelayMs = 0;
   sdkAsksForToken = false;
   tokenLifetimeMs = 3600_000;
+  tokenError = undefined;
   tokensBeforeHang = 0;
   execute.mockReset();
 });
@@ -171,4 +175,17 @@ test("the SDK's own token request during validation is bounded by the deadline t
   expect(signals).toHaveLength(2);
   expect(signals[1].aborted).toBe(true);
   expect(deadlines[1]).toBe(deadlines[0]);
+});
+
+test("an az timeout on the SDK's validation request is a token failure, not a cluster one", async () => {
+  tokensBeforeHang = 1;
+  tokenLifetimeMs = 60_000;
+  sdkAsksForToken = true;
+  tokenError = Object.assign(new Error('az timed out'), {
+    name: 'AzCliDeadlineError',
+    azReason: 'timeout',
+  });
+  const err = await connect(5000);
+  expect(err.message).toMatch(/Failed step: getting an Azure token/);
+  expect(err.message).not.toMatch(/reaching the cluster/);
 });
