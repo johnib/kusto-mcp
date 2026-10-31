@@ -502,7 +502,10 @@ export function createKustoServer(config: KustoConfig): Server {
       // Bounded: a known product name or 'other' (see client-info.ts).
       const clientInfo = server.getClientVersion();
       const clientName = clientNameForTelemetry(clientInfo?.name);
-      const clientVersion = clientVersionForTelemetry(clientInfo?.version);
+      const clientVersion = clientVersionForTelemetry(
+        clientInfo?.version,
+        clientInfo?.name,
+      );
       if (clientName) span.setAttribute('mcp.client.name', clientName);
       if (clientVersion) span.setAttribute('mcp.client.version', clientVersion);
       // Argument KEYS only — never values (may contain sensitive data).
@@ -1122,7 +1125,7 @@ export function createKustoServer(config: KustoConfig): Server {
     try {
       const client = server.getClientVersion();
       const name = clientNameForTelemetry(client?.name);
-      const version = clientVersionForTelemetry(client?.version);
+      const version = clientVersionForTelemetry(client?.version, client?.name);
       emitLog(SeverityNumber.INFO, 'INFO', 'MCP client identified', {
         ...(name && { 'mcp.client.name': name }),
         ...(version && { 'mcp.client.version': version }),

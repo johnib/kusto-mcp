@@ -269,14 +269,16 @@ describe('classifyQueryShape', () => {
   });
 
   test('absolute range is absent without datetime() literals', () => {
-    expect(shape('T | where t > ago(1d)')).not.toHaveProperty(
-      `${P}absolute_range`,
-    );
-    expect(shape('T | take 5')).not.toHaveProperty(`${P}absolute_range`);
+    expect(
+      shape('T | where t > ago(1d)')[`${P}absolute_range`],
+    ).toBeUndefined();
+    expect(shape('T | take 5')[`${P}absolute_range`]).toBeUndefined();
     // A literal inside a string or comment is not a datetime() call.
     expect(
-      shape('T | where s == "datetime(2024-01-01)" // datetime(2024-02-01)'),
-    ).not.toHaveProperty(`${P}absolute_range`);
+      shape('T | where s == "datetime(2024-01-01)" // datetime(2024-02-01)')[
+        `${P}absolute_range`
+      ],
+    ).toBeUndefined();
     // With ago() present, time_window keeps the ago() bucket.
     const a = shape(
       'T | where t > ago(2h) and t between (datetime(2024-01-01) .. datetime(2024-03-01))',
