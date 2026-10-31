@@ -245,6 +245,26 @@ describe('tool calls wait for auto-connect (#311)', () => {
     }
   });
 
+  test('the wait deadline stays a valid timer at the largest accepted connectionTimeout', async () => {
+    behaviors = [{ delayMs: 50 }];
+    const setSpy = jest.spyOn(global, 'setTimeout');
+    const { client, close } = await connect({
+      ...CONFIGURED,
+      connectionTimeout: 2 ** 31 - 1,
+    });
+    try {
+      const r = await client.callTool({ name: 'show-tables', arguments: {} });
+      expect(r.isError).toBeFalsy();
+      // Above 2^31-1 ms, Node fires a timer after ~1ms.
+      const delays = setSpy.mock.calls.map(c => c[1] ?? 0);
+      expect(delays).toContain(2 ** 31 - 1);
+      expect(Math.max(...delays)).toBeLessThanOrEqual(2 ** 31 - 1);
+    } finally {
+      setSpy.mockRestore();
+      await close();
+    }
+  });
+
   test('the wait deadline timer is cleared once auto-connect settles', async () => {
     behaviors = [{ delayMs: 50 }];
     const TIMEOUT = 7777; // distinctive, to pick out the deadline timer
