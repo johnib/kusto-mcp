@@ -190,6 +190,12 @@ export class CachingTokenCredential implements TokenCredential {
   clear(): void {
     this.cache.clear();
     this.cacheSource.clear();
+    // A fetch begun before the clear may return the rejected token: it can
+    // no longer fill the cache or be joined. Its own waiters still get it.
+    for (const key of this.inFlight.keys()) {
+      this.generation.set(key, (this.generation.get(key) ?? 0) + 1);
+    }
+    this.inFlight.clear();
   }
 
   /** The az step, directly or as a step of the chain. */
