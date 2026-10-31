@@ -138,11 +138,18 @@ describe('Connection Management Unit Tests', () => {
       const {
         createTokenCredential,
       } = require('../../../src/auth/token-credentials.js');
-      expect(
-        KustoConnectionStringBuilder.withTokenCredential,
-      ).toHaveBeenCalledWith(
-        'https://help.kusto.windows.net/',
-        createTokenCredential.mock.results[0].value,
+      // The SDK gets this connection's view of the caching credential: its
+      // getToken forwards to ours.
+      const [url, given] =
+        KustoConnectionStringBuilder.withTokenCredential.mock.calls[0];
+      expect(url).toBe('https://help.kusto.windows.net/');
+      const ours = createTokenCredential.mock.results[0].value;
+      ours.getToken.mockClear();
+      await given.getToken('scope');
+      // ...with this connection's own token observation attached.
+      expect(ours.getToken).toHaveBeenCalledWith(
+        'scope',
+        expect.objectContaining({ kustoMcpObserve: expect.any(Object) }),
       );
 
       // Verify connection state
