@@ -4,6 +4,9 @@
 
 import { formatQueryResult, QueryResult } from './markdown-formatter.js';
 
+/** The smallest global response limit, in characters. */
+export const MIN_RESPONSE_LENGTH = 100;
+
 export interface ResponseLimitOptions {
   maxLength: number;
   minRows: number;
@@ -254,8 +257,10 @@ export function limitResponseSize(
   options: ResponseLimitOptions,
 ): ResponseLimitResult {
   // Validate input
-  if (options.maxLength < 100) {
-    throw new Error('Global response limit must be at least 100 characters');
+  if (options.maxLength < MIN_RESPONSE_LENGTH) {
+    throw new Error(
+      `Global response limit must be at least ${MIN_RESPONSE_LENGTH} characters`,
+    );
   }
 
   if (options.minRows < 0) {

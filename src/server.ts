@@ -738,7 +738,8 @@ export function createKustoServer(config: KustoConfig): Server {
               // Global response limit
               const globalCharLimit =
                 validatedConfig.maxResponseLength || 12000;
-              const minRows = validatedConfig.minRowsInResponse || 1;
+              // 0 is a valid minimum: let the limiter drop every row.
+              const minRows = validatedConfig.minRowsInResponse ?? 1;
 
               // Fetch one extra row (N+1) so we can detect whether more data is
               // available than the requested limit. The `take` is appended on a
