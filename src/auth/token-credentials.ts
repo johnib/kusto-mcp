@@ -6,6 +6,7 @@ import {
   TokenCredential,
 } from '@azure/identity';
 import { AzCliCredential } from './az-cli-credential.js';
+import { OBSERVE, TokenObservation } from './observe.js';
 import { SUBSCRIPTION_TENANT } from './subscription-tenant.js';
 
 function isSubscriptionTenantRequest(options?: GetTokenOptions): boolean {
@@ -41,6 +42,21 @@ interface SharedFetch {
   waiting: number;
   /** A caller without a signal joined: it can't abandon, so never cancel. */
   pinned: boolean;
+  /** Which credential produced the token, once it resolved. */
+  source?: CredentialSource;
+}
+
+/**
+ * Per-caller telemetry for token requests: a caller passes a
+ * TokenObservation as the OBSERVE option and the cache counts that caller's
+ * own fetches and hits and the token's source. Unlike the shared `stats`,
+ * overlapping callers can't mix their numbers.
+ */
+function observationOf(
+  options?: GetTokenOptions,
+): TokenObservation | undefined {
+  const o = (options as Record<string, unknown> | undefined)?.[OBSERVE];
+  return o && typeof o === 'object' ? (o as TokenObservation) : undefined;
 }
 
 /**
@@ -52,6 +68,8 @@ interface SharedFetch {
  */
 export class CachingTokenCredential implements TokenCredential {
   private readonly cache = new Map<string, AccessToken>();
+  /** Which credential produced each cached token. */
+  private readonly cacheSource = new Map<string, CredentialSource>();
   private readonly inFlight = new Map<string, SharedFetch>();
   private readonly generation = new Map<string, number>();
   /** Telemetry: inner fetches started, and requests served without one. */
@@ -78,11 +96,18 @@ export class CachingTokenCredential implements TokenCredential {
       isSubscriptionTenantRequest(options),
     ]);
 
+    const obs = observationOf(options);
+
     // A claims challenge means the cached token was rejected: always fetch,
     // and supersede any ordinary fetch already in flight for this key.
     if (options?.claims) {
       this.cache.delete(key);
-      return this.join(key, this.fetch(key, scopes, options), options);
+      if (obs) obs.fetches++;
+      return this.join(
+        key,
+        this.observe(this.fetch(key, scopes, options), obs),
+        options,
+      );
     }
 
     const cached = this.cache.get(key);
@@ -93,13 +118,32 @@ export class CachingTokenCredential implements TokenCredential {
         cached.refreshAfterTimestamp > this.now())
     ) {
       this.stats.hits++;
+      if (obs) {
+        obs.hits++;
+        obs.source = this.cacheSource.get(key);
+      }
       return cached;
     }
 
     const joined = this.inFlight.get(key);
     if (joined) this.stats.hits++;
+    if (obs) {
+      if (joined) obs.hits++;
+      else obs.fetches++;
+    }
     const shared = joined ?? this.fetch(key, scopes, options);
-    return this.join(key, shared, options);
+    return this.join(key, this.observe(shared, obs), options);
+  }
+
+  /** Copy the fetch's source to the caller's observation when it resolves. */
+  private observe(shared: SharedFetch, obs?: TokenObservation): SharedFetch {
+    // Registered before join()'s handlers, so it runs before the caller resumes.
+    if (obs)
+      shared.promise.then(
+        () => (obs.source = shared.source),
+        () => undefined,
+      );
+    return shared;
   }
 
   /**
@@ -138,6 +182,22 @@ export class CachingTokenCredential implements TokenCredential {
     });
   }
 
+  /**
+   * Forget every cached token. For a 401: the cluster rejected the token, so
+   * the next connect (e.g. after `az login`) must fetch a new one. Not for a
+   * 403 — that token is valid; Kusto denied access.
+   */
+  clear(): void {
+    this.cache.clear();
+    this.cacheSource.clear();
+    // A fetch begun before the clear may return the rejected token: it can
+    // no longer fill the cache or be joined. Its own waiters still get it.
+    for (const key of this.inFlight.keys()) {
+      this.generation.set(key, (this.generation.get(key) ?? 0) + 1);
+    }
+    this.inFlight.clear();
+  }
+
   /** The az step, directly or as a step of the chain. */
   private azStep(): AzCliCredential | undefined {
     const sources = (this.inner as { _sources?: unknown })._sources;
@@ -166,15 +226,13 @@ export class CachingTokenCredential implements TokenCredential {
   private async fetchInner(
     scopes: string | string[],
     options: GetTokenOptions,
-  ): Promise<AccessToken | null> {
+  ): Promise<{ token: AccessToken | null; source?: CredentialSource }> {
     // A subscription-tenant request goes straight to the az step: no other
     // chain step should answer it.
     if (isSubscriptionTenantRequest(options)) {
       const az = this.azStep();
-      if (!az?.allowsSubscriptionTenant) return null;
-      const token = await az.getToken(scopes, options);
-      this.lastSource = 'az';
-      return token;
+      if (!az?.allowsSubscriptionTenant) return { token: null };
+      return { token: await az.getToken(scopes, options), source: 'az' };
     }
     const chain = this.inner as {
       getTokenInternal?: (
@@ -187,12 +245,13 @@ export class CachingTokenCredential implements TokenCredential {
         scopes,
         options,
       );
-      this.lastSource = credentialSourceOf(successfulCredential);
-      return token;
+      return { token, source: credentialSourceOf(successfulCredential) };
     }
     const token = await this.inner.getToken(scopes, options);
-    if (token) this.lastSource = credentialSourceOf(this.inner);
-    return token;
+    return {
+      token,
+      source: token ? credentialSourceOf(this.inner) : undefined,
+    };
   }
 
   /** Abort an abandoned fetch; later callers start a fresh one. */
@@ -220,13 +279,17 @@ export class CachingTokenCredential implements TokenCredential {
     const promise = this.fetchInner(scopes, {
       ...options,
       abortSignal: controller.signal,
-    }).then(token => {
+    }).then(({ token, source }) => {
+      shared.source = source;
+      if (source) this.lastSource = source;
       if (
         !controller.signal.aborted &&
         this.generation.get(key) === generation
       ) {
-        if (token) this.cache.set(key, token);
-        else this.cache.delete(key);
+        if (token) {
+          this.cache.set(key, token);
+          if (source) this.cacheSource.set(key, source);
+        } else this.cache.delete(key);
       }
       return token;
     });

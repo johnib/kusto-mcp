@@ -146,7 +146,11 @@ describe('Connection Management Unit Tests', () => {
       const ours = createTokenCredential.mock.results[0].value;
       ours.getToken.mockClear();
       await given.getToken('scope');
-      expect(ours.getToken).toHaveBeenCalledWith('scope', undefined);
+      // ...with this connection's own token observation attached.
+      expect(ours.getToken).toHaveBeenCalledWith(
+        'scope',
+        expect.objectContaining({ kustoMcpObserve: expect.any(Object) }),
+      );
 
       // Verify connection state
       expect(connection.isInitialized()).toBe(true);

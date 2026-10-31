@@ -9,7 +9,9 @@ import {
   ServerNotification,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import type { TokenCredential } from '@azure/identity';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
+import { createTokenCredential } from './auth/token-credentials.js';
 import {
   carryNotQueryFault,
   formatKustoMcpError,
@@ -216,6 +218,17 @@ export function createKustoServer(config: KustoConfig): Server {
   // Declare a variable to store the connection when it's initialized
   let connection: KustoConnection | null = null;
 
+  // One credential (and token cache) for every connection this process
+  // makes: a retry after a failed auto-connect, or a reconnect, reuses the
+  // tokens already fetched instead of running `az` again. Built on first
+  // use, where KustoConnection used to build its own (it may throw).
+  let sharedCredential: TokenCredential | undefined;
+  const processCredential = (): TokenCredential =>
+    (sharedCredential ??= createTokenCredential(
+      validatedConfig.authMethod,
+      validatedConfig.connectionTimeout ?? 20000,
+    ));
+
   // Bounded per-process behavior signals (previous tool, retry class, ...).
   const session = new SessionTracker();
 
@@ -259,7 +272,7 @@ export function createKustoServer(config: KustoConfig): Server {
     database: string,
     entry: { generation: number },
   ) {
-    const candidate = new KustoConnection(validatedConfig);
+    const candidate = new KustoConnection(validatedConfig, processCredential());
     const result = await candidate
       .initialize(clusterUrl, database, 'manual', connection)
       .catch(error => {
@@ -335,7 +348,10 @@ export function createKustoServer(config: KustoConfig): Server {
       );
 
       // Create a new connection
-      const autoConnection = new KustoConnection(validatedConfig);
+      const autoConnection = new KustoConnection(
+        validatedConfig,
+        processCredential(),
+      );
 
       // Initialize the connection
       const result = await autoConnection.initialize(
