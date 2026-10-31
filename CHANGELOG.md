@@ -1,3 +1,10 @@
+## [1.19.1](https://github.com/johnib/kusto-mcp/compare/v1.19.0...v1.19.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **auth:** fetch one token per connect ([#403](https://github.com/johnib/kusto-mcp/issues/403)) [skip ci] ([9d04e74](https://github.com/johnib/kusto-mcp/commit/9d04e745e33992b8c22fa26d3ae05adde6619ebb))
+
 # [1.19.0](https://github.com/johnib/kusto-mcp/compare/v1.18.3...v1.19.0) (2026-10-21)
 
 
