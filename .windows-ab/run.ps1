@@ -28,7 +28,7 @@ function Run($impl, $label, $pathPrefix, $vars) {
   $saved = @{}
   foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
   $env:PATH = if ($pathPrefix) { "$pathPrefix;$cleanPath" } else { $cleanPath }
-  $env:AZ_LOG = Join-Path $root "az-$impl-$label.log"
+  $env:AZ_LOG = Join-Path $root ("az-$impl-$label.log" -replace "/", "-")
   node $driver (Join-Path $root $impl) "$impl/$label"
   foreach ($k in $vars.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
 }
