@@ -49,6 +49,22 @@ const AZ_REASONS: ReadonlySet<unknown> = new Set([
   'other',
 ]);
 
+// AADSTS codes exported as-is: the ones a hint or a decision keys on, plus
+// common sign-in failures. Any other code is 'other' — an unknown number
+// from the token service is not a bounded value.
+const KNOWN_AADSTS = new Set([
+  50005, 50020, 50034, 50053, 50055, 50056, 50057, 50058, 50059, 50076, 50079,
+  50105, 50126, 50128, 50133, 50158, 50173, 53000, 53001, 53003, 65001, 70043,
+  90002, 90014, 90072, 500011, 700016, 700082, 700084, 7000215, 7000222,
+]);
+
+/** `AADSTS<code>` for a known code, else 'other'. */
+export function boundedAadsts(code: unknown): string | undefined {
+  const n = typeof code === 'string' ? Number(code) : code;
+  if (typeof n !== 'number' || !Number.isInteger(n)) return undefined;
+  return KNOWN_AADSTS.has(n) ? `AADSTS${n}` : 'other';
+}
+
 // AADSTS codes for conditional-access / MFA-style failures → a stable stage.
 const CONDITIONAL_ACCESS_CODES = new Set([50076, 50079, 50005, 53003, 50158]);
 // Structured OAuth error identifiers (errorResponse.error) → failure stage.
@@ -153,8 +169,11 @@ function classifyAuthError(error: unknown): Attributes {
   ) as { azReason: string; aadstsCode?: unknown } | undefined;
   if (az) {
     attrs['kustomcp.auth.az_reason'] = az.azReason;
-    if (typeof az.aadstsCode === 'string' && /^\d{5,6}$/.test(az.aadstsCode))
-      attrs['kustomcp.auth.aadsts'] = `AADSTS${az.aadstsCode}`;
+    const aadsts =
+      typeof az.aadstsCode === 'string' && /^\d{5,7}$/.test(az.aadstsCode)
+        ? boundedAadsts(az.aadstsCode)
+        : undefined;
+    if (aadsts) attrs['kustomcp.auth.aadsts'] = aadsts;
   }
 
   const resp = inners.find(e => e?.errorResponse)?.errorResponse;
@@ -165,8 +184,8 @@ function classifyAuthError(error: unknown): Attributes {
       : undefined;
     // A Microsoft-published error code (app/policy state), not tenant identity.
     // When az failed too, aadsts stays az's own, so it pairs with az_reason.
-    if (typeof code === 'number' && !az)
-      attrs['kustomcp.auth.aadsts'] = `AADSTS${code}`;
+    const aadsts = az ? undefined : boundedAadsts(code);
+    if (aadsts) attrs['kustomcp.auth.aadsts'] = aadsts;
     attrs['kustomcp.auth.failure_stage'] =
       (typeof code === 'number' &&
         CONDITIONAL_ACCESS_CODES.has(code) &&

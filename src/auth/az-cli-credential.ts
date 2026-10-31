@@ -102,7 +102,7 @@ export function azFailureReason(stderr: string): {
     text.startsWith("'az' is not recognized")
   )
     return { reason: 'not_found' };
-  const aadsts = /AADSTS(\d{5,6})/.exec(text)?.[1];
+  const aadsts = /AADSTS(\d{5,7})/.exec(text)?.[1];
   if (aadsts) {
     if (EXPIRED_CODES.has(aadsts)) return { reason: 'expired', aadsts };
     if (MFA_CODES.has(aadsts)) return { reason: 'mfa_required', aadsts };
