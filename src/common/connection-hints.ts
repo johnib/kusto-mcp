@@ -26,6 +26,8 @@ export interface ConnectionHintInput {
   tokenFailed: boolean;
   authStage?: string;
   aadsts?: string;
+  /** Why `az` gave no token (AzReason), when az was tried. */
+  azReason?: string;
   authMethod?: string;
   source: 'auto' | 'manual';
   clusterUrl: string;
@@ -36,6 +38,8 @@ export interface ConnectionHintInput {
 // AADSTS codes meaning the account or cluster belongs to another tenant.
 const TENANT_MISMATCH_CODES = new Set(['AADSTS50020', 'AADSTS90072']);
 const TENANT_LOGIN = '`az login --tenant <tenant-id>`';
+const AZ_TOKEN_CHECK =
+  '`az account get-access-token --resource https://kusto.kusto.windows.net`';
 
 function hostOf(clusterUrl: string): string {
   try {
@@ -93,7 +97,7 @@ export function connectionFailureHint(i: ConnectionHintInput): string {
       if (i.timedOutStep === 'token') {
         return hint(
           token,
-          `No token within ${waited} – run \`az login\` again, then connect again.`,
+          `No token within ${waited} – check that ${AZ_TOKEN_CHECK} works and how long it takes. If it is slow, raise KUSTO_CONNECTION_TIMEOUT; if it fails, run \`az login\` again.`,
         );
       }
       return hint(
@@ -151,6 +155,23 @@ function tokenFix(
   }
   if (i.aadsts === 'AADSTS500011') {
     return `Azure AD does not know ${host} in your tenant (${i.aadsts}) – check ${urlSetting}, or run ${TENANT_LOGIN}.`;
+  }
+  const code = i.aadsts ? ` (${i.aadsts})` : '';
+  switch (i.azReason) {
+    case 'not_found':
+      return 'Azure CLI is not installed or not on PATH – install it (https://aka.ms/installazurecli), run `az login`, then connect again.';
+    case 'not_logged_in':
+      return 'Azure CLI is not signed in – run `az login`, then connect again.';
+    case 'expired':
+      return `Your Azure sign-in expired or was revoked${code} – run \`az login\` again, then connect again.`;
+    case 'mfa_required':
+      return `Your sign-in needs MFA or a fresh login${code} – run \`az login\` again, then connect again.`;
+    case 'tenant':
+      return `Your account can't get a token in the cluster's tenant${code} – run ${TENANT_LOGIN} with the tenant that owns the cluster.`;
+    case 'timeout':
+      return `Azure CLI did not return a token in time – check that ${AZ_TOKEN_CHECK} works and how long it takes. If it is slow, raise KUSTO_CONNECTION_TIMEOUT.`;
+    case 'bad_response':
+      return 'Azure CLI returned an unexpected response – update it (`az upgrade`), run `az login`, then connect again.';
   }
   switch (i.authStage) {
     case 'credential_unavailable':

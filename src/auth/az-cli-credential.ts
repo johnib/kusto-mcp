@@ -41,10 +41,76 @@ export const AZ_CLI_MESSAGES = {
  * @azure/identity wholesale.
  */
 export class CredentialUnavailableError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** Why `az` failed (bounded); read by classifyAuthError and the hint. */
+    readonly azReason: AzReason = 'other',
+    /** The AADSTS code in az's output, digits only. */
+    readonly aadstsCode?: string,
+  ) {
     super(message);
     this.name = 'CredentialUnavailableError';
   }
+}
+
+/** Why `az account get-access-token` gave no token. Bounded enum. */
+export type AzReason =
+  | 'not_found'
+  | 'not_logged_in'
+  | 'expired'
+  | 'mfa_required'
+  | 'tenant'
+  | 'timeout'
+  | 'bad_response'
+  | 'other';
+
+// AADSTS codes, by what the user has to do about them.
+const EXPIRED_CODES = new Set([
+  '700082', // refresh token expired (inactivity)
+  '700084', // refresh token expired (SPA lifetime)
+  '50173', // grant expired: password changed / session revoked
+  '70043', // refresh token expired (sign-in frequency policy)
+  '50133', // session invalid: password expired or changed
+]);
+const MFA_CODES = new Set([
+  '50076', // MFA required
+  '50079', // MFA registration required
+  '50158', // external security challenge
+  '53003', // blocked by conditional access
+  '50005', // conditional access: unsupported platform
+]);
+const TENANT_CODES = new Set([
+  '50020', // user not in the tenant
+  '90072', // user not in the tenant (external IdP)
+  '500011', // resource not found in the tenant
+  '90002', // tenant not found
+]);
+
+/**
+ * Classify az's stderr into a bounded reason and the AADSTS code (digits).
+ * Reads the raw text locally; only the enum and the digits leave this
+ * function. Runs BEFORE azCliFailure replaces the message, which would hide
+ * an AADSTS code behind the generic "run az login" text.
+ */
+export function azFailureReason(stderr: string): {
+  reason: AzReason;
+  aadsts?: string;
+} {
+  const text = stderr.trim();
+  if (
+    /az:(.*)not found/.test(text) ||
+    text.startsWith("'az' is not recognized")
+  )
+    return { reason: 'not_found' };
+  const aadsts = /AADSTS(\d{5,6})/.exec(text)?.[1];
+  if (aadsts) {
+    if (EXPIRED_CODES.has(aadsts)) return { reason: 'expired', aadsts };
+    if (MFA_CODES.has(aadsts)) return { reason: 'mfa_required', aadsts };
+    if (TENANT_CODES.has(aadsts)) return { reason: 'tenant', aadsts };
+    return { reason: 'other', aadsts };
+  }
+  if (/az login/.test(text)) return { reason: 'not_logged_in' };
+  return { reason: 'other' };
 }
 
 class AbortError extends Error {
@@ -66,14 +132,19 @@ export function parseAzCliTokenResponse(stdout: string): AccessToken {
     expires_on?: unknown;
     expiresOn?: unknown;
   };
+  const badResponse = () =>
+    new CredentialUnavailableError(
+      AZ_CLI_MESSAGES.unexpectedResponse,
+      'bad_response',
+    );
   try {
     response = JSON.parse(stdout);
   } catch {
-    throw new CredentialUnavailableError(AZ_CLI_MESSAGES.unexpectedResponse);
+    throw badResponse();
   }
   const token = response?.accessToken;
   if (typeof token !== 'string' || !token) {
-    throw new CredentialUnavailableError(AZ_CLI_MESSAGES.unexpectedResponse);
+    throw badResponse();
   }
   // expires_on (epoch seconds, az >= 2.54) is preferred; expiresOn is a local
   // date string on older versions.
@@ -82,7 +153,7 @@ export function parseAzCliTokenResponse(stdout: string): AccessToken {
     ? new Date(String(response.expiresOn)).getTime()
     : expiresOnTimestamp * 1000;
   if (Number.isNaN(expiresOnTimestamp)) {
-    throw new CredentialUnavailableError(AZ_CLI_MESSAGES.unexpectedResponse);
+    throw badResponse();
   }
   return { token, expiresOnTimestamp, tokenType: 'Bearer' };
 }
@@ -90,15 +161,22 @@ export function parseAzCliTokenResponse(stdout: string): AccessToken {
 /** Map a failed `az` run (nonzero exit) to an error, like the SDK does. */
 export function azCliFailure(stderr: string): CredentialUnavailableError {
   const text = stderr.trim();
-  const notInstalled =
-    /az:(.*)not found/.test(text) || text.startsWith("'az' is not recognized");
-  if (notInstalled) {
-    return new CredentialUnavailableError(AZ_CLI_MESSAGES.notInstalled);
+  const { reason, aadsts } = azFailureReason(text);
+  if (reason === 'not_found') {
+    return new CredentialUnavailableError(AZ_CLI_MESSAGES.notInstalled, reason);
   }
   if (/az login/.test(text) && !/az login --scope/.test(text)) {
-    return new CredentialUnavailableError(AZ_CLI_MESSAGES.login);
+    return new CredentialUnavailableError(
+      AZ_CLI_MESSAGES.login,
+      reason,
+      aadsts,
+    );
   }
-  return new CredentialUnavailableError(text || AZ_CLI_MESSAGES.unknown);
+  return new CredentialUnavailableError(
+    text || AZ_CLI_MESSAGES.unknown,
+    reason,
+    aadsts,
+  );
 }
 
 /**
@@ -220,11 +298,12 @@ export class AzCliCredential implements TokenCredential {
       } catch (error) {
         const code = (error as { code?: unknown })?.code;
         reject(
-          new CredentialUnavailableError(
-            code === 'ENOENT'
-              ? AZ_CLI_MESSAGES.notInstalled
-              : AZ_CLI_MESSAGES.unknown,
-          ),
+          code === 'ENOENT'
+            ? new CredentialUnavailableError(
+                AZ_CLI_MESSAGES.notInstalled,
+                'not_found',
+              )
+            : new CredentialUnavailableError(AZ_CLI_MESSAGES.unknown),
         );
         return;
       }
@@ -258,11 +337,12 @@ export class AzCliCredential implements TokenCredential {
       child.stderr?.on('data', (d: string) => (stderr += d));
       child.on('error', (error: NodeJS.ErrnoException) => {
         finish(
-          new CredentialUnavailableError(
-            error?.code === 'ENOENT'
-              ? AZ_CLI_MESSAGES.notInstalled
-              : AZ_CLI_MESSAGES.unknown,
-          ),
+          error?.code === 'ENOENT'
+            ? new CredentialUnavailableError(
+                AZ_CLI_MESSAGES.notInstalled,
+                'not_found',
+              )
+            : new CredentialUnavailableError(AZ_CLI_MESSAGES.unknown),
         );
       });
       child.on('close', (code: number | null) => {
@@ -285,7 +365,10 @@ export class AzCliCredential implements TokenCredential {
         timer = setTimeout(
           () =>
             killAndFail(
-              new CredentialUnavailableError(AZ_CLI_MESSAGES.timeout),
+              new CredentialUnavailableError(
+                AZ_CLI_MESSAGES.timeout,
+                'timeout',
+              ),
             ),
           this.timeoutMs,
         );

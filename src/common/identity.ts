@@ -132,6 +132,18 @@ function classifyAuthError(error: unknown): Attributes {
   const inners: Inner[] = Array.isArray(aggregated)
     ? aggregated
     : [error as Inner];
+
+  // Our az runner's bounded reason (+ AADSTS digits from az's output), also
+  // when it is one step of the default chain.
+  const az = inners.find(
+    e => typeof (e as { azReason?: unknown } | null)?.azReason === 'string',
+  ) as { azReason: string; aadstsCode?: unknown } | undefined;
+  if (az) {
+    attrs['kustomcp.auth.az_reason'] = az.azReason;
+    if (typeof az.aadstsCode === 'string' && /^\d{5,6}$/.test(az.aadstsCode))
+      attrs['kustomcp.auth.aadsts'] = `AADSTS${az.aadstsCode}`;
+  }
+
   const resp = inners.find(e => e?.errorResponse)?.errorResponse;
 
   if (resp) {
@@ -151,8 +163,8 @@ function classifyAuthError(error: unknown): Attributes {
   }
 
   // Credential-unavailable (e.g. Azure CLI not installed / not logged in).
-  // Classified by CLASS only — we intentionally do NOT read its message, so
-  // the granularity is coarse rather than risk echoing environment specifics.
+  // Classified by CLASS only — we intentionally do NOT read its message; the
+  // finer az reason above comes from our own runner as an enum.
   if (
     inners.length > 0 &&
     inners.every(e => e?.name === 'CredentialUnavailableError')

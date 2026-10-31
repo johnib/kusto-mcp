@@ -687,6 +687,7 @@ export class KustoConnection {
           authStage: tokenAttrs['kustomcp.auth.failure_stage'] as
             string | undefined,
           aadsts: tokenAttrs['kustomcp.auth.aadsts'] as string | undefined,
+          azReason: tokenAttrs['kustomcp.auth.az_reason'] as string | undefined,
           authMethod: this.config.authMethod,
           source,
           clusterUrl,
