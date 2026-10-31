@@ -6,10 +6,12 @@ import {
   ClientRequestProperties,
   KustoConnectionStringBuilder,
 } from 'azure-kusto-data';
+import { kustoTokenScope } from '../../auth/kusto-scope.js';
 import { createTokenCredential } from '../../auth/token-credentials.js';
 import {
   extractKustoErrorMessage,
   FailureCategory,
+  KustoAuthenticationError,
   KustoConnectionError,
   KustoQueryCancelledError,
   KustoTimeoutError,
@@ -341,6 +343,9 @@ export class KustoConnection {
         process.env.http_proxy
       );
       span.setAttribute('kustomcp.proxy_configured', proxyConfigured);
+      // v2: metadata → one token fetch → query. token_ms and connect_ms mean
+      // different things than in v1, so compare only within a pipeline.
+      span.setAttribute('kustomcp.connection.pipeline', 'v2');
       connectionAttemptsCounter.add(1, { source });
       // Bound the whole init (token acquisition + validation round-trip). Without
       // it, the client's HTTP default is 270s (see azure-kusto-data
@@ -351,7 +356,7 @@ export class KustoConnection {
       let deadlineTimer: NodeJS.Timeout | undefined;
       // Which step is running, and the bounded token result, for the
       // user-facing hint on failure (#315).
-      let step: 'token' | 'cluster' = 'token';
+      let step: 'metadata' | 'token' | 'query' = 'metadata';
       let tokenAttrs: Record<string, unknown> = {};
       // The validation client, closed on any failure (#290). `abandoned` stops
       // a connect that is still running after the deadline from opening one.
@@ -377,24 +382,48 @@ export class KustoConnection {
 
         // The connect critical section, raced against the deadline.
         const connect = async (): Promise<Client> => {
-          // Capture anonymous cohort hashes (company/user) from the access token.
-          // Best-effort; never throws. Done before validation so an authenticated
-          // user that fails to connect is still counted. On failure this also
-          // records a bounded classification of WHY (identity_state / auth.*).
+          // Cloud metadata first: it gives the exact scope the SDK will ask
+          // for, and is cached in the SDK, so its own lookup later is free.
+          const metadataStart = Date.now();
+          const scope = await kustoTokenScope(clusterUrl);
+          span.setAttribute(
+            'kustomcp.connection.metadata_ms',
+            Date.now() - metadataStart,
+          );
+          if (timedOut) {
+            throw new KustoConnectionError('Connection attempt abandoned');
+          }
+          step = 'token';
+
+          // The one token fetch of this connect. The SDK requests the same
+          // scope through the same caching credential, so its request is a
+          // cache hit instead of a second `az` run. The token also gives the
+          // anonymous cohort hashes (company/user); on failure, a bounded
+          // classification of WHY (identity_state / auth.*). A capture that
+          // settles after the deadline is ignored (#293).
           const tokenStart = Date.now();
-          // A capture that settles after the deadline is ignored (#293).
+          let tokenError: unknown;
+          let gotToken = false;
           const captured = await captureIdentity(
-            clusterUrl,
-            scope => this.tokenCredential.getToken(scope),
+            scope,
+            async s => {
+              try {
+                const token = await this.tokenCredential.getToken(s);
+                gotToken = !!token?.token;
+                return token;
+              } catch (error) {
+                tokenError = error;
+                throw error;
+              }
+            },
             () => timedOut,
           );
           // The deadline already failed this attempt: stop here instead of
-          // spawning another `az` and a validation query nobody awaits.
+          // running a validation query nobody awaits.
           if (timedOut) {
             throw new KustoConnectionError('Connection attempt abandoned');
           }
           tokenAttrs = captured;
-          step = 'cluster';
           span.setAttribute(
             'kustomcp.connection.token_ms',
             Date.now() - tokenStart,
@@ -402,6 +431,18 @@ export class KustoConnection {
           for (const [k, v] of Object.entries(getIdentityAttributes())) {
             if (v !== undefined && v !== null) span.setAttribute(k, v);
           }
+          // Fail now: the SDK would only walk the same credential again.
+          if (!gotToken) {
+            const failure = new KustoAuthenticationError(
+              tokenError === undefined
+                ? 'The credential returned no token'
+                : extractKustoErrorMessage(tokenError),
+            );
+            if (tokenError !== undefined)
+              carryErrorRecording(tokenError, failure);
+            throw failure;
+          }
+          step = 'query';
 
           // Both auth methods go through our caching, time-limited credential.
           // Don't use withAzLoginIdentity: it builds its own uncached
@@ -481,7 +522,8 @@ export class KustoConnection {
         } catch {
           /* best effort */
         }
-        const failedStep = step;
+        // Assigned inside connect(), which TS's narrowing can't see.
+        const failedStep = step as 'metadata' | 'token' | 'query';
         const errorMessage = extractKustoErrorMessage(error);
 
         criticalLog(`Failed to initialize connection: ${errorMessage}`);
@@ -548,7 +590,11 @@ export class KustoConnection {
         const hint = connectionFailureHint({
           category: hintCategory,
           httpStatus: classified.httpStatus,
-          timedOutStep: timedOut ? failedStep : undefined,
+          timedOutStep: timedOut
+            ? failedStep === 'token'
+              ? 'token'
+              : 'cluster'
+            : undefined,
           tokenFailed: tokenAttrs['kustomcp.auth.token_acquired'] === false,
           authStage: tokenAttrs['kustomcp.auth.failure_stage'] as
             string | undefined,

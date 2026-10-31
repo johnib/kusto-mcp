@@ -171,16 +171,18 @@ function classifyAuthError(error: unknown): Attributes {
 let captureGeneration = 0;
 
 /**
- * Acquire a token, decode its identity claims (tenant, object id, principal
- * type), and store the salted cohort hashes. Never throws — telemetry must not
- * break a connection. On failure it records a bounded, non-identifying
- * classification of WHY (see classifyAuthError) instead of a silent blank.
+ * Acquire a token for `scope`, decode its identity claims (tenant, object id,
+ * principal type), and store the salted cohort hashes. The hashes come from
+ * the tid/oid claims, which don't depend on the token's audience. Never
+ * throws — telemetry must not break a connection. On failure it records a
+ * bounded, non-identifying classification of WHY (see classifyAuthError)
+ * instead of a silent blank.
  *
  * `isAbandoned` tells whether the caller gave up on this attempt (its connect
  * deadline fired). The result is then returned but not stored.
  */
 export async function captureIdentity(
-  clusterUrl: string,
+  scope: string,
   getToken: (scope: string) => Promise<{ token: string } | null>,
   isAbandoned: () => boolean = () => false,
 ): Promise<Attributes> {
@@ -191,8 +193,7 @@ export async function captureIdentity(
   let attrs: Attributes = {};
   let state: IdentityState = 'unavailable';
   try {
-    const origin = new URL(clusterUrl).origin;
-    const tokenResponse = await getToken(`${origin}/.default`);
+    const tokenResponse = await getToken(scope);
     if (tokenResponse?.token) {
       attrs = buildIdentityAttributes(decodeJwtClaims(tokenResponse.token));
       state = 'captured';

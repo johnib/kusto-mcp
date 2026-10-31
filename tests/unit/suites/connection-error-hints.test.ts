@@ -10,6 +10,13 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 jest.mock('../../../src/common/version.js', () => ({ VERSION: '0.0.0-test' }));
 
 jest.mock('azure-kusto-data', () => ({
+  // Cloud metadata lookup (connect step 1): public cloud, no MFA.
+  CloudSettings: {
+    getCloudInfoForCluster: async () => ({
+      KustoServiceResourceId: 'https://kusto.kusto.windows.net',
+      LoginMfaRequired: false,
+    }),
+  },
   Client: jest.fn(),
   KustoConnectionStringBuilder: {
     withAzLoginIdentity: jest.fn(u => `cs-${u}`),
@@ -254,16 +261,18 @@ describe('KustoConnection.initialize failure text (#315)', () => {
 
   test('a token failure with azure-cli tells the user to run az login', async () => {
     getToken.mockRejectedValue(credentialUnavailable());
-    Client.mockImplementation(() => ({
-      execute: jest.fn().mockRejectedValue(new Error('sdk auth failed')),
-    }));
+    const execute = jest.fn().mockRejectedValue(new Error('sdk auth failed'));
+    Client.mockImplementation(() => ({ execute }));
     const err = await new KustoConnection(config)
       .initialize(CLUSTER, DB)
       .catch(e => e);
     expect(err).toBeInstanceOf(KustoConnectionError);
+    // The credential's own error, not the SDK's second walk of the chain.
     expect(err.message).toMatch(
-      /^Connection error: sdk auth failed\nFailed step: getting an Azure token\. Azure CLI is not signed in .*run `az login`/,
+      /^Connection error: Authentication error: Azure CLI could not be found\nFailed step: getting an Azure token\. Azure CLI is not signed in .*run `az login`/,
     );
+    // Fails fast: no validation query after a failed token.
+    expect(execute).not.toHaveBeenCalled();
   });
 
   test('an MFA-required token failure tells the user to az login again', async () => {
