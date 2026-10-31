@@ -51,6 +51,12 @@ control/management commands are rejected.
 
 The server uses Azure Identity authentication by default when `KUSTO_AUTH_METHOD` is not set or set to `azure-identity`.
 
+### Choosing the tenant
+
+With either method, the Azure CLI step asks `az` for a token from your account's home tenant (`--tenant organizations`). If that token gets a 401 from the cluster, the server retries once with the tenant of your current `az` subscription, which is what a guest in another organization's tenant needs.
+
+If your cluster is in a tenant that neither covers, set `AZURE_TENANT_ID` to that tenant's id (or domain) in the MCP server's environment. The Azure CLI step then always asks for that tenant and never retries. Sign in there first with `az login --tenant <tenant-id>`.
+
 ## Response Formats
 
 The server supports two response formats for query results:
