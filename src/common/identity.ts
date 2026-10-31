@@ -141,7 +141,7 @@ export function clearIdentity(): void {
  * errorDescription, correlationId, traceId, or timestamp, so nothing free-form
  * or identifying can escape. Cardinality is bounded by the enum/code sets.
  */
-function classifyAuthError(error: unknown): Attributes {
+export function classifyAuthError(error: unknown): Attributes {
   const attrs: Attributes = { 'kustomcp.auth.token_acquired': false };
   const name = error instanceof Error ? error.name : '';
 
