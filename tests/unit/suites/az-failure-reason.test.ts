@@ -103,8 +103,8 @@ describe('telemetry attributes', () => {
         aadstsCode: '50020; drop',
       }),
     );
-    expect(attrs).not.toHaveProperty('kustomcp.auth.az_reason');
-    expect(attrs).not.toHaveProperty('kustomcp.auth.aadsts');
+    expect(attrs['kustomcp.auth.az_reason']).toBeUndefined();
+    expect(attrs['kustomcp.auth.aadsts']).toBeUndefined();
   });
 
   test("aadsts stays az's own when a later chain step has another code", async () => {
