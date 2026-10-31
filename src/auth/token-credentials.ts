@@ -130,6 +130,23 @@ export class CachingTokenCredential implements TokenCredential {
   }
 
   /**
+   * After a 401 on an `az` token: make the az step drop our default tenant
+   * (see AzCliCredential.fallBackToSubscriptionTenant) and forget every
+   * cached token, so the next request runs az again. Returns false when
+   * there is no az step, the user pinned AZURE_TENANT_ID, or it already
+   * fell back.
+   */
+  fallBackToSubscriptionTenant(): boolean {
+    const sources = (this.inner as { _sources?: unknown })._sources;
+    const candidates = Array.isArray(sources) ? sources : [this.inner];
+    const az = candidates.find(s => s instanceof AzCliCredential) as
+      AzCliCredential | undefined;
+    if (!az?.fallBackToSubscriptionTenant()) return false;
+    this.cache.clear();
+    return true;
+  }
+
+  /**
    * One call to the inner credential, recording which credential produced
    * the token. A chained credential (DefaultAzureCredential) exposes
    * getTokenInternal, which also returns the step that succeeded; it is the
@@ -265,10 +282,27 @@ export function withTreeKillingAzCli<T extends TokenCredential>(
   }
   holder._sources = holder._sources.map(source =>
     source instanceof AzureCliCredential
-      ? new AzCliCredential({ timeoutMs })
+      ? new AzCliCredential({ timeoutMs, ...azTenantOptions() })
       : source,
   );
   return chain;
+}
+
+/**
+ * The `--tenant` for every `az` step: AZURE_TENANT_ID when set (the user's
+ * choice, kept), else `organizations` — the account's home tenant, which a
+ * 401 may later swap for az's subscription tenant. Without a tenant, az
+ * answers from its current subscription's tenant, which 401s when that is
+ * not the cluster's (#350). The SDK's own az step ignores AZURE_TENANT_ID.
+ */
+function azTenantOptions(): {
+  tenantId: string;
+  subscriptionTenantFallback: boolean;
+} {
+  const pinned = process.env.AZURE_TENANT_ID?.trim();
+  return pinned
+    ? { tenantId: pinned, subscriptionTenantFallback: false }
+    : { tenantId: AZ_LOGIN_DEFAULT_TENANT, subscriptionTenantFallback: true };
 }
 
 /**
@@ -300,10 +334,11 @@ export function createTokenCredential(
         // `--tenant organizations`, as 1.18.0 sent through azure-kusto-data's
         // withAzLoginIdentity (its default authorityId): the token comes from
         // the account's home tenant, not the current subscription's tenant.
+        // AZURE_TENANT_ID overrides it (see azTenantOptions).
         return new CachingTokenCredential(
           new AzCliCredential({
             timeoutMs: processTimeoutInMs,
-            tenantId: AZ_LOGIN_DEFAULT_TENANT,
+            ...azTenantOptions(),
           }),
         );
 

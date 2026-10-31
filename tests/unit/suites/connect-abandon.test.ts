@@ -107,6 +107,7 @@ describe('abandoned connect attempts (#293)', () => {
       expect(azureCliCtor).toHaveBeenCalledWith({
         timeoutMs: 1500,
         tenantId: 'organizations',
+        subscriptionTenantFallback: true,
       });
     });
 
@@ -128,6 +129,7 @@ describe('abandoned connect attempts (#293)', () => {
       expect(azureCliCtor).toHaveBeenCalledWith({
         timeoutMs: 1500,
         tenantId: 'organizations',
+        subscriptionTenantFallback: true,
       });
     });
 

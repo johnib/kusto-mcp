@@ -234,17 +234,36 @@ export interface AzCliCredentialOptions {
   timeoutMs?: number;
   /** `--tenant` to pass when the caller's getToken options name none. */
   tenantId?: string;
+  /**
+   * The tenant is our default, not the user's choice: on a 401 the caller
+   * may drop it once, so az uses its current subscription's tenant.
+   */
+  subscriptionTenantFallback?: boolean;
 }
 
 export class AzCliCredential implements TokenCredential {
   private readonly timeoutMs?: number;
-  private readonly tenantId?: string;
+  private tenantId?: string;
+  private canFallBack: boolean;
 
   constructor(options: AzCliCredentialOptions = {}) {
     const t = options.timeoutMs;
     this.timeoutMs =
       typeof t === 'number' && Number.isInteger(t) && t > 0 ? t : undefined;
     this.tenantId = options.tenantId;
+    this.canFallBack = !!options.subscriptionTenantFallback;
+  }
+
+  /**
+   * Stop sending our default `--tenant`, so az answers from its current
+   * subscription's tenant (a B2B guest whose cluster is in that tenant).
+   * Once per credential. Returns whether anything changed.
+   */
+  fallBackToSubscriptionTenant(): boolean {
+    if (!this.canFallBack || this.tenantId === undefined) return false;
+    this.canFallBack = false;
+    this.tenantId = undefined;
+    return true;
   }
 
   async getToken(

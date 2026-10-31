@@ -284,3 +284,43 @@ describe('chain behavior (AZURE_TOKEN_CREDENTIALS=dev)', () => {
     }
   });
 });
+
+describe('the az step tenant', () => {
+  beforeEach(() => {
+    process.env.AZURE_TOKEN_CREDENTIALS = 'dev';
+    azExits(0, JSON.stringify({ accessToken: 'tok', expires_on: 1900000000 }));
+  });
+  const tenantArgs = () => {
+    const args = spawnMock.mock.calls.at(-1)[1] as string[];
+    const i = args.indexOf('--tenant');
+    return i === -1 ? undefined : args[i + 1];
+  };
+
+  test('the default chain asks az for the home tenant (organizations)', async () => {
+    await createTokenCredential('azure-identity', 1500).getToken(SCOPE);
+    expect(tenantArgs()).toBe('organizations');
+  });
+
+  test('a pinned tenant (AZURE_TENANT_ID) is used in both modes and never falls back', async () => {
+    process.env.AZURE_TENANT_ID = 'contoso.onmicrosoft.com';
+    for (const mode of ['azure-identity', 'azure-cli']) {
+      const cred = createTokenCredential(mode, 1500) as CachingTokenCredential;
+      await cred.getToken(SCOPE);
+      expect(tenantArgs()).toBe('contoso.onmicrosoft.com');
+      expect(cred.fallBackToSubscriptionTenant()).toBe(false);
+    }
+  });
+
+  test('after a fallback, az runs again with no --tenant, once', async () => {
+    const cred = createTokenCredential(
+      'azure-identity',
+      1500,
+    ) as CachingTokenCredential;
+    await cred.getToken(SCOPE);
+    expect(cred.fallBackToSubscriptionTenant()).toBe(true);
+    await cred.getToken(SCOPE);
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+    expect(tenantArgs()).toBeUndefined();
+    expect(cred.fallBackToSubscriptionTenant()).toBe(false);
+  });
+});

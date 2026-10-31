@@ -419,6 +419,8 @@ export class KustoConnection {
       // user-facing hint on failure (#315).
       let step: 'metadata' | 'token' | 'query' = 'metadata';
       let stepStartedAt = startedAt;
+      // The one 401 retry from az's subscription tenant, if it ran.
+      let tenantRetry: 'used' | 'recovered' | undefined;
       let tokenAttrs: Record<string, unknown> = {};
       // The validation client, closed on any failure (#290). `abandoned` stops
       // a connect that is still running after the deadline from opening one.
@@ -455,6 +457,43 @@ export class KustoConnection {
           if (timedOut) {
             throw new KustoConnectionError('Connection attempt abandoned');
           }
+          await acquireToken(scope);
+          try {
+            return await validate();
+          } catch (error) {
+            // A 401 on an az token from our default tenant (`organizations`,
+            // the home tenant): the cluster may be in az's subscription
+            // tenant (a B2B guest). Retry once from there. Never when the
+            // user pinned AZURE_TENANT_ID.
+            const cache = this
+              .tokenCredential as Partial<CachingTokenCredential>;
+            if (
+              timedOut ||
+              classifyConnectionFailure(error).httpStatus !== 401 ||
+              cache.lastSource !== 'az' ||
+              !cache.fallBackToSubscriptionTenant?.()
+            ) {
+              throw error;
+            }
+            tenantRetry = 'used';
+            span.setAttribute('kustomcp.auth.tenant_retry', tenantRetry);
+            debugLog(
+              '401 on an az token: retrying from the subscription tenant',
+            );
+            try {
+              tempClient?.close();
+            } catch {
+              /* best effort */
+            }
+            await acquireToken(scope);
+            const client = await validate();
+            tenantRetry = 'recovered';
+            span.setAttribute('kustomcp.auth.tenant_retry', tenantRetry);
+            return client;
+          }
+        };
+
+        const acquireToken = async (scope: string): Promise<void> => {
           step = 'token';
           stepStartedAt = Date.now();
 
@@ -509,6 +548,9 @@ export class KustoConnection {
               carryErrorRecording(tokenError, failure);
             throw failure;
           }
+        };
+
+        const validate = async (): Promise<Client> => {
           step = 'query';
           stepStartedAt = Date.now();
 
@@ -623,6 +665,9 @@ export class KustoConnection {
         );
         if (classified.httpStatus !== undefined) {
           span.setAttribute('kustomcp.http.status_code', classified.httpStatus);
+        }
+        if (tenantRetry === 'used') {
+          span.setAttribute('kustomcp.auth.tenant_retry', 'failed');
         }
         // Which step failed (or was running when the deadline fired), and
         // how long it ran: tells a slow token from a slow cluster.
