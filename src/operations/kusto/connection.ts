@@ -27,6 +27,7 @@ import {
   markNotQueryFault,
   setFailureCategory,
 } from '../../common/errors.js';
+import { MAX_TIMEOUT_MS } from '../../common/config-state.js';
 import { trackPendingCancel } from '../../common/shutdown.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
@@ -855,7 +856,12 @@ export class KustoConnection {
           error instanceof KustoConnectionError
             ? errorMessage.replace(/^Connection error: /, '')
             : errorMessage;
-        const wrapped = new KustoConnectionError(`${base}\n${hint}`);
+        // A setting that fell back to its default may be the cause; hosts
+        // rarely show stderr, so repeat it here.
+        const warnings = this.config.configWarnings?.length
+          ? `\nConfig warning: ${this.config.configWarnings.join(' ')}`
+          : '';
+        const wrapped = new KustoConnectionError(`${base}\n${hint}${warnings}`);
         carryErrorRecording(error, wrapped);
         throw wrapped;
       } finally {
@@ -931,7 +937,10 @@ export class KustoConnection {
           // waits a little longer so the server's timeout error can arrive.
           const props = new ClientRequestProperties();
           props.setTimeout(Math.min(timeout, MAX_SERVER_TIMEOUT_MS));
-          props.setClientTimeout(timeout + CLIENT_TIMEOUT_GRACE_MS);
+          // Capped: a timer above 2^31-1 ms fires after ~1ms.
+          props.setClientTimeout(
+            Math.min(timeout + CLIENT_TIMEOUT_GRACE_MS, MAX_TIMEOUT_MS),
+          );
           // Our own id, so the query can be cancelled by `.cancel query`.
           const clientRequestId = `KustoMcp.execute;${randomUUID()}`;
           props.clientRequestId = clientRequestId;

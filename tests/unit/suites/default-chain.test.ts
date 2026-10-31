@@ -166,14 +166,19 @@ describe('chain shape matches DefaultAzureCredential', () => {
     });
   });
 
-  test('an invalid AZURE_TOKEN_CREDENTIALS still fails like DAC', () => {
+  test('an invalid AZURE_TOKEN_CREDENTIALS fails every request, never widens the chain', async () => {
     process.env.AZURE_TOKEN_CREDENTIALS = 'bogus';
+    // The SDK itself still throws in its constructor...
     expect(() => new DefaultAzureCredential()).toThrow(
       /AZURE_TOKEN_CREDENTIALS/,
     );
-    expect(() => createTokenCredential('azure-identity', 1500)).toThrow(
-      /AZURE_TOKEN_CREDENTIALS/,
-    );
+    // ...ours builds, so the connect can report it, but signs nobody in.
+    const ours = createTokenCredential('azure-identity', 1500);
+    expect(sources(ours)).toBeUndefined(); // no chain at all
+    await expect(
+      ours.getToken('https://kusto.kusto.windows.net/.default'),
+    ).rejects.toThrow(/AZURE_TOKEN_CREDENTIALS="bogus" is not valid/);
+    expect(process.env.AZURE_TOKEN_CREDENTIALS).toBe('bogus');
   });
 
   test('process timeout: our CLI gets it, PowerShell keeps the SDK one', () => {

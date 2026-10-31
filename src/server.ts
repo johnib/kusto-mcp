@@ -27,6 +27,7 @@ import {
   setFailureCategory,
   withTimeoutHint,
 } from './common/errors.js';
+import { MAX_TIMEOUT_MS } from './common/config-state.js';
 import { criticalLog, debugLog } from './common/utils.js';
 import {
   autoConnectKey,
@@ -34,6 +35,7 @@ import {
   clearAutoConnectBackoff,
 } from './common/autoconnect-backoff.js';
 import { clientNameForTelemetry } from './common/client-info.js';
+import { withScheme } from './common/config-parse.js';
 import { getIdentityAttributes } from './common/identity.js';
 import {
   SeverityNumber,
@@ -400,10 +402,14 @@ export function createKustoServer(config: KustoConfig): Server {
     const deadline = new Promise<void>(resolve => {
       // initialize() is itself bounded by connectionTimeout (probe included);
       // the grace lets a failure finishing right at that bound record its reason.
+      // Capped: a timer above 2^31-1 ms fires after ~1ms.
       timer = setTimeout(
         resolve,
-        (validatedConfig.connectionTimeout ?? 20000) +
-          AUTO_CONNECT_WAIT_GRACE_MS,
+        Math.min(
+          (validatedConfig.connectionTimeout ?? 20000) +
+            AUTO_CONNECT_WAIT_GRACE_MS,
+          MAX_TIMEOUT_MS,
+        ),
       );
       timer.unref?.();
     });
@@ -574,9 +580,14 @@ export function createKustoServer(config: KustoConfig): Server {
 
           switch (request.params.name) {
             case 'initialize-connection': {
-              const args = InitializeConnectionSchema.parse(
+              const parsed = InitializeConnectionSchema.parse(
                 request.params.arguments,
               );
+              // A bare host gets https:// instead of failing as 'unknown'.
+              const args = {
+                ...parsed,
+                cluster_url: withScheme(parsed.cluster_url),
+              };
 
               manualConnectCount++;
               autoConnectFailure = null;
@@ -732,7 +743,8 @@ export function createKustoServer(config: KustoConfig): Server {
               // Global response limit
               const globalCharLimit =
                 validatedConfig.maxResponseLength || 12000;
-              const minRows = validatedConfig.minRowsInResponse || 1;
+              // 0 is a valid minimum: let the limiter drop every row.
+              const minRows = validatedConfig.minRowsInResponse ?? 1;
 
               // Fetch one extra row (N+1) so we can detect whether more data is
               // available than the requested limit. The `take` is appended on a

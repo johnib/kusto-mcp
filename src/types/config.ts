@@ -24,6 +24,12 @@ export interface KustoConfig {
   authMethod?: AuthenticationMethod;
 
   /**
+   * Problems found in the configuration at startup (a mistyped setting that
+   * fell back to its default). Shown with a failed connect's message.
+   */
+  configWarnings?: string[];
+
+  /**
    * The timeout for Kusto queries in milliseconds
    */
   queryTimeout?: number;
@@ -108,9 +114,13 @@ export const DEFAULT_CONFIG: Partial<KustoConfig> = {
  * @returns The validated configuration with defaults applied
  */
 export function validateConfig(config: Partial<KustoConfig>): KustoConfig {
-  // Apply defaults
+  // Apply defaults. An explicit `undefined` (an unset env value) must not
+  // overwrite a default, so drop those keys first.
+  const set = Object.fromEntries(
+    Object.entries(config).filter(([, v]) => v !== undefined),
+  );
   return {
     ...DEFAULT_CONFIG,
-    ...config,
+    ...set,
   } as KustoConfig;
 }
