@@ -1,0 +1,61 @@
+# Scratch: Windows A/B of the auth overhaul (baseline = master, patched = this
+# branch). Lives only on the ci/windows-auth-ab branch; never merged.
+name: windows-auth-ab
+
+on:
+  push:
+    branches: [ci/windows-auth-ab]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  ab:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: patched
+      - uses: actions/checkout@v7
+        with:
+          ref: master
+          path: baseline
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+      - name: Build both
+        shell: pwsh
+        run: |
+          foreach ($d in 'baseline','patched') {
+            Push-Location $d; npm ci --no-audit --no-fund; npm run build; Pop-Location
+          }
+      - name: az version on the runner
+        shell: pwsh
+        run: |
+          Get-Command az.cmd -ErrorAction SilentlyContinue | Format-List Source
+          Measure-Command { az version 2>&1 | Out-Host } | Select-Object TotalSeconds
+          Measure-Command { az account get-access-token --resource https://kusto.kusto.windows.net 2>&1 | Out-Host } | Select-Object TotalSeconds
+      - name: Unit tests (baseline)
+        shell: pwsh
+        continue-on-error: true
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:9
+        run: cd baseline; npx jest --selectProjects unit 2>&1 | Select-String -Pattern 'Tests:|✕|FAIL '
+      - name: Unit tests (patched)
+        shell: pwsh
+        continue-on-error: true
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: http://127.0.0.1:9
+        run: cd patched; npx jest --selectProjects unit 2>&1 | Select-String -Pattern 'Tests:|✕|FAIL '
+      - name: Auth scenarios
+        shell: pwsh
+        run: ./patched/.windows-ab/run.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-ab
+          path: |
+            results.jsonl
+            az-*.log
