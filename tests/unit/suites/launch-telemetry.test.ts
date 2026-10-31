@@ -21,6 +21,10 @@ import {
   autoConnectKey,
   beginAutoConnect,
 } from '../../../src/common/autoconnect-backoff.js';
+import {
+  clientNameForTelemetry,
+  clientVersionForTelemetry,
+} from '../../../src/common/client-info.js';
 import { loadOrCreateMachineId } from '../../../src/common/machine-id.js';
 import { createKustoServer } from '../../../src/server.js';
 import { KustoConnection } from '../../../src/operations/kusto/index.js';
@@ -70,6 +74,9 @@ describe('config state (read before fallback)', () => {
     ['20s', 'invalid'],
     ['-5', 'invalid'],
     ['0', 'invalid'],
+    ['2147483647', 'valid'],
+    ['2147483648', 'invalid'],
+    ['9'.repeat(400), 'invalid'],
   ])('timeout %p → %s', (raw, state) => {
     expect(timeoutState(raw)).toBe(state);
   });
@@ -96,6 +103,27 @@ describe('config state (read before fallback)', () => {
       'kustomcp.config.connection_timeout_state': 'invalid',
       'kustomcp.config.cluster_url_state': 'no_scheme',
     });
+  });
+});
+
+describe('client info is bounded', () => {
+  test.each([
+    ['claude-code', 'claude-code'],
+    ['Visual Studio Code', 'Visual Studio Code'],
+    ['kusto-contoso-incident-bot', 'other'],
+    ['alice@corp.example', 'other'],
+    [undefined, undefined],
+  ])('name %p → %p', (raw, sent) => {
+    expect(clientNameForTelemetry(raw)).toBe(sent);
+  });
+
+  test.each([
+    ['1.0.32', '1.0.32'],
+    ['v2.3.0-beta.1', 'v2.3.0-beta.1'],
+    ['tenant 72f988bf build', 'other'],
+    ['alice@corp.example', 'other'],
+  ])('version %p → %p', (raw, sent) => {
+    expect(clientVersionForTelemetry(raw)).toBe(sent);
   });
 });
 
@@ -149,13 +177,12 @@ describe('MCP client identified (#379)', () => {
       c => c[2] === 'MCP client identified',
     );
     expect(identified).toHaveLength(1);
+    // An unknown (possibly internal) client name never ships as-is.
     expect(identified[0][3]).toMatchObject({
-      'mcp.client.name': 'probe-client',
+      'mcp.client.name': 'other',
       'mcp.client.version': '9.9',
     });
-    expect(typeof identified[0][3]['kustomcp.handshake_gap_ms']).toBe(
-      'number',
-    );
+    expect(typeof identified[0][3]['kustomcp.handshake_gap_ms']).toBe('number');
     await client.close();
   });
 });
@@ -174,9 +201,9 @@ describe('auto-connect skip is exported at once', () => {
       defaultDatabase: 'db',
     });
     expect(KustoConnection).not.toHaveBeenCalled();
-    expect(
-      logs.mock.calls.some(c => c[2] === 'Auto-connection skipped'),
-    ).toBe(true);
+    expect(logs.mock.calls.some(c => c[2] === 'Auto-connection skipped')).toBe(
+      true,
+    );
     expect(flushLogs).toHaveBeenCalled();
     await client.close();
   });

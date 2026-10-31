@@ -21,10 +21,18 @@ export function authMethodState(raw: string | undefined): AuthMethodState {
   return 'invalid';
 }
 
-/** A positive whole number of milliseconds. */
+/** Node's setTimeout fires at ~1ms for anything above this. */
+export const MAX_TIMEOUT_MS = 2 ** 31 - 1;
+
+/** A whole number of milliseconds Node's timers accept: 1..2^31-1. */
 export function timeoutState(raw: string | undefined): SettingState {
   if (raw === undefined || raw === '') return 'unset';
-  return /^\d+$/.test(raw.trim()) && Number(raw) > 0 ? 'valid' : 'invalid';
+  const value = raw.trim();
+  if (!/^\d+$/.test(value)) return 'invalid';
+  const ms = Number(value);
+  return Number.isSafeInteger(ms) && ms > 0 && ms <= MAX_TIMEOUT_MS
+    ? 'valid'
+    : 'invalid';
 }
 
 export function clusterUrlState(raw: string | undefined): ClusterUrlState {

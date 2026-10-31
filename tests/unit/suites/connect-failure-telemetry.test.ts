@@ -37,9 +37,20 @@ let cloudInfo: () => Promise<unknown> = async () => ({
 let execute: () => Promise<unknown> = async () => ({});
 jest.mock('azure-kusto-data', () => ({
   CloudSettings: { getCloudInfoForCluster: () => cloudInfo() },
-  KustoConnectionStringBuilder: { withTokenCredential: () => 'cs' },
+  KustoConnectionStringBuilder: {
+    withTokenCredential: (_u: string, credential: unknown) => ({ credential }),
+  },
+  // Like the SDK: each request first asks the credential for its token.
   Client: class {
-    execute() {
+    constructor(
+      private cs: {
+        credential: { getToken: (s: string[]) => Promise<unknown> };
+      },
+    ) {}
+    async execute() {
+      await this.cs.credential.getToken([
+        'https://kusto.kusto.windows.net/.default',
+      ]);
       return execute();
     }
     close() {}
@@ -108,11 +119,11 @@ describe('mcp.connection.init failure attributes', () => {
     delete process.env.HTTPS_PROXY;
   });
 
-  test('success: one token fetch, from az, no failed_step', async () => {
+  test("success: one fetch, then the SDK's request hits the cache", async () => {
     const { attrs, err } = await connect();
     expect(err).toBeUndefined();
     expect(attrs['kustomcp.auth.token_fetches']).toBe(1);
-    expect(attrs['kustomcp.auth.token_cache_hits']).toBe(0);
+    expect(attrs['kustomcp.auth.token_cache_hits']).toBe(1);
     expect(attrs['kustomcp.auth.credential_used']).toBe('az');
     expect(attrs['kustomcp.connection.pipeline']).toBe('v2');
     expect(attrs['kustomcp.connection.failed_step']).toBeUndefined();
