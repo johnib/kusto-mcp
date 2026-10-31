@@ -32,6 +32,7 @@ jobs:
             Push-Location $d; npm ci --no-audit --no-fund; npm run build; Pop-Location
           }
       - name: az version on the runner
+        continue-on-error: true
         shell: pwsh
         run: |
           Get-Command az.cmd -ErrorAction SilentlyContinue | Format-List Source
