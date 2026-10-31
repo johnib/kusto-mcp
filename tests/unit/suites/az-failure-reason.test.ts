@@ -95,6 +95,32 @@ describe('telemetry attributes', () => {
     expect(attrs['kustomcp.auth.failure_stage']).toBe('credential_unavailable');
   });
 
+  test('a foreign error with a free-form azReason exports nothing for it', async () => {
+    const attrs = await failWith(
+      Object.assign(new Error('x'), {
+        name: 'CredentialUnavailableError',
+        azReason: 'user@corp.example',
+        aadstsCode: '50020; drop',
+      }),
+    );
+    expect(attrs).not.toHaveProperty('kustomcp.auth.az_reason');
+    expect(attrs).not.toHaveProperty('kustomcp.auth.aadsts');
+  });
+
+  test("aadsts stays az's own when a later chain step has another code", async () => {
+    const aad = Object.assign(new Error('aad'), {
+      name: 'AuthenticationError',
+      errorResponse: { error: 'interaction_required', errorCodes: [50076] },
+    });
+    const agg = Object.assign(new Error('chain'), {
+      name: 'AggregateAuthenticationError',
+      errors: [azCliFailure(EXPIRED_WITH_SCOPE), aad],
+    });
+    const attrs = await failWith(agg);
+    expect(attrs['kustomcp.auth.az_reason']).toBe('expired');
+    expect(attrs['kustomcp.auth.aadsts']).toBe('AADSTS700082');
+  });
+
   test('hostile stderr: only the enum and digits leave', async () => {
     const attrs = await failWith(
       azCliFailure(
