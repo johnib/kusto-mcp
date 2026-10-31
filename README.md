@@ -178,6 +178,7 @@ A failed connect names the step that failed and one fix. The common ones:
 | --- | --- |
 | Azure CLI is not installed or not on PATH | Install it (`winget install Microsoft.AzureCLI`), run `az login`, restart your AI tool |
 | Azure CLI is not signed in | Run `az login` |
+| Azure CLI is signed in but has no default subscription | Run `az account list`, then `az account set --subscription <id>` |
 | Your Azure sign-in expired or was revoked / needs MFA | Run `az login` again |
 | Azure CLI did not return a token in time | Run `az account get-access-token --resource https://kusto.kusto.windows.net` to see how long it takes; raise `KUSTO_CONNECTION_TIMEOUT` (ms) if it is slow |
 | rejected your token (HTTP 401) / not in the cluster's tenant | Set `AZURE_TENANT_ID` to the cluster's tenant id in the MCP server env |
