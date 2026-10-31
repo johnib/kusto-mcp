@@ -24,7 +24,10 @@ test('a token request still running at the deadline is aborted', async () => {
     connectionTimeout: 50,
   })
     .initialize('https://acme.kusto.windows.net', 'db')
-    .catch(e => e as Error);
+    .then(
+      () => new Error('connected'),
+      (e: Error) => e,
+    );
   expect(err.message).toMatch(/timed out after 50ms/);
   expect(signals).toHaveLength(1);
   expect(signals[0].aborted).toBe(true);
