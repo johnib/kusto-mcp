@@ -7,12 +7,18 @@
  * fallback fetch after a 401.
  */
 const signals: AbortSignal[] = [];
+const azBounds: (number | undefined)[] = [];
 let tokensBeforeHang = 0;
+let metadataDelayMs = 0;
 jest.mock('../../../src/auth/az-cli-credential.js', () => ({
   AzCliCredential: class AzCliCredential {
     readonly allowsSubscriptionTenant = true;
-    getToken(_s: unknown, options?: { abortSignal?: AbortSignal }) {
+    getToken(
+      _s: unknown,
+      options?: { abortSignal?: AbortSignal; kustoMcpAzTimeoutMs?: number },
+    ) {
       if (options?.abortSignal) signals.push(options.abortSignal);
+      azBounds.push(options?.kustoMcpAzTimeoutMs);
       if (tokensBeforeHang > 0) {
         tokensBeforeHang--;
         const b64 = (o: unknown) =>
@@ -30,10 +36,14 @@ jest.mock('../../../src/auth/az-cli-credential.js', () => ({
 const execute = jest.fn();
 jest.mock('azure-kusto-data', () => ({
   CloudSettings: {
-    getCloudInfoForCluster: async () => ({
-      KustoServiceResourceId: 'https://kusto.kusto.windows.net',
-      LoginMfaRequired: false,
-    }),
+    getCloudInfoForCluster: async () => {
+      if (metadataDelayMs)
+        await new Promise(r => setTimeout(r, metadataDelayMs));
+      return {
+        KustoServiceResourceId: 'https://kusto.kusto.windows.net',
+        LoginMfaRequired: false,
+      };
+    },
   },
   KustoConnectionStringBuilder: { withTokenCredential: () => 'cs' },
   Client: class {
@@ -47,6 +57,7 @@ jest.mock('azure-kusto-data', () => ({
   },
 }));
 
+import { azTimeoutFromRemaining } from '../../../src/auth/process-timeout.js';
 import { KustoConnection } from '../../../src/operations/kusto/connection.js';
 import { AuthenticationMethod } from '../../../src/types/config.js';
 
@@ -63,8 +74,29 @@ const connect = (connectionTimeout: number) =>
 
 beforeEach(() => {
   signals.length = 0;
+  azBounds.length = 0;
   tokensBeforeHang = 0;
+  metadataDelayMs = 0;
   execute.mockReset();
+});
+
+test("az's bound is what is left of the deadline after a slow metadata step, minus 1s", async () => {
+  metadataDelayMs = 1500;
+  await connect(3000);
+  expect(azBounds).toHaveLength(1);
+  // ~1500ms left after metadata → az gets about half: its own timer fires
+  // before the deadline, not ~1s after it as the fixed bound would.
+  expect(azBounds[0]).toBeGreaterThanOrEqual(600);
+  expect(azBounds[0]).toBeLessThan(1500);
+});
+
+test.each([
+  [19000, 18000],
+  [1500, 750],
+  [300, 150],
+  [50, 100],
+])('azTimeoutFromRemaining(%d) = %d', (remaining, bound) => {
+  expect(azTimeoutFromRemaining(remaining)).toBe(bound);
 });
 
 test('a token request still running at the deadline is aborted', async () => {
