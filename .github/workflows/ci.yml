@@ -47,3 +47,23 @@ jobs:
 
       - name: Run build
         run: npm run build
+
+      # Unit tests mock telemetry, so a mismatched OpenTelemetry set (e.g.
+      # 0.300 exporters next to a 1.9 api) passes them and only fails at ESM
+      # runtime, silently disabling all telemetry.
+      - name: Check dependency peers
+        if: matrix.node-version == '22.x'
+        run: |
+          if npm ls --all 2>&1 | grep ' invalid'; then
+            echo "::error::Invalid dependency peers (see above)"
+            exit 1
+          fi
+
+      - name: Smoke-start the built server (telemetry must initialize)
+        run: |
+          DEBUG_SERVER=1 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:9 \
+            node dist/index.js </dev/null >/dev/null 2>smoke.log || true
+          if grep 'Telemetry init failed' smoke.log; then
+            echo "::error::Telemetry failed to initialize"
+            exit 1
+          fi
