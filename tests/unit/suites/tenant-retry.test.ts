@@ -12,24 +12,23 @@ import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 
 const azTenants: (string | undefined)[] = [];
 jest.mock('../../../src/auth/az-cli-credential.js', () => ({
+  // Like the real one: a per-request flag asks for the subscription tenant.
   AzCliCredential: class AzCliCredential {
     private tenantId?: string;
-    private canFallBack: boolean;
+    readonly allowsSubscriptionTenant: boolean;
     constructor(o: {
       tenantId?: string;
       subscriptionTenantFallback?: boolean;
     }) {
       this.tenantId = o.tenantId;
-      this.canFallBack = !!o.subscriptionTenantFallback;
+      this.allowsSubscriptionTenant = !!o.subscriptionTenantFallback;
     }
-    fallBackToSubscriptionTenant() {
-      if (!this.canFallBack || this.tenantId === undefined) return false;
-      this.canFallBack = false;
-      this.tenantId = undefined;
-      return true;
-    }
-    async getToken() {
-      azTenants.push(this.tenantId);
+    async getToken(_s: unknown, options?: Record<string, unknown>) {
+      azTenants.push(
+        this.allowsSubscriptionTenant && options?.kustoMcpSubscriptionTenant
+          ? undefined
+          : this.tenantId,
+      );
       const b64 = (o: unknown) =>
         Buffer.from(JSON.stringify(o)).toString('base64url');
       return {

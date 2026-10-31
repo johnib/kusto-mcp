@@ -30,8 +30,10 @@ import {
   AzureCliCredential,
   AzurePowerShellCredential,
   DefaultAzureCredential,
+  GetTokenOptions,
 } from '@azure/identity';
 import { AzCliCredential } from '../../../src/auth/az-cli-credential.js';
+import { SUBSCRIPTION_TENANT } from '../../../src/auth/subscription-tenant.js';
 import {
   CachingTokenCredential,
   createTokenCredential,
@@ -313,20 +315,24 @@ describe('the az step tenant', () => {
       const cred = createTokenCredential(mode, 1500) as CachingTokenCredential;
       await cred.getToken(SCOPE);
       expect(tenantArgs()).toBe('contoso.onmicrosoft.com');
-      expect(cred.fallBackToSubscriptionTenant()).toBe(false);
+      expect(cred.canUseSubscriptionTenant()).toBe(false);
     }
   });
 
-  test('after a fallback, az runs again with no --tenant, once', async () => {
+  test('a subscription-tenant request runs az with no --tenant and leaves the default alone', async () => {
     const cred = createTokenCredential(
       'azure-identity',
       1500,
     ) as CachingTokenCredential;
+    expect(cred.canUseSubscriptionTenant()).toBe(true);
     await cred.getToken(SCOPE);
-    expect(cred.fallBackToSubscriptionTenant()).toBe(true);
+    expect(tenantArgs()).toBe('organizations');
+    await cred.getToken(SCOPE, {
+      [SUBSCRIPTION_TENANT]: true,
+    } as GetTokenOptions);
+    expect(tenantArgs()).toBeUndefined();
+    // Cached apart: a default request still gets the home-tenant token.
     await cred.getToken(SCOPE);
     expect(spawnMock).toHaveBeenCalledTimes(2);
-    expect(tenantArgs()).toBeUndefined();
-    expect(cred.fallBackToSubscriptionTenant()).toBe(false);
   });
 });
