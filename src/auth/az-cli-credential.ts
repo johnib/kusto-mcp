@@ -122,6 +122,20 @@ class AbortError extends Error {
   }
 }
 
+/**
+ * az ran out the caller's connect deadline. Deliberately NOT a
+ * CredentialUnavailableError: the default chain moves on only after those,
+ * and with the deadline (almost) spent there is no time for later steps —
+ * stopping here surfaces the az timeout instead of a bare connect timeout.
+ */
+export class AzCliDeadlineError extends Error {
+  readonly azReason = 'timeout' as const;
+  constructor(message: string) {
+    super(message);
+    this.name = 'AzCliDeadlineError';
+  }
+}
+
 // Same allow-list as @azure/identity's ensureValidScopeForDevTimeCreds.
 const SAFE_SCOPE = /^[0-9a-zA-Z-_.:/]+$/;
 // Same allow-list as @azure/identity's checkTenantId.
@@ -387,18 +401,22 @@ export class AzCliCredential implements TokenCredential {
 
       // Our fixed bound, or — when the caller has a deadline — the bound
       // left until just before it, measured now that az has started.
-      const bound =
-        deadlineAt === undefined
-          ? this.timeoutMs
-          : Math.min(azTimeoutUntil(deadlineAt), this.timeoutMs ?? Infinity);
+      const deadlineBound =
+        deadlineAt === undefined ? undefined : azTimeoutUntil(deadlineAt);
+      const byDeadline =
+        deadlineBound !== undefined &&
+        deadlineBound <= (this.timeoutMs ?? Infinity);
+      const bound = byDeadline ? deadlineBound : this.timeoutMs;
       if (bound !== undefined) {
         timer = setTimeout(
           () =>
             killAndFail(
-              new CredentialUnavailableError(
-                AZ_CLI_MESSAGES.timeout,
-                'timeout',
-              ),
+              byDeadline
+                ? new AzCliDeadlineError(AZ_CLI_MESSAGES.timeout)
+                : new CredentialUnavailableError(
+                    AZ_CLI_MESSAGES.timeout,
+                    'timeout',
+                  ),
             ),
           bound,
         );
