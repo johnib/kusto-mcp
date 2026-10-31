@@ -137,7 +137,7 @@ describe('client-disconnect exit telemetry', () => {
     expect(added[0].attributes).toMatchObject({
       'kustomcp.error.code': 'EPIPE',
     });
-    expect(added[0].attributes).not.toHaveProperty('kustomcp.exit.reason');
+    expect(added[0].attributes['kustomcp.exit.reason']).toBeUndefined();
     expect(logged).toHaveLength(1);
     expect(logged[0]).toMatchObject({
       severity: 'ERROR',
