@@ -137,6 +137,46 @@ describe('CachingTokenCredential', () => {
     expect(inner.getToken).toHaveBeenCalledTimes(2);
   });
 
+  test('a fetch begun before clear() is neither joined nor cached', async () => {
+    const releases: Array<(t: AccessToken) => void> = [];
+    const inner = {
+      getToken: jest.fn(
+        () => new Promise<AccessToken>(resolve => releases.push(resolve)),
+      ),
+    };
+    const cred = new CachingTokenCredential(inner, now);
+    const before = cred.getToken(SCOPE);
+    // A 401 elsewhere clears the cache while that fetch still runs.
+    cred.clear();
+    const after = cred.getToken(SCOPE);
+    expect(inner.getToken).toHaveBeenCalledTimes(2);
+
+    releases[0]({ token: 'rejected', expiresOnTimestamp: clock + HOUR });
+    expect((await before)?.token).toBe('rejected');
+    releases[1]({ token: 'fresh', expiresOnTimestamp: clock + HOUR });
+    expect((await after)?.token).toBe('fresh');
+    expect((await cred.getToken(SCOPE))?.token).toBe('fresh');
+    expect(inner.getToken).toHaveBeenCalledTimes(2);
+  });
+
+  test('a fetch begun before clear() that settles after it is not cached', async () => {
+    const releases: Array<(t: AccessToken) => void> = [];
+    const inner = {
+      getToken: jest.fn(
+        () => new Promise<AccessToken>(resolve => releases.push(resolve)),
+      ),
+    };
+    const cred = new CachingTokenCredential(inner, now);
+    const before = cred.getToken(SCOPE);
+    cred.clear();
+    releases[0]({ token: 'rejected', expiresOnTimestamp: clock + HOUR });
+    expect((await before)?.token).toBe('rejected');
+    const next = cred.getToken(SCOPE);
+    expect(inner.getToken).toHaveBeenCalledTimes(2);
+    releases[1]({ token: 'fresh', expiresOnTimestamp: clock + HOUR });
+    expect((await next)?.token).toBe('fresh');
+  });
+
   test('CAE and non-CAE tokens are cached separately', async () => {
     const inner = fakeInner(now);
     const cred = new CachingTokenCredential(inner, now);
@@ -185,9 +225,9 @@ describe('CachingTokenCredential', () => {
     expect(inner.getToken).toHaveBeenCalledTimes(1);
     // The inner request never sees a caller's signal, and isn't cancelled
     // while another caller still waits on it.
-    const innerSignal = (
-      inner.getToken.mock.calls[0] as unknown[]
-    )[1] as { abortSignal: AbortSignal };
+    const innerSignal = (inner.getToken.mock.calls[0] as unknown[])[1] as {
+      abortSignal: AbortSignal;
+    };
     expect(innerSignal.abortSignal).not.toBe(controller.signal);
     expect(innerSignal.abortSignal.aborted).toBe(false);
   });
