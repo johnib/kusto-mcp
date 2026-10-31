@@ -7,6 +7,7 @@ import {
 } from '@azure/identity';
 import { AzCliCredential } from './az-cli-credential.js';
 import { OBSERVE, TokenObservation } from './observe.js';
+import { AZ_DEADLINE_AT } from './process-timeout.js';
 import { SUBSCRIPTION_TENANT } from './subscription-tenant.js';
 
 function isSubscriptionTenantRequest(options?: GetTokenOptions): boolean {
@@ -132,7 +133,26 @@ export class CachingTokenCredential implements TokenCredential {
       else obs.fetches++;
     }
     const shared = joined ?? this.fetch(key, scopes, options);
-    return this.join(key, this.observe(shared, obs), options);
+    const result = this.join(key, this.observe(shared, obs), options);
+    if (!joined) return result;
+    // A joined fetch runs on its starter's deadline. If az timed out on that
+    // one while this caller's own deadline still leaves room, fetch again on
+    // this caller's terms rather than fail it on someone else's.
+    return result.catch(error => {
+      const deadlineAt = (options as Record<string, unknown> | undefined)?.[
+        AZ_DEADLINE_AT
+      ];
+      const roomLeft =
+        typeof deadlineAt === 'number' ? deadlineAt - this.now() : Infinity;
+      if (
+        (error as { azReason?: unknown })?.azReason === 'timeout' &&
+        roomLeft > 1000 &&
+        !options?.abortSignal?.aborted
+      ) {
+        return this.getToken(scopes, options);
+      }
+      throw error;
+    });
   }
 
   /** Copy the fetch's source to the caller's observation when it resolves. */

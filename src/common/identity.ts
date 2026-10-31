@@ -141,7 +141,7 @@ export function clearIdentity(): void {
  * errorDescription, correlationId, traceId, or timestamp, so nothing free-form
  * or identifying can escape. Cardinality is bounded by the enum/code sets.
  */
-function classifyAuthError(error: unknown): Attributes {
+export function classifyAuthError(error: unknown): Attributes {
   const attrs: Attributes = { 'kustomcp.auth.token_acquired': false };
   const name = error instanceof Error ? error.name : '';
 
@@ -206,7 +206,9 @@ function classifyAuthError(error: unknown): Attributes {
     return attrs;
   }
 
-  attrs['kustomcp.auth.failure_stage'] = 'unknown';
+  // az ran out the connect deadline (AzCliDeadlineError: stops the chain).
+  attrs['kustomcp.auth.failure_stage'] =
+    name === 'AzCliDeadlineError' ? 'credential_unavailable' : 'unknown';
   return attrs;
 }
 

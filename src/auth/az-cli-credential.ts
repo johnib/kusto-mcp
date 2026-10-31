@@ -8,6 +8,7 @@ import type {
   TokenCredential,
 } from '@azure/identity';
 import { debugLog } from '../common/utils.js';
+import { AZ_DEADLINE_AT, azTimeoutUntil } from './process-timeout.js';
 import { SUBSCRIPTION_TENANT } from './subscription-tenant.js';
 
 /**
@@ -118,6 +119,20 @@ class AbortError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'AbortError';
+  }
+}
+
+/**
+ * az ran out the caller's connect deadline. Deliberately NOT a
+ * CredentialUnavailableError: the default chain moves on only after those,
+ * and with the deadline (almost) spent there is no time for later steps —
+ * stopping here surfaces the az timeout instead of a bare connect timeout.
+ */
+export class AzCliDeadlineError extends Error {
+  readonly azReason = 'timeout' as const;
+  constructor(message: string) {
+    super(message);
+    this.name = 'AzCliDeadlineError';
   }
 }
 
@@ -288,12 +303,20 @@ export class AzCliCredential implements TokenCredential {
       resource,
       ...(tenantId ? ['--tenant', tenantId] : []),
     ];
-    return this.run(args, options.abortSignal);
+    const deadlineAt = (options as Record<string, unknown>)[AZ_DEADLINE_AT];
+    return this.run(
+      args,
+      options.abortSignal,
+      typeof deadlineAt === 'number' && Number.isFinite(deadlineAt)
+        ? deadlineAt
+        : undefined,
+    );
   }
 
   private run(
     args: string[],
-    signal?: GetTokenOptions['abortSignal'],
+    signal: GetTokenOptions['abortSignal'],
+    deadlineAt: number | undefined,
   ): Promise<AccessToken> {
     return new Promise<AccessToken>((resolve, reject) => {
       if (signal?.aborted) {
@@ -376,16 +399,26 @@ export class AzCliCredential implements TokenCredential {
         }
       });
 
-      if (this.timeoutMs !== undefined) {
+      // Our fixed bound, or — when the caller has a deadline — the bound
+      // left until just before it, measured now that az has started.
+      const deadlineBound =
+        deadlineAt === undefined ? undefined : azTimeoutUntil(deadlineAt);
+      const byDeadline =
+        deadlineBound !== undefined &&
+        deadlineBound <= (this.timeoutMs ?? Infinity);
+      const bound = byDeadline ? deadlineBound : this.timeoutMs;
+      if (bound !== undefined) {
         timer = setTimeout(
           () =>
             killAndFail(
-              new CredentialUnavailableError(
-                AZ_CLI_MESSAGES.timeout,
-                'timeout',
-              ),
+              byDeadline
+                ? new AzCliDeadlineError(AZ_CLI_MESSAGES.timeout)
+                : new CredentialUnavailableError(
+                    AZ_CLI_MESSAGES.timeout,
+                    'timeout',
+                  ),
             ),
-          this.timeoutMs,
+          bound,
         );
       }
       signal?.addEventListener('abort', onAbort, { once: true });

@@ -121,16 +121,22 @@ describe('abandoned connect attempts (#293)', () => {
       expect(defaultCtor).toHaveBeenCalledWith({});
     });
 
-    test('KustoConnection bounds the credential by its connection timeout', () => {
-      new KustoConnection({
-        authMethod: AuthenticationMethod.AzureCli,
-        connectionTimeout: 1500,
-      });
-      expect(azureCliCtor).toHaveBeenCalledWith({
-        timeoutMs: 1500,
-        tenantId: 'organizations',
-        subscriptionTenantFallback: true,
-      });
+    test('KustoConnection kills az 1s before its connection timeout (min 5s)', () => {
+      for (const [connectionTimeout, timeoutMs] of [
+        [20000, 19000],
+        [1500, 5000],
+      ]) {
+        azureCliCtor.mockClear();
+        new KustoConnection({
+          authMethod: AuthenticationMethod.AzureCli,
+          connectionTimeout,
+        });
+        expect(azureCliCtor).toHaveBeenCalledWith({
+          timeoutMs,
+          tenantId: 'organizations',
+          subscriptionTenantFallback: true,
+        });
+      }
     });
 
     test('azure-cli validation uses our bounded credential, not the SDK az login', async () => {
