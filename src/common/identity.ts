@@ -37,6 +37,34 @@ let identityAttrs: Attributes = {};
 type IdentityState = 'pre_connect' | 'captured' | 'unavailable';
 let identityState: IdentityState = 'pre_connect';
 
+// AzReason values (src/auth/az-cli-credential.ts); nothing else is exported.
+const AZ_REASONS: ReadonlySet<unknown> = new Set([
+  'not_found',
+  'not_logged_in',
+  'expired',
+  'mfa_required',
+  'tenant',
+  'timeout',
+  'bad_response',
+  'other',
+]);
+
+// AADSTS codes exported as-is: the ones a hint or a decision keys on, plus
+// common sign-in failures. Any other code is 'other' — an unknown number
+// from the token service is not a bounded value.
+const KNOWN_AADSTS = new Set([
+  50005, 50020, 50034, 50053, 50055, 50056, 50057, 50058, 50059, 50076, 50079,
+  50105, 50126, 50128, 50133, 50158, 50173, 53000, 53001, 53003, 65001, 70043,
+  90002, 90014, 90072, 500011, 700016, 700082, 700084, 7000215, 7000222,
+]);
+
+/** `AADSTS<code>` for a known code, else 'other'. */
+export function boundedAadsts(code: unknown): string | undefined {
+  const n = typeof code === 'string' ? Number(code) : code;
+  if (typeof n !== 'number' || !Number.isInteger(n)) return undefined;
+  return KNOWN_AADSTS.has(n) ? `AADSTS${n}` : 'other';
+}
+
 // AADSTS codes for conditional-access / MFA-style failures → a stable stage.
 const CONDITIONAL_ACCESS_CODES = new Set([50076, 50079, 50005, 53003, 50158]);
 // Structured OAuth error identifiers (errorResponse.error) → failure stage.
@@ -132,6 +160,22 @@ function classifyAuthError(error: unknown): Attributes {
   const inners: Inner[] = Array.isArray(aggregated)
     ? aggregated
     : [error as Inner];
+
+  // Our az runner's bounded reason (+ AADSTS digits from az's output), also
+  // when it is one step of the default chain.
+  // The errors are external objects: export only a known reason and digits.
+  const az = inners.find(e =>
+    AZ_REASONS.has((e as { azReason?: unknown } | null)?.azReason),
+  ) as { azReason: string; aadstsCode?: unknown } | undefined;
+  if (az) {
+    attrs['kustomcp.auth.az_reason'] = az.azReason;
+    const aadsts =
+      typeof az.aadstsCode === 'string' && /^\d{5,7}$/.test(az.aadstsCode)
+        ? boundedAadsts(az.aadstsCode)
+        : undefined;
+    if (aadsts) attrs['kustomcp.auth.aadsts'] = aadsts;
+  }
+
   const resp = inners.find(e => e?.errorResponse)?.errorResponse;
 
   if (resp) {
@@ -139,8 +183,9 @@ function classifyAuthError(error: unknown): Attributes {
       ? resp.errorCodes[0]
       : undefined;
     // A Microsoft-published error code (app/policy state), not tenant identity.
-    if (typeof code === 'number')
-      attrs['kustomcp.auth.aadsts'] = `AADSTS${code}`;
+    // When az failed too, aadsts stays az's own, so it pairs with az_reason.
+    const aadsts = az ? undefined : boundedAadsts(code);
+    if (aadsts) attrs['kustomcp.auth.aadsts'] = aadsts;
     attrs['kustomcp.auth.failure_stage'] =
       (typeof code === 'number' &&
         CONDITIONAL_ACCESS_CODES.has(code) &&
@@ -151,8 +196,8 @@ function classifyAuthError(error: unknown): Attributes {
   }
 
   // Credential-unavailable (e.g. Azure CLI not installed / not logged in).
-  // Classified by CLASS only — we intentionally do NOT read its message, so
-  // the granularity is coarse rather than risk echoing environment specifics.
+  // Classified by CLASS only — we intentionally do NOT read its message; the
+  // finer az reason above comes from our own runner as an enum.
   if (
     inners.length > 0 &&
     inners.every(e => e?.name === 'CredentialUnavailableError')

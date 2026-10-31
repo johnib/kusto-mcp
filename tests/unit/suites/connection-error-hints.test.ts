@@ -207,9 +207,9 @@ describe('connectionFailureHint mapping (#315)', () => {
       /^Failed step: reaching the cluster\. No response from acme\.kusto\.windows\.net within 8s – check your network\/VPN/,
     ],
     [
-      'timeout while getting a token → az login',
+      'timeout while getting a token → timing check, then timeout or az login',
       { category: 'timeout', timedOutStep: 'token' },
-      /^Failed step: getting an Azure token\. No token within 20s – run `az login` again/,
+      /^Failed step: getting an Azure token\. No token within 20s – check that `az account get-access-token --resource https:\/\/kusto\.kusto\.windows\.net` works and how long it takes\. If it is slow, raise KUSTO_CONNECTION_TIMEOUT; if it fails, run `az login` again\.$/,
     ],
     [
       'network cause wins over a token failure (bad URL breaks both)',
