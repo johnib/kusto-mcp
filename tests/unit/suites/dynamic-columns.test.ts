@@ -312,6 +312,17 @@ describe('Kusto dynamic column values', () => {
       expect(response.data[0].Props).toMatch(/…\[truncated \d+ chars\]$/);
     });
 
+    test('JSON: minRowsInResponse = 0 is kept, not replaced by 1', async () => {
+      const text = await callExecuteQuery(
+        { responseFormat: ResponseFormat.Json, minRowsInResponse: 0 },
+        hugeCellFirstResponse(),
+      );
+
+      const response = parseJsonResponse(text);
+      expect(response.data).toHaveLength(0);
+      expect(response.metadata.originalRowsAvailable).toBe(4);
+    });
+
     // When even `minRows` rows exceed maxLength, long cells are truncated so
     // a single ~20k-char JSON cell can't ship past the 12000-char cap.
     test('JSON: huge first row output stays within the 12000-char cap', async () => {

@@ -387,28 +387,25 @@ export function withTreeKillingAzCli<T extends TokenCredential>(
 /**
  * DefaultAzureCredential throws in its constructor when AZURE_TOKEN_CREDENTIALS
  * names no known credential — before any connect span, so the user gets an
- * opaque failure and we get no telemetry. Warn and use the full chain
- * instead, as if the variable were unset.
+ * opaque failure and we get no telemetry. Return a credential that fails
+ * every request with the reason instead, so the connect reports it. Never
+ * the full chain: the variable limits who may sign in, and a typo must not
+ * widen that.
  */
 function defaultAzureCredential(
   options: ConstructorParameters<typeof DefaultAzureCredential>[0],
-): DefaultAzureCredential {
+): TokenCredential {
   try {
     return new DefaultAzureCredential(options);
   } catch (error) {
     const selector = process.env.AZURE_TOKEN_CREDENTIALS;
     if (selector === undefined) throw error;
-    criticalLog(
-      `AZURE_TOKEN_CREDENTIALS="${selector}" is not valid (${
-        error instanceof Error ? error.message : String(error)
-      }); using the full credential chain.`,
-    );
-    delete process.env.AZURE_TOKEN_CREDENTIALS;
-    try {
-      return new DefaultAzureCredential(options);
-    } finally {
-      process.env.AZURE_TOKEN_CREDENTIALS = selector;
-    }
+    const message = `AZURE_TOKEN_CREDENTIALS="${selector}" is not valid (${
+      error instanceof Error ? error.message : String(error)
+    }). Fix or unset it, then connect again.`;
+    criticalLog(message);
+    // A plain Error: the connect adds the "Authentication error" prefix.
+    return { getToken: () => Promise.reject(new Error(message)) };
   }
 }
 

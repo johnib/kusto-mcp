@@ -12,6 +12,12 @@ import {
   parseIntSetting,
   withScheme,
 } from '../../../src/common/config-parse.js';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import {
+  limitResponseSize,
+  MIN_RESPONSE_LENGTH,
+} from '../../../src/common/response-limiter.js';
 import { KustoConnection } from '../../../src/operations/kusto/index.js';
 import { createKustoServer } from '../../../src/server.js';
 import {
@@ -54,6 +60,33 @@ describe('parseIntSetting', () => {
   test('a minimum of 0 accepts 0', () => {
     expect(parseIntSetting('X', '0', [], { min: 0 })).toBe(0);
   });
+});
+
+test("KUSTO_MAX_RESPONSE_LENGTH's minimum is the limiter's, so no query fails after it ran", () => {
+  const warnings: string[] = [];
+  const parse = (raw: string) =>
+    parseIntSetting('KUSTO_MAX_RESPONSE_LENGTH', raw, warnings, {
+      min: MIN_RESPONSE_LENGTH,
+      max: Number.MAX_SAFE_INTEGER,
+    });
+  expect(parse('50')).toBeUndefined();
+  expect(warnings).toHaveLength(1);
+  expect(parse(String(MIN_RESPONSE_LENGTH))).toBe(MIN_RESPONSE_LENGTH);
+  const result = { data: [{ a: 1 }], metadata: { rowCount: 1 } };
+  const limit = (maxLength: number) =>
+    limitResponseSize(result as never, {
+      maxLength,
+      minRows: 1,
+      format: 'json',
+    });
+  expect(() => limit(MIN_RESPONSE_LENGTH)).not.toThrow();
+  expect(() => limit(MIN_RESPONSE_LENGTH - 1)).toThrow(/at least/);
+  // index.ts passes the same bound.
+  expect(
+    readFileSync(path.join(process.cwd(), 'src/index.ts'), 'utf8'),
+  ).toMatch(
+    /'KUSTO_MAX_RESPONSE_LENGTH',[\s\S]{0,120}min: MIN_RESPONSE_LENGTH/,
+  );
 });
 
 describe('parseAuthMethod', () => {

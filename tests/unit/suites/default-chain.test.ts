@@ -166,19 +166,18 @@ describe('chain shape matches DefaultAzureCredential', () => {
     });
   });
 
-  test('an invalid AZURE_TOKEN_CREDENTIALS falls back to the full chain', () => {
+  test('an invalid AZURE_TOKEN_CREDENTIALS fails every request, never widens the chain', async () => {
     process.env.AZURE_TOKEN_CREDENTIALS = 'bogus';
     // The SDK itself still throws in its constructor...
     expect(() => new DefaultAzureCredential()).toThrow(
       /AZURE_TOKEN_CREDENTIALS/,
     );
-    // ...we warn and build the chain as if the variable were unset.
+    // ...ours builds, so the connect can report it, but signs nobody in.
     const ours = createTokenCredential('azure-identity', 1500);
-    delete process.env.AZURE_TOKEN_CREDENTIALS;
-    const full = withTreeKillingAzCli(new DefaultAzureCredential());
-    expect(names(ours)).toEqual(names(full));
-    process.env.AZURE_TOKEN_CREDENTIALS = 'bogus';
-    // The variable itself is left as the user set it.
+    expect(sources(ours)).toBeUndefined(); // no chain at all
+    await expect(
+      ours.getToken('https://kusto.kusto.windows.net/.default'),
+    ).rejects.toThrow(/AZURE_TOKEN_CREDENTIALS="bogus" is not valid/);
     expect(process.env.AZURE_TOKEN_CREDENTIALS).toBe('bogus');
   });
 
