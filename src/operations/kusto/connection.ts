@@ -373,8 +373,11 @@ export class KustoConnection {
   // SDK's): the shared one, plus this connection's tenant choice and
   // observation.
   private readonly requestCredential: TokenCredential = {
-    getToken: (scopes, options) =>
-      this.tokenCredential
+    getToken: (scopes, options) => {
+      // Only a connect's requests: its deadline aborts every one of them.
+      const counted = this.connectBounds !== undefined;
+      if (counted) this.tokenRequestsPending++;
+      return this.tokenCredential
         .getToken(scopes, {
           // During a connect, a request without its own bounds (the SDK's,
           // during validation) gets the attempt's: a cache miss there can't
@@ -392,10 +395,17 @@ export class KustoConnection {
           if (this.connectBounds && (error as Error)?.name !== 'AbortError')
             this.connectTokenError = error;
           throw error;
-        }),
+        })
+        .finally(() => {
+          if (counted) this.tokenRequestsPending--;
+        });
+    },
   };
   // The last token error during the current connect, if any.
   private connectTokenError: unknown;
+  // Token requests still running: one running when the deadline fires means
+  // the attempt waited on a token, not on the cluster.
+  private tokenRequestsPending = 0;
   // Set while initialize() runs: the attempt's abort signal and deadline.
   private connectBounds?: { signal: AbortSignal; deadlineAt: number };
 
@@ -456,6 +466,7 @@ export class KustoConnection {
       const connectTimeout = this.config.connectionTimeout ?? 20000;
       const startedAt = Date.now();
       let timedOut = false;
+      let tokenPendingAtDeadline = false;
       let deadlineTimer: NodeJS.Timeout | undefined;
       // Which step is running, and the bounded token result, for the
       // user-facing hint on failure (#315).
@@ -489,6 +500,8 @@ export class KustoConnection {
         const deadline = new Promise<never>((_, reject) => {
           deadlineTimer = setTimeout(() => {
             timedOut = true;
+            // Read before the abort settles the requests.
+            tokenPendingAtDeadline = this.tokenRequestsPending > 0;
             deadlineAbort.abort();
             reject(
               new KustoConnectionError(
@@ -698,13 +711,21 @@ export class KustoConnection {
         let failedStep = step as 'metadata' | 'token' | 'query';
         // The validation query failed because the SDK's own token request
         // did (e.g. az timed out on a refetch): that is a token failure,
-        // not a cluster one.
-        if (failedStep === 'query' && this.connectTokenError !== undefined) {
+        // not a cluster one. So is a deadline that fired while that request
+        // still ran.
+        const validationTokenFailed =
+          failedStep === 'query' &&
+          (timedOut
+            ? tokenPendingAtDeadline
+            : this.connectTokenError !== undefined);
+        if (validationTokenFailed) {
           failedStep = 'token';
-          tokenAttrs = classifyAuthError(this.connectTokenError);
-          for (const [k, v] of Object.entries(tokenAttrs)) {
-            if (v !== undefined && v !== null)
-              span.setAttribute(k, v as string | number | boolean);
+          if (!timedOut) {
+            tokenAttrs = classifyAuthError(this.connectTokenError);
+            for (const [k, v] of Object.entries(tokenAttrs)) {
+              if (v !== undefined && v !== null)
+                span.setAttribute(k, v as string | number | boolean);
+            }
           }
         }
         const errorMessage = extractKustoErrorMessage(error);
@@ -724,7 +745,12 @@ export class KustoConnection {
           `connection failure shape: name=${rawErr?.name} code=${rawErr?.code} cause=${rawErr?.cause?.code} status=${rawErr?.response?.status}`,
         );
 
-        const classified = classifyConnectionFailure(error);
+        // A validation token failure is an auth failure, as it is in the
+        // token step (there it arrives wrapped as KustoAuthenticationError).
+        const classified: ReturnType<typeof classifyConnectionFailure> =
+          validationTokenFailed
+            ? { category: 'auth' }
+            : classifyConnectionFailure(error);
         // The credential is shared by the whole process: drop a token the
         // cluster rejected, so the next connect (after `az login`) refetches.
         if (classified.httpStatus === 401) {
