@@ -89,7 +89,7 @@ describe('recordProcessFatal', () => {
   it('omits the code attribute when there is none', () => {
     recordProcessFatal('unhandledRejection', new Error('plain'));
 
-    expect(addedSink[0].attributes['kustomcp.error.code']).toBeUndefined();
+    expect(addedSink[0].attributes?.['kustomcp.error.code']).toBeUndefined();
   });
 
   it('never emits the error message or stack', () => {
