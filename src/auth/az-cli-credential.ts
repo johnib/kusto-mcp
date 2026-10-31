@@ -8,6 +8,7 @@ import type {
   TokenCredential,
 } from '@azure/identity';
 import { debugLog } from '../common/utils.js';
+import { AZ_TIMEOUT_MS } from './process-timeout.js';
 import { SUBSCRIPTION_TENANT } from './subscription-tenant.js';
 
 /**
@@ -288,12 +289,22 @@ export class AzCliCredential implements TokenCredential {
       resource,
       ...(tenantId ? ['--tenant', tenantId] : []),
     ];
-    return this.run(args, options.abortSignal);
+    // A per-request bound (what is left of the connect deadline) wins when
+    // it is shorter than ours.
+    const perRequest = (options as Record<string, unknown>)[AZ_TIMEOUT_MS];
+    const timeoutMs =
+      typeof perRequest === 'number' &&
+      Number.isInteger(perRequest) &&
+      perRequest > 0
+        ? Math.min(perRequest, this.timeoutMs ?? perRequest)
+        : this.timeoutMs;
+    return this.run(args, options.abortSignal, timeoutMs);
   }
 
   private run(
     args: string[],
-    signal?: GetTokenOptions['abortSignal'],
+    signal: GetTokenOptions['abortSignal'],
+    timeoutMs: number | undefined,
   ): Promise<AccessToken> {
     return new Promise<AccessToken>((resolve, reject) => {
       if (signal?.aborted) {
@@ -376,7 +387,7 @@ export class AzCliCredential implements TokenCredential {
         }
       });
 
-      if (this.timeoutMs !== undefined) {
+      if (timeoutMs !== undefined) {
         timer = setTimeout(
           () =>
             killAndFail(
@@ -385,7 +396,7 @@ export class AzCliCredential implements TokenCredential {
                 'timeout',
               ),
             ),
-          this.timeoutMs,
+          timeoutMs,
         );
       }
       signal?.addEventListener('abort', onAbort, { once: true });
