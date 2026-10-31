@@ -41,6 +41,7 @@ let identityState: IdentityState = 'pre_connect';
 const AZ_REASONS: ReadonlySet<unknown> = new Set([
   'not_found',
   'not_logged_in',
+  'no_subscription',
   'expired',
   'mfa_required',
   'tenant',
