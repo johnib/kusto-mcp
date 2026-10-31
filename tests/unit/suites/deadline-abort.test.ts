@@ -75,6 +75,11 @@ jest.mock('azure-kusto-data', () => ({
   },
 }));
 
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { KustoConnection } from '../../../src/operations/kusto/connection.js';
 import { AuthenticationMethod } from '../../../src/types/config.js';
 
@@ -89,7 +94,17 @@ const connect = (connectionTimeout: number) =>
       (e: Error) => e,
     );
 
+const exporter = new InMemorySpanExporter();
+const provider = new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(exporter)],
+});
+beforeAll(() => provider.register());
+const initSpan = () =>
+  exporter.getFinishedSpans().find(s => s.name === 'mcp.connection.init')!
+    .attributes;
+
 beforeEach(() => {
+  exporter.reset();
   signals.length = 0;
   deadlines.length = 0;
   metadataDelayMs = 0;
@@ -175,6 +190,11 @@ test("the SDK's own token request during validation is bounded by the deadline t
   expect(signals).toHaveLength(2);
   expect(signals[1].aborted).toBe(true);
   expect(deadlines[1]).toBe(deadlines[0]);
+  // The attempt waited on that token, not on the cluster.
+  expect(err.message).toMatch(/Failed step: getting an Azure token/);
+  expect(err.message).toMatch(/No token within/);
+  expect(initSpan()['kustomcp.connection.failed_step']).toBe('token');
+  expect(initSpan()['kustomcp.connection.failure_category']).toBe('timeout');
 });
 
 test("an az timeout on the SDK's validation request is a token failure, not a cluster one", async () => {
@@ -188,4 +208,9 @@ test("an az timeout on the SDK's validation request is a token failure, not a cl
   const err = await connect(5000);
   expect(err.message).toMatch(/Failed step: getting an Azure token/);
   expect(err.message).not.toMatch(/reaching the cluster/);
+  const attrs = initSpan();
+  expect(attrs['kustomcp.connection.failed_step']).toBe('token');
+  expect(attrs['kustomcp.connection.failure_category']).toBe('auth');
+  expect(attrs['kustomcp.connection.outcome']).toBe('auth_error');
+  expect(attrs['kustomcp.auth.az_reason']).toBe('timeout');
 });
