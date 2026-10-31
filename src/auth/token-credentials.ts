@@ -46,6 +46,10 @@ export class CachingTokenCredential implements TokenCredential {
   private readonly cache = new Map<string, AccessToken>();
   private readonly inFlight = new Map<string, SharedFetch>();
   private readonly generation = new Map<string, number>();
+  /** Telemetry: inner fetches started, and requests served without one. */
+  readonly stats = { fetches: 0, hits: 0 };
+  /** Telemetry: which credential produced the newest token (bounded enum). */
+  lastSource: CredentialSource | undefined;
 
   constructor(
     private readonly inner: TokenCredential,
@@ -79,10 +83,13 @@ export class CachingTokenCredential implements TokenCredential {
       (cached.refreshAfterTimestamp === undefined ||
         cached.refreshAfterTimestamp > this.now())
     ) {
+      this.stats.hits++;
       return cached;
     }
 
-    const shared = this.inFlight.get(key) ?? this.fetch(key, scopes, options);
+    const joined = this.inFlight.get(key);
+    if (joined) this.stats.hits++;
+    const shared = joined ?? this.fetch(key, scopes, options);
     return this.join(key, shared, options);
   }
 
@@ -122,6 +129,36 @@ export class CachingTokenCredential implements TokenCredential {
     });
   }
 
+  /**
+   * One call to the inner credential, recording which credential produced
+   * the token. A chained credential (DefaultAzureCredential) exposes
+   * getTokenInternal, which also returns the step that succeeded; it is the
+   * same walk getToken does, minus the SDK's tracing span. Without it, the
+   * inner credential itself is the source.
+   */
+  private async fetchInner(
+    scopes: string | string[],
+    options: GetTokenOptions,
+  ): Promise<AccessToken | null> {
+    const chain = this.inner as {
+      getTokenInternal?: (
+        scopes: string | string[],
+        options?: GetTokenOptions,
+      ) => Promise<{ token: AccessToken; successfulCredential: unknown }>;
+    };
+    if (typeof chain.getTokenInternal === 'function') {
+      const { token, successfulCredential } = await chain.getTokenInternal(
+        scopes,
+        options,
+      );
+      this.lastSource = credentialSourceOf(successfulCredential);
+      return token;
+    }
+    const token = await this.inner.getToken(scopes, options);
+    if (token) this.lastSource = credentialSourceOf(this.inner);
+    return token;
+  }
+
   /** Abort an abandoned fetch; later callers start a fresh one. */
   private cancel(key: string, shared: SharedFetch): void {
     if (this.inFlight.get(key) === shared) this.inFlight.delete(key);
@@ -140,21 +177,23 @@ export class CachingTokenCredential implements TokenCredential {
   ): SharedFetch {
     const generation = (this.generation.get(key) ?? 0) + 1;
     this.generation.set(key, generation);
+    this.stats.fetches++;
     // No caller's own signal reaches the shared fetch: it is aborted only
     // through cancel(), once every joined caller has given up.
     const controller = new AbortController();
-    const promise = this.inner
-      .getToken(scopes, { ...options, abortSignal: controller.signal })
-      .then(token => {
-        if (
-          !controller.signal.aborted &&
-          this.generation.get(key) === generation
-        ) {
-          if (token) this.cache.set(key, token);
-          else this.cache.delete(key);
-        }
-        return token;
-      });
+    const promise = this.fetchInner(scopes, {
+      ...options,
+      abortSignal: controller.signal,
+    }).then(token => {
+      if (
+        !controller.signal.aborted &&
+        this.generation.get(key) === generation
+      ) {
+        if (token) this.cache.set(key, token);
+        else this.cache.delete(key);
+      }
+      return token;
+    });
     const shared: SharedFetch = {
       promise,
       controller,
@@ -167,6 +206,38 @@ export class CachingTokenCredential implements TokenCredential {
     };
     promise.then(clear, clear);
     return shared;
+  }
+}
+
+/** Bounded name of the credential that produced a token (telemetry). */
+export type CredentialSource =
+  'env' | 'wi' | 'mi' | 'vscode' | 'az' | 'pwsh' | 'azd' | 'broker' | 'unknown';
+
+/** Map a credential's class name to a CredentialSource. Never the instance. */
+export function credentialSourceOf(credential: unknown): CredentialSource {
+  const name =
+    (credential as { constructor?: { name?: string } })?.constructor?.name ??
+    '';
+  switch (name) {
+    case 'EnvironmentCredential':
+      return 'env';
+    case 'WorkloadIdentityCredential':
+      return 'wi';
+    case 'ManagedIdentityCredential':
+      return 'mi';
+    case 'VisualStudioCodeCredential':
+      return 'vscode';
+    case 'AzureCliCredential':
+    case 'AzCliCredential':
+      return 'az';
+    case 'AzurePowerShellCredential':
+      return 'pwsh';
+    case 'AzureDeveloperCliCredential':
+      return 'azd';
+    case 'BrokerCredential':
+      return 'broker';
+    default:
+      return 'unknown';
   }
 }
 

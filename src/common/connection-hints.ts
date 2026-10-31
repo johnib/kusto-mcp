@@ -173,22 +173,28 @@ function tokenFix(
   }
 }
 
+/** What the reachability probe saw (bounded; also a span attribute). */
+export type ProbeResult =
+  'reachable' | 'dns_resolution' | 'connection_refused' | 'inconclusive';
+
 /**
  * azure-kusto-data rethrows network failures from its cloud-metadata lookup as
  * a plain Error with no code, so they classify as 'unknown'. Probe the host
  * with one TCP connect and map the socket error CODE (never a message) to a
  * category. Returns undefined when the host is reachable or the probe can't
- * tell (including its own timeout). Never throws.
+ * tell (including its own timeout); `report` gets the finer ProbeResult.
+ * Never throws.
  */
 export function probeReachability(
   clusterUrl: string,
   timeoutMs: number,
+  report?: (result: ProbeResult) => void,
 ): Promise<ConnectionFailureCategory | undefined> {
   return new Promise(resolve => {
     let settled = false;
     let socket: net.Socket | undefined;
     let timer: NodeJS.Timeout | undefined;
-    const done = (category?: ConnectionFailureCategory) => {
+    const done = (result: ProbeResult) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
@@ -197,17 +203,26 @@ export function probeReachability(
       } catch {
         /* ignore */
       }
-      resolve(category);
+      try {
+        report?.(result);
+      } catch {
+        /* telemetry only */
+      }
+      resolve(
+        result === 'dns_resolution' || result === 'connection_refused'
+          ? result
+          : undefined,
+      );
     };
     try {
       const url = new URL(clusterUrl);
       const port = Number(url.port) || (url.protocol === 'http:' ? 80 : 443);
       const host = url.hostname.replace(/^\[|\]$/g, '');
-      timer = setTimeout(() => done(undefined), timeoutMs);
+      timer = setTimeout(() => done('inconclusive'), timeoutMs);
       timer.unref?.();
       socket = net.connect({ host, port });
       socket.unref();
-      socket.once('connect', () => done(undefined));
+      socket.once('connect', () => done('reachable'));
       socket.once('error', (err: NodeJS.ErrnoException) => {
         switch (err?.code) {
           case 'ENOTFOUND':
@@ -216,11 +231,11 @@ export function probeReachability(
           case 'ECONNREFUSED':
             return done('connection_refused');
           default:
-            return done(undefined);
+            return done('inconclusive');
         }
       });
     } catch {
-      done(undefined);
+      done('inconclusive');
     }
   });
 }
