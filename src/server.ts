@@ -30,12 +30,14 @@ import {
   beginAutoConnect,
   clearAutoConnectBackoff,
 } from './common/autoconnect-backoff.js';
+import { clientNameForTelemetry } from './common/client-info.js';
 import { getIdentityAttributes } from './common/identity.js';
 import {
   SeverityNumber,
   carryErrorRecording,
   emitLog,
   errorTypeName,
+  flushLogs,
   recordSpanError,
   responseBytesHistogram,
   queryRowsHistogram,
@@ -320,6 +322,9 @@ export function createKustoServer(config: KustoConfig): Server {
       emitLog(SeverityNumber.INFO, 'INFO', 'Auto-connection skipped', {
         'kustomcp.connection.autoconnect': 'skipped_backoff',
       });
+      // Hosts that relaunch in a loop may kill this launch within the 1s
+      // log batch; export the skip now so the launch leaves a trace.
+      void flushLogs();
       return;
     }
 
@@ -474,11 +479,13 @@ export function createKustoServer(config: KustoConfig): Server {
 
       span.setAttribute('kustomcp.tool.name', toolName);
       // MCP client (host app) identity — a first-order "who uses this" signal.
+      // Bounded: a known product name or 'other' (see client-info.ts). The
+      // client's version is free text any client can fill, so it never ships.
+      // (clientInfo itself is also used, unchanged, in report-issue's footer,
+      // which the user reviews before submitting — not telemetry.)
       const clientInfo = server.getClientVersion();
-      if (clientInfo?.name)
-        span.setAttribute('mcp.client.name', clientInfo.name);
-      if (clientInfo?.version)
-        span.setAttribute('mcp.client.version', clientInfo.version);
+      const clientName = clientNameForTelemetry(clientInfo?.name);
+      if (clientName) span.setAttribute('mcp.client.name', clientName);
       // Argument KEYS only — never values (may contain sensitive data).
       if (request.params.arguments) {
         span.setAttribute(
@@ -1086,6 +1093,23 @@ export function createKustoServer(config: KustoConfig): Server {
       }
     });
   });
+
+  // The startup auto-connect runs before the MCP handshake, so its span has
+  // no client name (#379). Once the handshake completes, log the client with
+  // how long after the auto-connect start it arrived; service.instance.id
+  // joins it to that span. Telemetry only; never throws.
+  const autoConnectStartedAt = Date.now();
+  server.oninitialized = () => {
+    try {
+      const name = clientNameForTelemetry(server.getClientVersion()?.name);
+      emitLog(SeverityNumber.INFO, 'INFO', 'MCP client identified', {
+        ...(name && { 'mcp.client.name': name }),
+        'kustomcp.handshake_gap_ms': Date.now() - autoConnectStartedAt,
+      });
+    } catch {
+      /* telemetry only */
+    }
+  };
 
   // Trigger auto-connection asynchronously (fire-and-forget)
   // This allows the server to start immediately while attempting connection in the background
