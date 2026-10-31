@@ -8,6 +8,7 @@ import type {
   TokenCredential,
 } from '@azure/identity';
 import { debugLog } from '../common/utils.js';
+import { SUBSCRIPTION_TENANT } from './subscription-tenant.js';
 
 /**
  * Azure CLI token credential that kills the whole `az` process tree when it
@@ -102,7 +103,7 @@ export function azFailureReason(stderr: string): {
     text.startsWith("'az' is not recognized")
   )
     return { reason: 'not_found' };
-  const aadsts = /AADSTS(\d{5,6})/.exec(text)?.[1];
+  const aadsts = /AADSTS(\d{5,7})/.exec(text)?.[1];
   if (aadsts) {
     if (EXPIRED_CODES.has(aadsts)) return { reason: 'expired', aadsts };
     if (MFA_CODES.has(aadsts)) return { reason: 'mfa_required', aadsts };
@@ -235,41 +236,34 @@ export interface AzCliCredentialOptions {
   /** `--tenant` to pass when the caller's getToken options name none. */
   tenantId?: string;
   /**
-   * The tenant is our default, not the user's choice: on a 401 the caller
-   * may drop it once, so az uses its current subscription's tenant.
+   * The tenant is our default, not the user's choice: after a 401 a caller
+   * may ask (per request) for az's current subscription tenant instead.
    */
   subscriptionTenantFallback?: boolean;
 }
 
 export class AzCliCredential implements TokenCredential {
   private readonly timeoutMs?: number;
-  private tenantId?: string;
-  private canFallBack: boolean;
+  private readonly tenantId?: string;
+  /** A request may switch to az's subscription tenant (default tenant only). */
+  readonly allowsSubscriptionTenant: boolean;
 
   constructor(options: AzCliCredentialOptions = {}) {
     const t = options.timeoutMs;
     this.timeoutMs =
       typeof t === 'number' && Number.isInteger(t) && t > 0 ? t : undefined;
     this.tenantId = options.tenantId;
-    this.canFallBack = !!options.subscriptionTenantFallback;
-  }
-
-  /**
-   * Stop sending our default `--tenant`, so az answers from its current
-   * subscription's tenant (a B2B guest whose cluster is in that tenant).
-   * Once per credential. Returns whether anything changed.
-   */
-  fallBackToSubscriptionTenant(): boolean {
-    if (!this.canFallBack || this.tenantId === undefined) return false;
-    this.canFallBack = false;
-    this.tenantId = undefined;
-    return true;
+    this.allowsSubscriptionTenant =
+      !!options.subscriptionTenantFallback && options.tenantId !== undefined;
   }
 
   async getToken(
     scopes: string | string[],
     options: GetTokenOptions = {},
   ): Promise<AccessToken> {
+    const useSubscription =
+      this.allowsSubscriptionTenant &&
+      (options as Record<string, unknown>)[SUBSCRIPTION_TENANT] === true;
     const scope = typeof scopes === 'string' ? scopes : scopes[0];
     if (options.claims?.trim()) {
       throw new CredentialUnavailableError(AZ_CLI_MESSAGES.claims);
@@ -278,7 +272,9 @@ export class AzCliCredential implements TokenCredential {
       throw new CredentialUnavailableError('Invalid scope for Azure CLI.');
     }
     // Like the SDK's AzureCliCredential: a per-request tenant wins.
-    const tenantId = options.tenantId ?? this.tenantId;
+    const tenantId = useSubscription
+      ? undefined
+      : (options.tenantId ?? this.tenantId);
     if (tenantId !== undefined && !SAFE_TENANT.test(tenantId)) {
       throw new CredentialUnavailableError('Invalid tenant for Azure CLI.');
     }
