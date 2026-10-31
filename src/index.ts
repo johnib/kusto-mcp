@@ -17,6 +17,7 @@ import {
   startTelemetry,
   watchStdoutForDisconnect,
 } from './common/telemetry.js';
+import { configStateAttributes } from './common/config-state.js';
 import { createShutdown, settlePendingCancels } from './common/shutdown.js';
 import { createKustoServer } from './server.js';
 import { VERSION } from './common/version.js';
@@ -187,7 +188,10 @@ const resource = resourceFromAttributes({
   'kustomcp.config.query_statistics': enableQueryStatistics,
   'kustomcp.config.prompts_enabled': enablePrompts,
   'kustomcp.config.autoconnect': autoConnect,
+  ...configStateAttributes(process.env),
   'machine.id': machine.machineId,
+  // false: the id couldn't be saved, so every launch is a "new" machine.
+  'kustomcp.machine.id_persisted': machine.persisted,
   'kustomcp.machine.first_seen': machine.firstSeen,
   'kustomcp.install.has_connected': machine.hasConnected,
 });

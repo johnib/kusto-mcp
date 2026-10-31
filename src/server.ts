@@ -36,6 +36,7 @@ import {
   carryErrorRecording,
   emitLog,
   errorTypeName,
+  flushLogs,
   recordSpanError,
   responseBytesHistogram,
   queryRowsHistogram,
@@ -320,6 +321,9 @@ export function createKustoServer(config: KustoConfig): Server {
       emitLog(SeverityNumber.INFO, 'INFO', 'Auto-connection skipped', {
         'kustomcp.connection.autoconnect': 'skipped_backoff',
       });
+      // Hosts that relaunch in a loop may kill this launch within the 1s
+      // log batch; export the skip now so the launch leaves a trace.
+      void flushLogs();
       return;
     }
 
@@ -1086,6 +1090,24 @@ export function createKustoServer(config: KustoConfig): Server {
       }
     });
   });
+
+  // The startup auto-connect runs before the MCP handshake, so its span has
+  // no client name (#379). Once the handshake completes, log the client with
+  // how long after the auto-connect start it arrived; service.instance.id
+  // joins it to that span. Telemetry only; never throws.
+  const autoConnectStartedAt = Date.now();
+  server.oninitialized = () => {
+    try {
+      const client = server.getClientVersion();
+      emitLog(SeverityNumber.INFO, 'INFO', 'MCP client identified', {
+        ...(client?.name && { 'mcp.client.name': client.name }),
+        ...(client?.version && { 'mcp.client.version': client.version }),
+        'kustomcp.handshake_gap_ms': Date.now() - autoConnectStartedAt,
+      });
+    } catch {
+      /* telemetry only */
+    }
+  };
 
   // Trigger auto-connection asynchronously (fire-and-forget)
   // This allows the server to start immediately while attempting connection in the background

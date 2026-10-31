@@ -43,6 +43,8 @@ export interface MachineIdentity {
   firstSeen: string; // YYYY-MM-DD (date-floored — no ms-precision fingerprint)
   hasConnected: boolean; // has this install ever completed a connection?
   isFirstRun: boolean;
+  /** The id is on disk, so the next launch reuses it. */
+  persisted: boolean;
 }
 
 interface StoredIdentity {
@@ -88,12 +90,15 @@ function readStored(file: string): StoredIdentity | null {
   return { machineId: raw, firstSeen, hasConnected: false };
 }
 
-function writeStored(file: string, value: StoredIdentity): void {
+/** Returns whether the write succeeded. */
+function writeStored(file: string, value: StoredIdentity): boolean {
   try {
     mkdirSync(stateDir(), { recursive: true });
     writeFileSync(file, `${JSON.stringify(value)}\n`, { mode: 0o600 });
+    return true;
   } catch (error) {
     debugLog(`machine_id write failed: ${String(error)}`);
+    return false;
   }
 }
 
@@ -102,7 +107,7 @@ export function loadOrCreateMachineId(): MachineIdentity {
   if (existsSync(file)) {
     const stored = readStored(file);
     if (stored) {
-      return { ...stored, isFirstRun: false };
+      return { ...stored, isFirstRun: false, persisted: true };
     }
   }
 
@@ -111,8 +116,8 @@ export function loadOrCreateMachineId(): MachineIdentity {
     firstSeen: new Date().toISOString().slice(0, 10),
     hasConnected: false,
   };
-  writeStored(file, created);
-  return { ...created, isFirstRun: true };
+  const persisted = writeStored(file, created);
+  return { ...created, isFirstRun: true, persisted };
 }
 
 // Avoid re-touching the file more than once per process.

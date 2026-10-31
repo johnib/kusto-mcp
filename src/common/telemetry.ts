@@ -78,6 +78,7 @@ export function getOtlpConfig(): {
 // ---------------------------------------------------------------------------
 
 let sdk: { shutdown: () => Promise<void> } | undefined;
+let logProcessor: { forceFlush: () => Promise<void> } | undefined;
 
 /**
  * Build and start the OTel SDK. Telemetry is ALWAYS ON — using kusto-mcp reports
@@ -138,10 +139,10 @@ export async function startTelemetry(resource: Resource): Promise<void> {
       }),
     ],
     logRecordProcessors: [
-      new BatchLogRecordProcessor({
+      (logProcessor = new BatchLogRecordProcessor({
         exporter: new OTLPLogExporter({ url: `${endpoint}/v1/logs`, headers }),
         scheduledDelayMillis: 1_000,
-      }),
+      })),
     ],
     instrumentations: [],
   });
@@ -149,6 +150,24 @@ export async function startTelemetry(resource: Resource): Promise<void> {
   instance.start();
   sdk = instance;
   debugLog(`Telemetry started -> ${endpoint}`);
+}
+
+/**
+ * Export buffered log records now instead of on the next 1s batch, for a
+ * record a short-lived process must not lose (a host may kill a launch
+ * right after it skips auto-connect). Bounded; never throws.
+ */
+export async function flushLogs(): Promise<void> {
+  const processor = logProcessor;
+  if (!processor) return;
+  try {
+    await Promise.race([
+      processor.forceFlush().catch(() => undefined),
+      new Promise<void>(resolve => setTimeout(resolve, 2_000).unref()),
+    ]);
+  } catch {
+    /* telemetry only */
+  }
 }
 
 /** Await a bounded flush + shutdown. Safe to call multiple times. */
