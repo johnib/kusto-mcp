@@ -20,7 +20,7 @@ jobs:
           path: patched
       - uses: actions/checkout@v7
         with:
-          ref: master
+          ref: v1.19.0
           path: baseline
       - uses: actions/setup-node@v7
         with:
