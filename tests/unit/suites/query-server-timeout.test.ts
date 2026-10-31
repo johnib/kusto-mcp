@@ -7,6 +7,13 @@
  */
 
 jest.mock('azure-kusto-data', () => ({
+  // Cloud metadata lookup (connect step 1): public cloud, no MFA.
+  CloudSettings: {
+    getCloudInfoForCluster: async () => ({
+      KustoServiceResourceId: 'https://kusto.kusto.windows.net',
+      LoginMfaRequired: false,
+    }),
+  },
   Client: jest.fn(),
   KustoConnectionStringBuilder: {
     withAzLoginIdentity: jest.fn(u => `cs-${u}`),
