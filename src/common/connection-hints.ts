@@ -175,23 +175,6 @@ function tokenFix(
     case 'bad_response':
       return 'Azure CLI returned an unexpected response – update it (`az upgrade`), run `az login`, then connect again.';
   }
-  const code = i.aadsts ? ` (${i.aadsts})` : '';
-  switch (i.azReason) {
-    case 'not_found':
-      return 'Azure CLI is not installed or not on PATH – install it (https://aka.ms/installazurecli), run `az login`, then connect again.';
-    case 'not_logged_in':
-      return 'Azure CLI is not signed in – run `az login`, then connect again.';
-    case 'expired':
-      return `Your Azure sign-in expired or was revoked${code} – run \`az login\` again, then connect again.`;
-    case 'mfa_required':
-      return `Your sign-in needs MFA or a fresh login${code} – run \`az login\` again, then connect again.`;
-    case 'tenant':
-      return `Your account can't get a token in the cluster's tenant${code} – run ${TENANT_LOGIN} with the tenant that owns the cluster.`;
-    case 'timeout':
-      return `Azure CLI did not return a token in time – check that ${AZ_TOKEN_CHECK} works and how long it takes. If it is slow, raise KUSTO_CONNECTION_TIMEOUT.`;
-    case 'bad_response':
-      return 'Azure CLI returned an unexpected response – update it (`az upgrade`), run `az login`, then connect again.';
-  }
   switch (i.authStage) {
     case 'credential_unavailable':
       return i.authMethod === 'azure-cli'
