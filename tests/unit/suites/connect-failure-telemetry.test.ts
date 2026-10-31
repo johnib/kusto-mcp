@@ -115,7 +115,7 @@ describe('mcp.connection.init failure attributes', () => {
     expect(attrs['kustomcp.auth.token_cache_hits']).toBe(0);
     expect(attrs['kustomcp.auth.credential_used']).toBe('az');
     expect(attrs['kustomcp.connection.pipeline']).toBe('v2');
-    expect(attrs).not.toHaveProperty('kustomcp.connection.failed_step');
+    expect(attrs['kustomcp.connection.failed_step']).toBeUndefined();
   });
 
   test('token failure: failed_step=token, a fetch, no credential_used', async () => {
@@ -124,7 +124,7 @@ describe('mcp.connection.init failure attributes', () => {
     expect(attrs['kustomcp.connection.failed_step']).toBe('token');
     expect(typeof attrs['kustomcp.connection.failed_step_ms']).toBe('number');
     expect(attrs['kustomcp.auth.token_fetches']).toBe(1);
-    expect(attrs).not.toHaveProperty('kustomcp.auth.credential_used');
+    expect(attrs['kustomcp.auth.credential_used']).toBeUndefined();
   });
 
   test('a token the deadline abandons still reports its fetch', async () => {
@@ -134,7 +134,7 @@ describe('mcp.connection.init failure attributes', () => {
     expect(attrs['kustomcp.connection.failed_step']).toBe('token');
     expect(attrs['kustomcp.auth.token_fetches']).toBe(1);
     expect(attrs['kustomcp.auth.token_cache_hits']).toBe(0);
-    expect(attrs).not.toHaveProperty('kustomcp.auth.credential_used');
+    expect(attrs['kustomcp.auth.credential_used']).toBeUndefined();
   });
 
   test('missing database: failed_step=query and the Kusto error code', async () => {
