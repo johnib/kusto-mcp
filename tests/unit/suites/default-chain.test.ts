@@ -293,6 +293,29 @@ describe('chain behavior (AZURE_TOKEN_CREDENTIALS=dev)', () => {
   });
 });
 
+describe('az runs out the connect deadline (real chain)', () => {
+  beforeEach(() => {
+    process.env.AZURE_TOKEN_CREDENTIALS = 'dev';
+  });
+
+  test('the chain stops at az with an az timeout; later steps never run', async () => {
+    // az starts and never answers.
+    spawnMock.mockImplementation(() => new FakeChild());
+    const cred = createTokenCredential('azure-identity', 19000);
+    const err = await cred
+      .getToken(SCOPE, {
+        kustoMcpAzDeadlineAt: Date.now() + 400,
+      } as unknown as GetTokenOptions)
+      .catch(e => e);
+    expect(err).toMatchObject({
+      name: 'AzCliDeadlineError',
+      azReason: 'timeout',
+    });
+    // PowerShell / azd were not tried on a spent budget.
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('the az step tenant', () => {
   beforeEach(() => {
     process.env.AZURE_TOKEN_CREDENTIALS = 'dev';

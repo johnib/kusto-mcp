@@ -263,7 +263,9 @@ describe('AzCliCredential.getToken', () => {
       const p = new AzCliCredential({ timeoutMs: 19000 }).getToken(SCOPE, {
         kustoMcpAzDeadlineAt: deadlineAt,
       } as never);
+      // Not a CredentialUnavailableError: the default chain stops here.
       const settled = expect(p).rejects.toMatchObject({
+        name: 'AzCliDeadlineError',
         azReason: 'timeout',
       });
       // Half of the 1.5s left: az fails as an az timeout at 750ms, well
