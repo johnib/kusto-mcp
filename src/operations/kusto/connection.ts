@@ -31,6 +31,7 @@ import { trackPendingCancel } from '../../common/shutdown.js';
 import { criticalLog, debugLog } from '../../common/utils.js';
 import {
   captureIdentity,
+  classifyAuthError,
   getIdentityAttributes,
 } from '../../common/identity.js';
 import { markConnected } from '../../common/machine-id.js';
@@ -373,19 +374,28 @@ export class KustoConnection {
   // observation.
   private readonly requestCredential: TokenCredential = {
     getToken: (scopes, options) =>
-      this.tokenCredential.getToken(scopes, {
-        // During a connect, a request without its own bounds (the SDK's,
-        // during validation) gets the attempt's: a cache miss there can't
-        // outlive the connect deadline.
-        ...(this.connectBounds && {
-          abortSignal: this.connectBounds.signal,
-          [AZ_DEADLINE_AT]: this.connectBounds.deadlineAt,
+      this.tokenCredential
+        .getToken(scopes, {
+          // During a connect, a request without its own bounds (the SDK's,
+          // during validation) gets the attempt's: a cache miss there can't
+          // outlive the connect deadline.
+          ...(this.connectBounds && {
+            abortSignal: this.connectBounds.signal,
+            [AZ_DEADLINE_AT]: this.connectBounds.deadlineAt,
+          }),
+          ...options,
+          [OBSERVE]: this.observed,
+          ...(this.subscriptionTenant && { [SUBSCRIPTION_TENANT]: true }),
+        } as GetTokenOptions)
+        .catch(error => {
+          // Remembered for the connect's failure classification.
+          if (this.connectBounds && (error as Error)?.name !== 'AbortError')
+            this.connectTokenError = error;
+          throw error;
         }),
-        ...options,
-        [OBSERVE]: this.observed,
-        ...(this.subscriptionTenant && { [SUBSCRIPTION_TENANT]: true }),
-      } as GetTokenOptions),
   };
+  // The last token error during the current connect, if any.
+  private connectTokenError: unknown;
   // Set while initialize() runs: the attempt's abort signal and deadline.
   private connectBounds?: { signal: AbortSignal; deadlineAt: number };
 
@@ -471,6 +481,7 @@ export class KustoConnection {
         // cache cancels the inner fetch (killing `az`) once no other caller
         // still waits on it.
         const deadlineAbort = new AbortController();
+        this.connectTokenError = undefined;
         this.connectBounds = {
           signal: deadlineAbort.signal,
           deadlineAt: startedAt + connectTimeout,
@@ -684,7 +695,18 @@ export class KustoConnection {
           /* best effort */
         }
         // Assigned inside connect(), which TS's narrowing can't see.
-        const failedStep = step as 'metadata' | 'token' | 'query';
+        let failedStep = step as 'metadata' | 'token' | 'query';
+        // The validation query failed because the SDK's own token request
+        // did (e.g. az timed out on a refetch): that is a token failure,
+        // not a cluster one.
+        if (failedStep === 'query' && this.connectTokenError !== undefined) {
+          failedStep = 'token';
+          tokenAttrs = classifyAuthError(this.connectTokenError);
+          for (const [k, v] of Object.entries(tokenAttrs)) {
+            if (v !== undefined && v !== null)
+              span.setAttribute(k, v as string | number | boolean);
+          }
+        }
         const errorMessage = extractKustoErrorMessage(error);
 
         criticalLog(`Failed to initialize connection: ${errorMessage}`);
