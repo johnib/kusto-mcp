@@ -28,6 +28,11 @@ describe('azFailureReason', () => {
       'not_logged_in',
       undefined,
     ],
+    [
+      "ERROR: No subscription found. Run 'az account set' to select a subscription.",
+      'no_subscription',
+      undefined,
+    ],
     [EXPIRED_WITH_SCOPE, 'expired', '700082'],
     [EXPIRED_PLAIN_LOGIN, 'expired', '700082'],
     [

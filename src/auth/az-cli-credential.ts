@@ -59,6 +59,7 @@ export class CredentialUnavailableError extends Error {
 export type AzReason =
   | 'not_found'
   | 'not_logged_in'
+  | 'no_subscription'
   | 'expired'
   | 'mfa_required'
   | 'tenant'
@@ -111,6 +112,9 @@ export function azFailureReason(stderr: string): {
     if (TENANT_CODES.has(aadsts)) return { reason: 'tenant', aadsts };
     return { reason: 'other', aadsts };
   }
+  // Signed in, but no default subscription: az refuses every token, even
+  // with --tenant.
+  if (/No subscription found/i.test(text)) return { reason: 'no_subscription' };
   if (/az login/.test(text)) return { reason: 'not_logged_in' };
   return { reason: 'other' };
 }
