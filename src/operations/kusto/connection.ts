@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { TokenCredential } from '@azure/identity';
+import { GetTokenOptions, TokenCredential } from '@azure/identity';
 import { Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 import {
   Client,
@@ -7,7 +7,9 @@ import {
   KustoConnectionStringBuilder,
 } from 'azure-kusto-data';
 import { kustoTokenScope } from '../../auth/kusto-scope.js';
+import { OBSERVE, TokenObservation } from '../../auth/observe.js';
 import { credentialProcessTimeout } from '../../auth/process-timeout.js';
+import { SUBSCRIPTION_TENANT } from '../../auth/subscription-tenant.js';
 import {
   CachingTokenCredential,
   createTokenCredential,
@@ -312,29 +314,22 @@ function kustoErrorCode(error: unknown): string | undefined {
 }
 
 /**
- * Token-step counters from the caching credential: inner fetches started
- * and requests served from the cache during this step, plus which credential
- * produced the token. Absent when the credential isn't the cache (tests).
- * Never throws.
+ * This attempt's own token counters (see TokenObservation): inner fetches
+ * started and requests served from the cache, plus which credential produced
+ * the token. Absent when nothing was observed (a credential that isn't the
+ * cache, in tests). Never throws.
  */
 function recordTokenStats(
   span: Span,
-  cache: Partial<CachingTokenCredential>,
-  before: { fetches: number; hits: number } | undefined,
+  observed: TokenObservation,
   gotToken: boolean,
 ): void {
   try {
-    if (!cache.stats || !before) return;
-    span.setAttribute(
-      'kustomcp.auth.token_fetches',
-      cache.stats.fetches - before.fetches,
-    );
-    span.setAttribute(
-      'kustomcp.auth.token_cache_hits',
-      cache.stats.hits - before.hits,
-    );
-    if (gotToken && cache.lastSource) {
-      span.setAttribute('kustomcp.auth.credential_used', cache.lastSource);
+    if (observed.fetches + observed.hits === 0) return;
+    span.setAttribute('kustomcp.auth.token_fetches', observed.fetches);
+    span.setAttribute('kustomcp.auth.token_cache_hits', observed.hits);
+    if (gotToken && observed.source) {
+      span.setAttribute('kustomcp.auth.credential_used', observed.source);
     }
   } catch {
     /* telemetry only */
@@ -364,6 +359,23 @@ export class KustoConnection {
   private target: string | undefined;
   private config: KustoConfig;
   private tokenCredential: TokenCredential;
+  // Set after a 401 on an az token from the default tenant: this
+  // connection's requests ask az for its subscription tenant instead.
+  private subscriptionTenant = false;
+  // This connection's own token counters and source, so overlapping
+  // connects on the shared credential can't mix them up.
+  private observed: TokenObservation = { fetches: 0, hits: 0 };
+  // The credential this connection's requests go through (ours and the
+  // SDK's): the shared one, plus this connection's tenant choice and
+  // observation.
+  private readonly requestCredential: TokenCredential = {
+    getToken: (scopes, options) =>
+      this.tokenCredential.getToken(scopes, {
+        ...options,
+        [OBSERVE]: this.observed,
+        ...(this.subscriptionTenant && { [SUBSCRIPTION_TENANT]: true }),
+      } as GetTokenOptions),
+  };
 
   /**
    * Create a new KustoConnection
@@ -436,8 +448,7 @@ export class KustoConnection {
       let abandoned = false;
       // Token counters for the whole attempt — our fetch plus the SDK's own
       // request during validation (the cache hit) — stamped when it settles.
-      const cache = this.tokenCredential as Partial<CachingTokenCredential>;
-      const statsBefore = cache.stats ? { ...cache.stats } : undefined;
+      this.observed = { fetches: 0, hits: 0 };
       let tokenObtained = false;
       try {
         debugLog(
@@ -488,11 +499,15 @@ export class KustoConnection {
             if (
               timedOut ||
               classifyConnectionFailure(error).httpStatus !== 401 ||
-              cache.lastSource !== 'az' ||
-              !cache.fallBackToSubscriptionTenant?.()
+              this.observed.source !== 'az' ||
+              this.subscriptionTenant ||
+              !cache.canUseSubscriptionTenant?.()
             ) {
               throw error;
             }
+            // This connection only: its token requests (and the SDK's, for
+            // its queries) ask az for the subscription tenant from now on.
+            this.subscriptionTenant = true;
             tenantRetry = 'used';
             span.setAttribute('kustomcp.auth.tenant_retry', tenantRetry);
             debugLog(
@@ -528,7 +543,7 @@ export class KustoConnection {
             scope,
             async s => {
               try {
-                const token = await this.tokenCredential.getToken(s, {
+                const token = await this.requestCredential.getToken(s, {
                   abortSignal: deadlineAbort.signal,
                 });
                 gotToken = !!token?.token;
@@ -581,7 +596,7 @@ export class KustoConnection {
           const connectionString =
             KustoConnectionStringBuilder.withTokenCredential(
               clusterUrl,
-              this.tokenCredential,
+              this.requestCredential,
             );
 
           if (abandoned) throw new Error('Connection attempt abandoned');
@@ -632,7 +647,7 @@ export class KustoConnection {
           source,
           outcome: 'success',
         });
-        recordTokenStats(span, cache, statsBefore, true);
+        recordTokenStats(span, this.observed, true);
         span.setStatus({ code: SpanStatusCode.OK });
         emitLog(SeverityNumber.INFO, 'INFO', 'Connection established', {
           'kustomcp.connection.source': source,
@@ -717,7 +732,7 @@ export class KustoConnection {
           outcome,
         });
         // A fetch counts when it starts, so one the deadline abandoned is in.
-        recordTokenStats(span, cache, statsBefore, tokenObtained);
+        recordTokenStats(span, this.observed, tokenObtained);
         recordSpanError(span, error);
         emitLog(SeverityNumber.ERROR, 'ERROR', 'Connection failed', {
           'kustomcp.connection.source': source,
@@ -955,6 +970,18 @@ export class KustoConnection {
           );
           if (failure.httpStatus !== undefined) {
             span.setAttribute('kustomcp.http.status_code', failure.httpStatus);
+          }
+          // A 401 here means the cluster now rejects the cached token (e.g.
+          // it was revoked): drop it, so a reconnect after `az login` gets a
+          // new one. The cache is shared by the whole process.
+          if (failure.httpStatus === 401) {
+            try {
+              (
+                this.tokenCredential as Partial<CachingTokenCredential>
+              ).clear?.();
+            } catch {
+              /* best effort */
+            }
           }
           // Carried through the re-wrapping layers to the execute-query span.
           setFailureCategory(error, failure.category);

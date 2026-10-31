@@ -10,12 +10,7 @@ const signals: AbortSignal[] = [];
 let tokensBeforeHang = 0;
 jest.mock('../../../src/auth/az-cli-credential.js', () => ({
   AzCliCredential: class AzCliCredential {
-    private fellBack = false;
-    fallBackToSubscriptionTenant() {
-      if (this.fellBack) return false;
-      this.fellBack = true;
-      return true;
-    }
+    readonly allowsSubscriptionTenant = true;
     getToken(_s: unknown, options?: { abortSignal?: AbortSignal }) {
       if (options?.abortSignal) signals.push(options.abortSignal);
       if (tokensBeforeHang > 0) {
