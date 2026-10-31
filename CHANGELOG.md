@@ -1,3 +1,11 @@
+# [1.20.0](https://github.com/johnib/kusto-mcp/compare/v1.19.1...v1.20.0) (2026-10-31)
+
+
+### Features
+
+* **telemetry:** record config validity, machine-id persistence and the MCP client at launch ([#405](https://github.com/johnib/kusto-mcp/issues/405)) ([f08d5eb](https://github.com/johnib/kusto-mcp/commit/f08d5eb9e3d8770d8f097154bd3a8ba18d6ac3e4)), closes [#379](https://github.com/johnib/kusto-mcp/issues/379)
+* **telemetry:** record which connect step failed and why ([#404](https://github.com/johnib/kusto-mcp/issues/404)) [skip ci] ([1193993](https://github.com/johnib/kusto-mcp/commit/1193993c6d1b97092ded4e5be2fffc2548bdf796))
+
 ## [1.19.1](https://github.com/johnib/kusto-mcp/compare/v1.19.0...v1.19.1) (2026-10-31)
 
 
