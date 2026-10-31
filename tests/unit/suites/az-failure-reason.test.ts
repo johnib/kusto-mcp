@@ -121,6 +121,30 @@ describe('telemetry attributes', () => {
     expect(attrs['kustomcp.auth.aadsts']).toBe('AADSTS700082');
   });
 
+  test('aadsts: known codes as-is, unknown codes as other, on both paths', async () => {
+    expect(
+      (await failWith(azCliFailure('ERROR: AADSTS12345: Something new.')))[
+        'kustomcp.auth.aadsts'
+      ],
+    ).toBe('other');
+    expect(
+      (await failWith(azCliFailure('ERROR: AADSTS7000215: Invalid secret.')))[
+        'kustomcp.auth.aadsts'
+      ],
+    ).toBe('AADSTS7000215');
+    const structured = (codes: number[]) =>
+      failWith(
+        Object.assign(new Error('aad'), {
+          name: 'AuthenticationError',
+          errorResponse: { error: 'invalid_grant', errorCodes: codes },
+        }),
+      );
+    expect((await structured([50173]))['kustomcp.auth.aadsts']).toBe(
+      'AADSTS50173',
+    );
+    expect((await structured([424242]))['kustomcp.auth.aadsts']).toBe('other');
+  });
+
   test('hostile stderr: only the enum and digits leave', async () => {
     const attrs = await failWith(
       azCliFailure(
@@ -137,7 +161,8 @@ describe('telemetry attributes', () => {
       expect(allowed.has(k)).toBe(true);
       expect(String(v)).not.toMatch(/@|corp|72f988bf|script/);
     }
-    expect(attrs['kustomcp.auth.aadsts']).toMatch(/^AADSTS\d{5,6}$/);
+    // An unknown code is not a bounded value: it ships as 'other'.
+    expect(attrs['kustomcp.auth.aadsts']).toBe('other');
   });
 });
 
