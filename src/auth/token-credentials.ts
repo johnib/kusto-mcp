@@ -298,6 +298,34 @@ export function withTreeKillingAzCli<T extends TokenCredential>(
 }
 
 /**
+ * DefaultAzureCredential throws in its constructor when AZURE_TOKEN_CREDENTIALS
+ * names no known credential — before any connect span, so the user gets an
+ * opaque failure and we get no telemetry. Warn and use the full chain
+ * instead, as if the variable were unset.
+ */
+function defaultAzureCredential(
+  options: ConstructorParameters<typeof DefaultAzureCredential>[0],
+): DefaultAzureCredential {
+  try {
+    return new DefaultAzureCredential(options);
+  } catch (error) {
+    const selector = process.env.AZURE_TOKEN_CREDENTIALS;
+    if (selector === undefined) throw error;
+    criticalLog(
+      `AZURE_TOKEN_CREDENTIALS="${selector}" is not valid (${
+        error instanceof Error ? error.message : String(error)
+      }); using the full credential chain.`,
+    );
+    delete process.env.AZURE_TOKEN_CREDENTIALS;
+    try {
+      return new DefaultAzureCredential(options);
+    } finally {
+      process.env.AZURE_TOKEN_CREDENTIALS = selector;
+    }
+  }
+}
+
+/**
  * The `--tenant` for every `az` step: AZURE_TENANT_ID when set (the user's
  * choice, kept), else `organizations` — the account's home tenant, which a
  * 401 may later swap for az's subscription tenant. Without a tenant, az
@@ -357,7 +385,7 @@ export function createTokenCredential(
         // wrapped in the token cache (#296).
         return new CachingTokenCredential(
           withTreeKillingAzCli(
-            new DefaultAzureCredential(options),
+            defaultAzureCredential(options),
             processTimeoutInMs,
           ),
         );

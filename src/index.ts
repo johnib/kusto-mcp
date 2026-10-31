@@ -17,6 +17,11 @@ import {
   startTelemetry,
   watchStdoutForDisconnect,
 } from './common/telemetry.js';
+import {
+  parseAuthMethod,
+  parseIntSetting,
+  withScheme,
+} from './common/config-parse.js';
 import { configStateAttributes } from './common/config-state.js';
 import { createShutdown, settlePendingCancels } from './common/shutdown.js';
 import { createKustoServer } from './server.js';
@@ -38,25 +43,20 @@ watchStdoutForDisconnect();
 // Log startup information
 debugLog('Kusto MCP Server - Starting up');
 
+// Settings that were set but unusable; logged now and shown with a failed
+// connect's message, since hosts rarely show stderr (#288, #289).
+const configWarnings: string[] = [];
+
 // Determine the authentication method from environment variables
-let authMethod = AuthenticationMethod.AzureIdentity; // Default to Azure Identity
-criticalLog('Using Azure Identity authentication by default');
-
-if (process.env.KUSTO_AUTH_METHOD) {
-  const method = process.env.KUSTO_AUTH_METHOD.toLowerCase();
-
-  if (method === 'azure-identity') {
-    authMethod = AuthenticationMethod.AzureIdentity;
-    criticalLog('Using Azure Identity authentication');
-  } else if (method === 'azure-cli') {
-    authMethod = AuthenticationMethod.AzureCli;
-    criticalLog('Using Azure CLI authentication');
-  } else {
-    criticalLog(
-      `Unknown authentication method: ${method}, falling back to Azure Identity`,
-    );
-  }
-}
+const authMethod = parseAuthMethod(
+  process.env.KUSTO_AUTH_METHOD,
+  configWarnings,
+);
+criticalLog(
+  authMethod === AuthenticationMethod.AzureCli
+    ? 'Using Azure CLI authentication'
+    : 'Using Azure Identity authentication',
+);
 
 // Determine the response format from environment variables
 let responseFormat = ResponseFormat.Json; // Default to JSON for backward compatibility
@@ -121,26 +121,40 @@ criticalLog(
 // Create the server configuration from environment variables
 const config: KustoConfig = {
   authMethod: authMethod,
-  queryTimeout: process.env.KUSTO_QUERY_TIMEOUT
-    ? parseInt(process.env.KUSTO_QUERY_TIMEOUT)
-    : undefined,
-  connectionTimeout: process.env.KUSTO_CONNECTION_TIMEOUT
-    ? parseInt(process.env.KUSTO_CONNECTION_TIMEOUT)
-    : undefined,
+  queryTimeout: parseIntSetting(
+    'KUSTO_QUERY_TIMEOUT',
+    process.env.KUSTO_QUERY_TIMEOUT,
+    configWarnings,
+  ),
+  connectionTimeout: parseIntSetting(
+    'KUSTO_CONNECTION_TIMEOUT',
+    process.env.KUSTO_CONNECTION_TIMEOUT,
+    configWarnings,
+  ),
   responseFormat: responseFormat,
-  markdownMaxCellLength: process.env.KUSTO_MARKDOWN_MAX_CELL_LENGTH
-    ? parseInt(process.env.KUSTO_MARKDOWN_MAX_CELL_LENGTH)
+  markdownMaxCellLength: parseIntSetting(
+    'KUSTO_MARKDOWN_MAX_CELL_LENGTH',
+    process.env.KUSTO_MARKDOWN_MAX_CELL_LENGTH,
+    configWarnings,
+    { max: Number.MAX_SAFE_INTEGER },
+  ),
+  maxResponseLength: parseIntSetting(
+    'KUSTO_MAX_RESPONSE_LENGTH',
+    process.env.KUSTO_MAX_RESPONSE_LENGTH,
+    configWarnings,
+    { max: Number.MAX_SAFE_INTEGER },
+  ),
+  minRowsInResponse: parseIntSetting(
+    'KUSTO_MIN_RESPONSE_ROWS',
+    process.env.KUSTO_MIN_RESPONSE_ROWS,
+    configWarnings,
+    { min: 0, max: Number.MAX_SAFE_INTEGER },
+  ),
+  // A bare host (no https://) gets the scheme instead of failing as 'unknown'.
+  clusterUrl: process.env.KUSTO_CLUSTER_URL?.trim()
+    ? withScheme(process.env.KUSTO_CLUSTER_URL)
     : undefined,
-  maxResponseLength: process.env.KUSTO_MAX_RESPONSE_LENGTH
-    ? parseInt(process.env.KUSTO_MAX_RESPONSE_LENGTH)
-    : undefined,
-  minRowsInResponse: process.env.KUSTO_MIN_RESPONSE_ROWS
-    ? parseInt(process.env.KUSTO_MIN_RESPONSE_ROWS)
-    : undefined,
-  clusterUrl:
-    process.env.KUSTO_CLUSTER_URL && process.env.KUSTO_CLUSTER_URL.trim()
-      ? process.env.KUSTO_CLUSTER_URL.trim()
-      : undefined,
+  configWarnings,
   defaultDatabase:
     process.env.KUSTO_DEFAULT_DATABASE &&
     process.env.KUSTO_DEFAULT_DATABASE.trim()
@@ -150,6 +164,14 @@ const config: KustoConfig = {
   enablePrompts: enablePrompts,
   allowWriteOperations: allowWriteOperations,
 };
+
+for (const warning of configWarnings) criticalLog(`Config warning: ${warning}`);
+if (
+  process.env.KUSTO_CLUSTER_URL?.trim() &&
+  config.clusterUrl !== process.env.KUSTO_CLUSTER_URL.trim()
+) {
+  criticalLog(`KUSTO_CLUSTER_URL has no scheme; using ${config.clusterUrl}`);
+}
 
 // Log auto-connection configuration
 const autoConnect = !!(config.clusterUrl && config.defaultDatabase);

@@ -164,14 +164,20 @@ describe('chain shape matches DefaultAzureCredential', () => {
     });
   });
 
-  test('an invalid AZURE_TOKEN_CREDENTIALS still fails like DAC', () => {
+  test('an invalid AZURE_TOKEN_CREDENTIALS falls back to the full chain', () => {
     process.env.AZURE_TOKEN_CREDENTIALS = 'bogus';
+    // The SDK itself still throws in its constructor...
     expect(() => new DefaultAzureCredential()).toThrow(
       /AZURE_TOKEN_CREDENTIALS/,
     );
-    expect(() => createTokenCredential('azure-identity', 1500)).toThrow(
-      /AZURE_TOKEN_CREDENTIALS/,
-    );
+    // ...we warn and build the chain as if the variable were unset.
+    const ours = createTokenCredential('azure-identity', 1500);
+    delete process.env.AZURE_TOKEN_CREDENTIALS;
+    const full = withTreeKillingAzCli(new DefaultAzureCredential());
+    expect(names(ours)).toEqual(names(full));
+    process.env.AZURE_TOKEN_CREDENTIALS = 'bogus';
+    // The variable itself is left as the user set it.
+    expect(process.env.AZURE_TOKEN_CREDENTIALS).toBe('bogus');
   });
 
   test('process timeout: our CLI gets it, PowerShell keeps the SDK one', () => {

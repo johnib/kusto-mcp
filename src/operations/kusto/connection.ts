@@ -774,7 +774,12 @@ export class KustoConnection {
           error instanceof KustoConnectionError
             ? errorMessage.replace(/^Connection error: /, '')
             : errorMessage;
-        const wrapped = new KustoConnectionError(`${base}\n${hint}`);
+        // A setting that fell back to its default may be the cause; hosts
+        // rarely show stderr, so repeat it here.
+        const warnings = this.config.configWarnings?.length
+          ? `\nConfig warning: ${this.config.configWarnings.join(' ')}`
+          : '';
+        const wrapped = new KustoConnectionError(`${base}\n${hint}${warnings}`);
         carryErrorRecording(error, wrapped);
         throw wrapped;
       } finally {

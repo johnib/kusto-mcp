@@ -37,6 +37,7 @@ import {
   clientNameForTelemetry,
   clientVersionForTelemetry,
 } from './common/client-info.js';
+import { withScheme } from './common/config-parse.js';
 import { getIdentityAttributes } from './common/identity.js';
 import {
   SeverityNumber,
@@ -576,9 +577,14 @@ export function createKustoServer(config: KustoConfig): Server {
 
           switch (request.params.name) {
             case 'initialize-connection': {
-              const args = InitializeConnectionSchema.parse(
+              const parsed = InitializeConnectionSchema.parse(
                 request.params.arguments,
               );
+              // A bare host gets https:// instead of failing as 'unknown'.
+              const args = {
+                ...parsed,
+                cluster_url: withScheme(parsed.cluster_url),
+              };
 
               manualConnectCount++;
               autoConnectFailure = null;
