@@ -37,7 +37,9 @@ export interface ConnectionHintInput {
 
 // AADSTS codes meaning the account or cluster belongs to another tenant.
 const TENANT_MISMATCH_CODES = new Set(['AADSTS50020', 'AADSTS90072']);
-const TENANT_LOGIN = '`az login --tenant <tenant-id>`';
+// The az step asks for AZURE_TENANT_ID's tenant when it is set.
+const TENANT_FIX =
+  "set AZURE_TENANT_ID to the cluster's tenant id in the MCP server env (sign in there first: `az login --tenant <tenant-id>`)";
 const AZ_TOKEN_CHECK =
   '`az account get-access-token --resource https://kusto.kusto.windows.net`';
 
@@ -115,7 +117,7 @@ export function connectionFailureHint(i: ConnectionHintInput): string {
       if (i.httpStatus === 401) {
         return hint(
           database,
-          `${host} rejected your token${status}. If the cluster is in another tenant, run ${TENANT_LOGIN}.`,
+          `${host} rejected your token${status}: the cluster may be in another tenant – ${TENANT_FIX}, then connect again.`,
         );
       }
       return hint(
@@ -151,10 +153,10 @@ function tokenFix(
   urlSetting: string,
 ): string {
   if (i.aadsts && TENANT_MISMATCH_CODES.has(i.aadsts)) {
-    return `Your account is not in the cluster's tenant (${i.aadsts}) – run ${TENANT_LOGIN} with the tenant that owns the cluster.`;
+    return `Your account is not in the cluster's tenant (${i.aadsts}) – ${TENANT_FIX}.`;
   }
   if (i.aadsts === 'AADSTS500011') {
-    return `Azure AD does not know ${host} in your tenant (${i.aadsts}) – check ${urlSetting}, or run ${TENANT_LOGIN}.`;
+    return `Azure AD does not know ${host} in your tenant (${i.aadsts}) – check ${urlSetting}, or ${TENANT_FIX}.`;
   }
   const code = i.aadsts ? ` (${i.aadsts})` : '';
   switch (i.azReason) {
@@ -167,7 +169,7 @@ function tokenFix(
     case 'mfa_required':
       return `Your sign-in needs MFA or a fresh login${code} – run \`az login\` again, then connect again.`;
     case 'tenant':
-      return `Your account can't get a token in the cluster's tenant${code} – run ${TENANT_LOGIN} with the tenant that owns the cluster.`;
+      return `Your account can't get a token in the cluster's tenant${code} – ${TENANT_FIX}.`;
     case 'timeout':
       return `Azure CLI did not return a token in time – check that ${AZ_TOKEN_CHECK} works and how long it takes. If it is slow, raise KUSTO_CONNECTION_TIMEOUT.`;
     case 'bad_response':
@@ -190,7 +192,7 @@ function tokenFix(
     case 'invalid_scope':
       return `Azure AD rejected ${host} as a token audience – check ${urlSetting}.`;
     default:
-      return `Couldn't get an Azure token for ${host} – run \`az login\` (or ${TENANT_LOGIN} if the cluster is in another tenant), then connect again.`;
+      return `Couldn't get an Azure token for ${host} – run \`az login\` (or, if the cluster is in another tenant, ${TENANT_FIX}), then connect again.`;
   }
 }
 

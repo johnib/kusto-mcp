@@ -124,13 +124,13 @@ describe('connectionFailureHint mapping (#315)', () => {
       /expired or was revoked – run `az login` again/,
     ],
     [
-      'tenant mismatch AADSTS → az login --tenant',
+      'tenant mismatch AADSTS → AZURE_TENANT_ID',
       {
         tokenFailed: true,
         authStage: 'token_acquire',
         aadsts: 'AADSTS50020',
       },
-      /not in the cluster's tenant \(AADSTS50020\) – run `az login --tenant <tenant-id>`/,
+      /not in the cluster's tenant \(AADSTS50020\) – set AZURE_TENANT_ID to the cluster's tenant id in the MCP server env \(sign in there first: `az login --tenant <tenant-id>`\)\.$/,
     ],
     [
       'resource not in tenant AADSTS500011 → check URL or tenant',
@@ -142,9 +142,9 @@ describe('connectionFailureHint mapping (#315)', () => {
       /does not know acme\.kusto\.windows\.net.*az login --tenant/,
     ],
     [
-      'generic token failure → az login / --tenant',
+      'generic token failure → az login / AZURE_TENANT_ID',
       { tokenFailed: true, authStage: 'token_acquire' },
-      /Couldn't get an Azure token for acme\.kusto\.windows\.net – run `az login` \(or `az login --tenant <tenant-id>`/,
+      /Couldn't get an Azure token for acme\.kusto\.windows\.net – run `az login` \(or, if the cluster is in another tenant, set AZURE_TENANT_ID/,
     ],
     [
       'KustoAuthenticationError (auth) → token step',

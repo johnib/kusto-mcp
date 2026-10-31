@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { TokenCredential } from '@azure/identity';
+import { GetTokenOptions, TokenCredential } from '@azure/identity';
 import { Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 import {
   Client,
@@ -7,6 +7,7 @@ import {
   KustoConnectionStringBuilder,
 } from 'azure-kusto-data';
 import { kustoTokenScope } from '../../auth/kusto-scope.js';
+import { SUBSCRIPTION_TENANT } from '../../auth/subscription-tenant.js';
 import {
   CachingTokenCredential,
   createTokenCredential,
@@ -363,6 +364,20 @@ export class KustoConnection {
   private target: string | undefined;
   private config: KustoConfig;
   private tokenCredential: TokenCredential;
+  // Set after a 401 on an az token from the default tenant: this
+  // connection's requests ask az for its subscription tenant instead.
+  private subscriptionTenant = false;
+  // The credential this connection's requests go through (ours and the
+  // SDK's): the shared one, plus this connection's tenant choice.
+  private readonly requestCredential: TokenCredential = {
+    getToken: (scopes, options) =>
+      this.tokenCredential.getToken(
+        scopes,
+        this.subscriptionTenant
+          ? ({ ...options, [SUBSCRIPTION_TENANT]: true } as GetTokenOptions)
+          : options,
+      ),
+  };
 
   /**
    * Create a new KustoConnection
@@ -419,6 +434,8 @@ export class KustoConnection {
       // user-facing hint on failure (#315).
       let step: 'metadata' | 'token' | 'query' = 'metadata';
       let stepStartedAt = startedAt;
+      // The one 401 retry from az's subscription tenant, if it ran.
+      let tenantRetry: 'used' | 'recovered' | undefined;
       let tokenAttrs: Record<string, unknown> = {};
       // The validation client, closed on any failure (#290). `abandoned` stops
       // a connect that is still running after the deadline from opening one.
@@ -460,6 +477,47 @@ export class KustoConnection {
           if (timedOut) {
             throw new KustoConnectionError('Connection attempt abandoned');
           }
+          await acquireToken(scope);
+          try {
+            return await validate();
+          } catch (error) {
+            // A 401 on an az token from our default tenant (`organizations`,
+            // the home tenant): the cluster may be in az's subscription
+            // tenant (a B2B guest). Retry once from there. Never when the
+            // user pinned AZURE_TENANT_ID.
+            const cache = this
+              .tokenCredential as Partial<CachingTokenCredential>;
+            if (
+              timedOut ||
+              classifyConnectionFailure(error).httpStatus !== 401 ||
+              cache.lastSource !== 'az' ||
+              this.subscriptionTenant ||
+              !cache.canUseSubscriptionTenant?.()
+            ) {
+              throw error;
+            }
+            // This connection only: its token requests (and the SDK's, for
+            // its queries) ask az for the subscription tenant from now on.
+            this.subscriptionTenant = true;
+            tenantRetry = 'used';
+            span.setAttribute('kustomcp.auth.tenant_retry', tenantRetry);
+            debugLog(
+              '401 on an az token: retrying from the subscription tenant',
+            );
+            try {
+              tempClient?.close();
+            } catch {
+              /* best effort */
+            }
+            await acquireToken(scope);
+            const client = await validate();
+            tenantRetry = 'recovered';
+            span.setAttribute('kustomcp.auth.tenant_retry', tenantRetry);
+            return client;
+          }
+        };
+
+        const acquireToken = async (scope: string): Promise<void> => {
           step = 'token';
           stepStartedAt = Date.now();
 
@@ -476,7 +534,7 @@ export class KustoConnection {
             scope,
             async s => {
               try {
-                const token = await this.tokenCredential.getToken(s);
+                const token = await this.requestCredential.getToken(s);
                 gotToken = !!token?.token;
                 tokenObtained = gotToken;
                 return token;
@@ -511,6 +569,9 @@ export class KustoConnection {
               carryErrorRecording(tokenError, failure);
             throw failure;
           }
+        };
+
+        const validate = async (): Promise<Client> => {
           step = 'query';
           stepStartedAt = Date.now();
 
@@ -524,7 +585,7 @@ export class KustoConnection {
           const connectionString =
             KustoConnectionStringBuilder.withTokenCredential(
               clusterUrl,
-              this.tokenCredential,
+              this.requestCredential,
             );
 
           if (abandoned) throw new Error('Connection attempt abandoned');
@@ -626,6 +687,9 @@ export class KustoConnection {
         );
         if (classified.httpStatus !== undefined) {
           span.setAttribute('kustomcp.http.status_code', classified.httpStatus);
+        }
+        if (tenantRetry === 'used') {
+          span.setAttribute('kustomcp.auth.tenant_retry', 'failed');
         }
         // Which step failed (or was running when the deadline fired), and
         // how long it ran: tells a slow token from a slow cluster.

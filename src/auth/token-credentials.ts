@@ -6,6 +6,14 @@ import {
   TokenCredential,
 } from '@azure/identity';
 import { AzCliCredential } from './az-cli-credential.js';
+import { SUBSCRIPTION_TENANT } from './subscription-tenant.js';
+
+function isSubscriptionTenantRequest(options?: GetTokenOptions): boolean {
+  return (
+    (options as Record<string, unknown> | undefined)?.[SUBSCRIPTION_TENANT] ===
+    true
+  );
+}
 import { KustoAuthenticationError } from '../common/errors.js';
 import { criticalLog, debugLog } from '../common/utils.js';
 
@@ -67,6 +75,7 @@ export class CachingTokenCredential implements TokenCredential {
       [...scopeList].sort(),
       options?.tenantId ?? '',
       !!options?.enableCae,
+      isSubscriptionTenantRequest(options),
     ]);
 
     // A claims challenge means the cached token was rejected: always fetch,
@@ -129,6 +138,24 @@ export class CachingTokenCredential implements TokenCredential {
     });
   }
 
+  /** The az step, directly or as a step of the chain. */
+  private azStep(): AzCliCredential | undefined {
+    const sources = (this.inner as { _sources?: unknown })._sources;
+    const candidates = Array.isArray(sources) ? sources : [this.inner];
+    return candidates.find(s => s instanceof AzCliCredential) as
+      AzCliCredential | undefined;
+  }
+
+  /**
+   * Whether a request may ask for az's subscription tenant (SUBSCRIPTION_TENANT):
+   * there is an az step and its tenant is our default, not AZURE_TENANT_ID.
+   * Such requests are cached under their own key and go straight to az, so
+   * they never change what other callers get.
+   */
+  canUseSubscriptionTenant(): boolean {
+    return !!this.azStep()?.allowsSubscriptionTenant;
+  }
+
   /**
    * One call to the inner credential, recording which credential produced
    * the token. A chained credential (DefaultAzureCredential) exposes
@@ -140,6 +167,15 @@ export class CachingTokenCredential implements TokenCredential {
     scopes: string | string[],
     options: GetTokenOptions,
   ): Promise<AccessToken | null> {
+    // A subscription-tenant request goes straight to the az step: no other
+    // chain step should answer it.
+    if (isSubscriptionTenantRequest(options)) {
+      const az = this.azStep();
+      if (!az?.allowsSubscriptionTenant) return null;
+      const token = await az.getToken(scopes, options);
+      this.lastSource = 'az';
+      return token;
+    }
     const chain = this.inner as {
       getTokenInternal?: (
         scopes: string | string[],
@@ -265,10 +301,27 @@ export function withTreeKillingAzCli<T extends TokenCredential>(
   }
   holder._sources = holder._sources.map(source =>
     source instanceof AzureCliCredential
-      ? new AzCliCredential({ timeoutMs })
+      ? new AzCliCredential({ timeoutMs, ...azTenantOptions() })
       : source,
   );
   return chain;
+}
+
+/**
+ * The `--tenant` for every `az` step: AZURE_TENANT_ID when set (the user's
+ * choice, kept), else `organizations` — the account's home tenant, which a
+ * 401 may later swap for az's subscription tenant. Without a tenant, az
+ * answers from its current subscription's tenant, which 401s when that is
+ * not the cluster's (#350). The SDK's own az step ignores AZURE_TENANT_ID.
+ */
+function azTenantOptions(): {
+  tenantId: string;
+  subscriptionTenantFallback: boolean;
+} {
+  const pinned = process.env.AZURE_TENANT_ID?.trim();
+  return pinned
+    ? { tenantId: pinned, subscriptionTenantFallback: false }
+    : { tenantId: AZ_LOGIN_DEFAULT_TENANT, subscriptionTenantFallback: true };
 }
 
 /**
@@ -300,10 +353,11 @@ export function createTokenCredential(
         // `--tenant organizations`, as 1.18.0 sent through azure-kusto-data's
         // withAzLoginIdentity (its default authorityId): the token comes from
         // the account's home tenant, not the current subscription's tenant.
+        // AZURE_TENANT_ID overrides it (see azTenantOptions).
         return new CachingTokenCredential(
           new AzCliCredential({
             timeoutMs: processTimeoutInMs,
-            tenantId: AZ_LOGIN_DEFAULT_TENANT,
+            ...azTenantOptions(),
           }),
         );
 

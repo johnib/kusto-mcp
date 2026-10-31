@@ -8,6 +8,7 @@ import type {
   TokenCredential,
 } from '@azure/identity';
 import { debugLog } from '../common/utils.js';
+import { SUBSCRIPTION_TENANT } from './subscription-tenant.js';
 
 /**
  * Azure CLI token credential that kills the whole `az` process tree when it
@@ -234,23 +235,35 @@ export interface AzCliCredentialOptions {
   timeoutMs?: number;
   /** `--tenant` to pass when the caller's getToken options name none. */
   tenantId?: string;
+  /**
+   * The tenant is our default, not the user's choice: after a 401 a caller
+   * may ask (per request) for az's current subscription tenant instead.
+   */
+  subscriptionTenantFallback?: boolean;
 }
 
 export class AzCliCredential implements TokenCredential {
   private readonly timeoutMs?: number;
   private readonly tenantId?: string;
+  /** A request may switch to az's subscription tenant (default tenant only). */
+  readonly allowsSubscriptionTenant: boolean;
 
   constructor(options: AzCliCredentialOptions = {}) {
     const t = options.timeoutMs;
     this.timeoutMs =
       typeof t === 'number' && Number.isInteger(t) && t > 0 ? t : undefined;
     this.tenantId = options.tenantId;
+    this.allowsSubscriptionTenant =
+      !!options.subscriptionTenantFallback && options.tenantId !== undefined;
   }
 
   async getToken(
     scopes: string | string[],
     options: GetTokenOptions = {},
   ): Promise<AccessToken> {
+    const useSubscription =
+      this.allowsSubscriptionTenant &&
+      (options as Record<string, unknown>)[SUBSCRIPTION_TENANT] === true;
     const scope = typeof scopes === 'string' ? scopes : scopes[0];
     if (options.claims?.trim()) {
       throw new CredentialUnavailableError(AZ_CLI_MESSAGES.claims);
@@ -259,7 +272,9 @@ export class AzCliCredential implements TokenCredential {
       throw new CredentialUnavailableError('Invalid scope for Azure CLI.');
     }
     // Like the SDK's AzureCliCredential: a per-request tenant wins.
-    const tenantId = options.tenantId ?? this.tenantId;
+    const tenantId = useSubscription
+      ? undefined
+      : (options.tenantId ?? this.tenantId);
     if (tenantId !== undefined && !SAFE_TENANT.test(tenantId)) {
       throw new CredentialUnavailableError('Invalid tenant for Azure CLI.');
     }
