@@ -95,6 +95,16 @@ function httpError(status: number): Error {
 describe('connectionFailureHint mapping (#315)', () => {
   test.each<[string, Partial<ConnectionHintInput>, RegExp]>([
     [
+      'az signed in without a default subscription → az account set, not az login',
+      {
+        tokenFailed: true,
+        authStage: 'credential_unavailable',
+        azReason: 'no_subscription',
+        authMethod: 'azure-identity',
+      },
+      /^Failed step: getting an Azure token\. Azure CLI is signed in but has no default subscription – run `az account list`, then `az account set --subscription <id>`/,
+    ],
+    [
       'credential_unavailable + azure-cli → az login',
       { tokenFailed: true, authStage: 'credential_unavailable' },
       /^Failed step: getting an Azure token\. Azure CLI is not signed in.*run `az login`/,
