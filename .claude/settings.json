@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__honeycomb__run_query",
+      "mcp__honeycomb__get_query_results",
+      "mcp__honeycomb__find_columns",
+      "mcp__honeycomb__get_dataset_columns",
+      "mcp__honeycomb__get_workspace_context",
+      "mcp__honeycomb__list_spans",
+      "mcp__honeycomb__get_span_details",
+      "mcp__honeycomb__get_trace",
+      "Bash(npm run typecheck)",
+      "Bash(npm run lint)",
+      "Bash(npm view *)",
+      "Bash(az account show *)",
+      "Bash(tailscale status)"
+    ]
+  }
+}
