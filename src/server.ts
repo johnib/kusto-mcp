@@ -33,10 +33,7 @@ import {
   beginAutoConnect,
   clearAutoConnectBackoff,
 } from './common/autoconnect-backoff.js';
-import {
-  clientNameForTelemetry,
-  clientVersionForTelemetry,
-} from './common/client-info.js';
+import { clientNameForTelemetry } from './common/client-info.js';
 import { getIdentityAttributes } from './common/identity.js';
 import {
   SeverityNumber,
@@ -499,15 +496,13 @@ export function createKustoServer(config: KustoConfig): Server {
 
       span.setAttribute('kustomcp.tool.name', toolName);
       // MCP client (host app) identity — a first-order "who uses this" signal.
-      // Bounded: a known product name or 'other' (see client-info.ts).
+      // Bounded: a known product name or 'other' (see client-info.ts). The
+      // client's version is free text any client can fill, so it never ships.
+      // (clientInfo itself is also used, unchanged, in report-issue's footer,
+      // which the user reviews before submitting — not telemetry.)
       const clientInfo = server.getClientVersion();
       const clientName = clientNameForTelemetry(clientInfo?.name);
-      const clientVersion = clientVersionForTelemetry(
-        clientInfo?.version,
-        clientInfo?.name,
-      );
       if (clientName) span.setAttribute('mcp.client.name', clientName);
-      if (clientVersion) span.setAttribute('mcp.client.version', clientVersion);
       // Argument KEYS only — never values (may contain sensitive data).
       if (request.params.arguments) {
         span.setAttribute(
@@ -1123,12 +1118,9 @@ export function createKustoServer(config: KustoConfig): Server {
   const autoConnectStartedAt = Date.now();
   server.oninitialized = () => {
     try {
-      const client = server.getClientVersion();
-      const name = clientNameForTelemetry(client?.name);
-      const version = clientVersionForTelemetry(client?.version, client?.name);
+      const name = clientNameForTelemetry(server.getClientVersion()?.name);
       emitLog(SeverityNumber.INFO, 'INFO', 'MCP client identified', {
         ...(name && { 'mcp.client.name': name }),
-        ...(version && { 'mcp.client.version': version }),
         'kustomcp.handshake_gap_ms': Date.now() - autoConnectStartedAt,
       });
     } catch {
