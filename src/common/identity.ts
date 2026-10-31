@@ -206,7 +206,9 @@ function classifyAuthError(error: unknown): Attributes {
     return attrs;
   }
 
-  attrs['kustomcp.auth.failure_stage'] = 'unknown';
+  // az ran out the connect deadline (AzCliDeadlineError: stops the chain).
+  attrs['kustomcp.auth.failure_stage'] =
+    name === 'AzCliDeadlineError' ? 'credential_unavailable' : 'unknown';
   return attrs;
 }
 
