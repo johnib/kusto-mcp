@@ -27,6 +27,7 @@ import {
   setFailureCategory,
   withTimeoutHint,
 } from './common/errors.js';
+import { MAX_TIMEOUT_MS } from './common/config-state.js';
 import { criticalLog, debugLog } from './common/utils.js';
 import {
   autoConnectKey,
@@ -401,10 +402,14 @@ export function createKustoServer(config: KustoConfig): Server {
     const deadline = new Promise<void>(resolve => {
       // initialize() is itself bounded by connectionTimeout (probe included);
       // the grace lets a failure finishing right at that bound record its reason.
+      // Capped: a timer above 2^31-1 ms fires after ~1ms.
       timer = setTimeout(
         resolve,
-        (validatedConfig.connectionTimeout ?? 20000) +
-          AUTO_CONNECT_WAIT_GRACE_MS,
+        Math.min(
+          (validatedConfig.connectionTimeout ?? 20000) +
+            AUTO_CONNECT_WAIT_GRACE_MS,
+          MAX_TIMEOUT_MS,
+        ),
       );
       timer.unref?.();
     });
