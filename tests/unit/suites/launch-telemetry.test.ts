@@ -21,10 +21,7 @@ import {
   autoConnectKey,
   beginAutoConnect,
 } from '../../../src/common/autoconnect-backoff.js';
-import {
-  clientNameForTelemetry,
-  clientVersionForTelemetry,
-} from '../../../src/common/client-info.js';
+import { clientNameForTelemetry } from '../../../src/common/client-info.js';
 import { loadOrCreateMachineId } from '../../../src/common/machine-id.js';
 import { createKustoServer } from '../../../src/server.js';
 import { KustoConnection } from '../../../src/operations/kusto/index.js';
@@ -116,24 +113,6 @@ describe('client info is bounded', () => {
   ])('name %p → %p', (raw, sent) => {
     expect(clientNameForTelemetry(raw)).toBe(sent);
   });
-
-  test.each([
-    ['1.0.32', '1.0.32'],
-    ['v2.3.0-beta.1', '2.3.0'],
-    ['1.0.0-alice.corp+tenant.72f988bf', '1.0.0'],
-    ['1.105.0.4567', '1.105.0'],
-    ['123456789.1', 'other'],
-    ['tenant 72f988bf build', 'other'],
-    ['alice@corp.example', 'other'],
-  ])('known client, version %p → %p', (raw, sent) => {
-    expect(clientVersionForTelemetry(raw, 'claude-code')).toBe(sent);
-  });
-
-  test('an unknown client never sends its version, even a numeric one', () => {
-    expect(clientVersionForTelemetry('20261031', 'kusto-contoso-bot')).toBe(
-      'other',
-    );
-  });
 });
 
 describe('machine id persistence', () => {
@@ -186,11 +165,10 @@ describe('MCP client identified (#379)', () => {
       c => c[2] === 'MCP client identified',
     );
     expect(identified).toHaveLength(1);
-    // An unknown (possibly internal) client name never ships as-is.
-    expect(identified[0][3]).toMatchObject({
-      'mcp.client.name': 'other',
-      'mcp.client.version': 'other',
-    });
+    // An unknown (possibly internal) client name never ships as-is, and
+    // the client's version never ships at all.
+    expect(identified[0][3]['mcp.client.name']).toBe('other');
+    expect(identified[0][3]['mcp.client.version']).toBeUndefined();
     expect(typeof identified[0][3]['kustomcp.handshake_gap_ms']).toBe('number');
     await client.close();
   });
