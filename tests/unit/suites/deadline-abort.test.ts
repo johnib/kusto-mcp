@@ -10,6 +10,10 @@ const signals: AbortSignal[] = [];
 const deadlines: (number | undefined)[] = [];
 let tokensBeforeHang = 0;
 let metadataDelayMs = 0;
+// The SDK asks the credential itself during validation, and tokens are
+// short-lived (inside the cache's refresh margin), so that request misses.
+let sdkAsksForToken = false;
+let tokenLifetimeMs = 3600_000;
 jest.mock('../../../src/auth/az-cli-credential.js', () => ({
   AzCliCredential: class AzCliCredential {
     readonly allowsSubscriptionTenant = true;
@@ -25,7 +29,7 @@ jest.mock('../../../src/auth/az-cli-credential.js', () => ({
           Buffer.from(JSON.stringify(o)).toString('base64url');
         return Promise.resolve({
           token: `${b64({})}.${b64({ tid: 't', oid: 'o' })}.s`,
-          expiresOnTimestamp: Date.now() + 3600_000,
+          expiresOnTimestamp: Date.now() + tokenLifetimeMs,
         });
       }
       return new Promise(() => {});
@@ -45,9 +49,20 @@ jest.mock('azure-kusto-data', () => ({
       };
     },
   },
-  KustoConnectionStringBuilder: { withTokenCredential: () => 'cs' },
+  KustoConnectionStringBuilder: {
+    withTokenCredential: (_u: string, credential: unknown) => ({ credential }),
+  },
   Client: class {
-    execute() {
+    constructor(
+      private cs: {
+        credential: { getToken: (s: string[]) => Promise<unknown> };
+      },
+    ) {}
+    async execute() {
+      if (sdkAsksForToken)
+        await this.cs.credential.getToken([
+          'https://kusto.kusto.windows.net/.default',
+        ]);
       return execute();
     }
     close() {}
@@ -75,6 +90,8 @@ beforeEach(() => {
   signals.length = 0;
   deadlines.length = 0;
   metadataDelayMs = 0;
+  sdkAsksForToken = false;
+  tokenLifetimeMs = 3600_000;
   tokensBeforeHang = 0;
   execute.mockReset();
 });
@@ -141,4 +158,17 @@ test("a joined fetch that az timed out on its starter's deadline is retried on t
   await expect(starter).rejects.toMatchObject({ azReason: 'timeout' });
   await expect(joiner).resolves.toMatchObject({ token: 'second' });
   expect(calls).toBe(2);
+});
+
+test("the SDK's own token request during validation is bounded by the deadline too", async () => {
+  // Our fetch answers with a token inside the refresh margin; the SDK's
+  // request then misses the cache and its fetch hangs.
+  tokensBeforeHang = 1;
+  tokenLifetimeMs = 60_000;
+  sdkAsksForToken = true;
+  const err = await connect(200);
+  expect(err.message).toMatch(/timed out after 200ms/);
+  expect(signals).toHaveLength(2);
+  expect(signals[1].aborted).toBe(true);
+  expect(deadlines[1]).toBe(deadlines[0]);
 });
