@@ -22,6 +22,7 @@ import {
   parseIntSetting,
   withScheme,
 } from './common/config-parse.js';
+import { MIN_RESPONSE_LENGTH } from './common/response-limiter.js';
 import { configStateAttributes } from './common/config-state.js';
 import { createShutdown, settlePendingCancels } from './common/shutdown.js';
 import { createKustoServer } from './server.js';
@@ -138,11 +139,12 @@ const config: KustoConfig = {
     configWarnings,
     { max: Number.MAX_SAFE_INTEGER },
   ),
+  // Below the limiter's minimum, every query would fail after it ran.
   maxResponseLength: parseIntSetting(
     'KUSTO_MAX_RESPONSE_LENGTH',
     process.env.KUSTO_MAX_RESPONSE_LENGTH,
     configWarnings,
-    { max: Number.MAX_SAFE_INTEGER },
+    { min: MIN_RESPONSE_LENGTH, max: Number.MAX_SAFE_INTEGER },
   ),
   minRowsInResponse: parseIntSetting(
     'KUSTO_MIN_RESPONSE_ROWS',
