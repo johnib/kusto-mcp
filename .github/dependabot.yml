@@ -7,6 +7,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    groups:
+      # The OpenTelemetry JS packages peer on one exact api range; bumped one
+      # at a time they break telemetry at runtime while CI stays green.
+      opentelemetry:
+        patterns:
+          - "@opentelemetry/*"
     ignore:
       # ts-jest 29.x peers on typescript ">=4.3 <7", so a TS major bump fails
       # `npm ci` with ERESOLVE. Remove once ts-jest supports the next major.
