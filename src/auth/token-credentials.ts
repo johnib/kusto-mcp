@@ -6,6 +6,14 @@ import {
   TokenCredential,
 } from '@azure/identity';
 import { AzCliCredential } from './az-cli-credential.js';
+import { SUBSCRIPTION_TENANT } from './subscription-tenant.js';
+
+function isSubscriptionTenantRequest(options?: GetTokenOptions): boolean {
+  return (
+    (options as Record<string, unknown> | undefined)?.[SUBSCRIPTION_TENANT] ===
+    true
+  );
+}
 import { KustoAuthenticationError } from '../common/errors.js';
 import { criticalLog, debugLog } from '../common/utils.js';
 
@@ -67,6 +75,7 @@ export class CachingTokenCredential implements TokenCredential {
       [...scopeList].sort(),
       options?.tenantId ?? '',
       !!options?.enableCae,
+      isSubscriptionTenantRequest(options),
     ]);
 
     // A claims challenge means the cached token was rejected: always fetch,
@@ -129,21 +138,22 @@ export class CachingTokenCredential implements TokenCredential {
     });
   }
 
-  /**
-   * After a 401 on an `az` token: make the az step drop our default tenant
-   * (see AzCliCredential.fallBackToSubscriptionTenant) and forget every
-   * cached token, so the next request runs az again. Returns false when
-   * there is no az step, the user pinned AZURE_TENANT_ID, or it already
-   * fell back.
-   */
-  fallBackToSubscriptionTenant(): boolean {
+  /** The az step, directly or as a step of the chain. */
+  private azStep(): AzCliCredential | undefined {
     const sources = (this.inner as { _sources?: unknown })._sources;
     const candidates = Array.isArray(sources) ? sources : [this.inner];
-    const az = candidates.find(s => s instanceof AzCliCredential) as
+    return candidates.find(s => s instanceof AzCliCredential) as
       AzCliCredential | undefined;
-    if (!az?.fallBackToSubscriptionTenant()) return false;
-    this.cache.clear();
-    return true;
+  }
+
+  /**
+   * Whether a request may ask for az's subscription tenant (SUBSCRIPTION_TENANT):
+   * there is an az step and its tenant is our default, not AZURE_TENANT_ID.
+   * Such requests are cached under their own key and go straight to az, so
+   * they never change what other callers get.
+   */
+  canUseSubscriptionTenant(): boolean {
+    return !!this.azStep()?.allowsSubscriptionTenant;
   }
 
   /**
@@ -157,6 +167,15 @@ export class CachingTokenCredential implements TokenCredential {
     scopes: string | string[],
     options: GetTokenOptions,
   ): Promise<AccessToken | null> {
+    // A subscription-tenant request goes straight to the az step: no other
+    // chain step should answer it.
+    if (isSubscriptionTenantRequest(options)) {
+      const az = this.azStep();
+      if (!az?.allowsSubscriptionTenant) return null;
+      const token = await az.getToken(scopes, options);
+      this.lastSource = 'az';
+      return token;
+    }
     const chain = this.inner as {
       getTokenInternal?: (
         scopes: string | string[],
