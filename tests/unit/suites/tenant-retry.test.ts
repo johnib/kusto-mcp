@@ -113,7 +113,7 @@ describe('401 retry from the subscription tenant', () => {
     const { err, attrs } = await connect();
     expect(err).toBeUndefined();
     expect(azTenants).toEqual(['organizations']);
-    expect(attrs).not.toHaveProperty('kustomcp.auth.tenant_retry');
+    expect(attrs['kustomcp.auth.tenant_retry']).toBeUndefined();
   });
 
   test('a retry that also 401s fails once, labelled failed, with the AZURE_TENANT_ID hint', async () => {
@@ -129,6 +129,6 @@ describe('401 retry from the subscription tenant', () => {
     clusterAccepts = () => false;
     const { attrs } = await connect();
     expect(azTenants).toEqual(['contoso.onmicrosoft.com']);
-    expect(attrs).not.toHaveProperty('kustomcp.auth.tenant_retry');
+    expect(attrs['kustomcp.auth.tenant_retry']).toBeUndefined();
   });
 });
