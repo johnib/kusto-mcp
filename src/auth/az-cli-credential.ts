@@ -8,6 +8,7 @@ import type {
   TokenCredential,
 } from '@azure/identity';
 import { debugLog } from '../common/utils.js';
+import { AZ_DEADLINE_AT, azTimeoutUntil } from './process-timeout.js';
 import { SUBSCRIPTION_TENANT } from './subscription-tenant.js';
 
 /**
@@ -288,12 +289,20 @@ export class AzCliCredential implements TokenCredential {
       resource,
       ...(tenantId ? ['--tenant', tenantId] : []),
     ];
-    return this.run(args, options.abortSignal);
+    const deadlineAt = (options as Record<string, unknown>)[AZ_DEADLINE_AT];
+    return this.run(
+      args,
+      options.abortSignal,
+      typeof deadlineAt === 'number' && Number.isFinite(deadlineAt)
+        ? deadlineAt
+        : undefined,
+    );
   }
 
   private run(
     args: string[],
-    signal?: GetTokenOptions['abortSignal'],
+    signal: GetTokenOptions['abortSignal'],
+    deadlineAt: number | undefined,
   ): Promise<AccessToken> {
     return new Promise<AccessToken>((resolve, reject) => {
       if (signal?.aborted) {
@@ -376,7 +385,13 @@ export class AzCliCredential implements TokenCredential {
         }
       });
 
-      if (this.timeoutMs !== undefined) {
+      // Our fixed bound, or — when the caller has a deadline — the bound
+      // left until just before it, measured now that az has started.
+      const bound =
+        deadlineAt === undefined
+          ? this.timeoutMs
+          : Math.min(azTimeoutUntil(deadlineAt), this.timeoutMs ?? Infinity);
+      if (bound !== undefined) {
         timer = setTimeout(
           () =>
             killAndFail(
@@ -385,7 +400,7 @@ export class AzCliCredential implements TokenCredential {
                 'timeout',
               ),
             ),
-          this.timeoutMs,
+          bound,
         );
       }
       signal?.addEventListener('abort', onAbort, { once: true });
