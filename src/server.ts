@@ -33,6 +33,10 @@ import {
   beginAutoConnect,
   clearAutoConnectBackoff,
 } from './common/autoconnect-backoff.js';
+import {
+  clientNameForTelemetry,
+  clientVersionForTelemetry,
+} from './common/client-info.js';
 import { getIdentityAttributes } from './common/identity.js';
 import {
   SeverityNumber,
@@ -495,11 +499,12 @@ export function createKustoServer(config: KustoConfig): Server {
 
       span.setAttribute('kustomcp.tool.name', toolName);
       // MCP client (host app) identity — a first-order "who uses this" signal.
+      // Bounded: a known product name or 'other' (see client-info.ts).
       const clientInfo = server.getClientVersion();
-      if (clientInfo?.name)
-        span.setAttribute('mcp.client.name', clientInfo.name);
-      if (clientInfo?.version)
-        span.setAttribute('mcp.client.version', clientInfo.version);
+      const clientName = clientNameForTelemetry(clientInfo?.name);
+      const clientVersion = clientVersionForTelemetry(clientInfo?.version);
+      if (clientName) span.setAttribute('mcp.client.name', clientName);
+      if (clientVersion) span.setAttribute('mcp.client.version', clientVersion);
       // Argument KEYS only — never values (may contain sensitive data).
       if (request.params.arguments) {
         span.setAttribute(
@@ -1116,9 +1121,11 @@ export function createKustoServer(config: KustoConfig): Server {
   server.oninitialized = () => {
     try {
       const client = server.getClientVersion();
+      const name = clientNameForTelemetry(client?.name);
+      const version = clientVersionForTelemetry(client?.version);
       emitLog(SeverityNumber.INFO, 'INFO', 'MCP client identified', {
-        ...(client?.name && { 'mcp.client.name': client.name }),
-        ...(client?.version && { 'mcp.client.version': client.version }),
+        ...(name && { 'mcp.client.name': name }),
+        ...(version && { 'mcp.client.version': version }),
         'kustomcp.handshake_gap_ms': Date.now() - autoConnectStartedAt,
       });
     } catch {
