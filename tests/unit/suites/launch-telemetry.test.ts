@@ -121,10 +121,18 @@ describe('client info is bounded', () => {
     ['1.0.32', '1.0.32'],
     ['v2.3.0-beta.1', '2.3.0'],
     ['1.0.0-alice.corp+tenant.72f988bf', '1.0.0'],
+    ['1.105.0.4567', '1.105.0'],
+    ['123456789.1', 'other'],
     ['tenant 72f988bf build', 'other'],
     ['alice@corp.example', 'other'],
-  ])('version %p → %p', (raw, sent) => {
-    expect(clientVersionForTelemetry(raw)).toBe(sent);
+  ])('known client, version %p → %p', (raw, sent) => {
+    expect(clientVersionForTelemetry(raw, 'claude-code')).toBe(sent);
+  });
+
+  test('an unknown client never sends its version, even a numeric one', () => {
+    expect(clientVersionForTelemetry('20261031', 'kusto-contoso-bot')).toBe(
+      'other',
+    );
   });
 });
 
@@ -181,7 +189,7 @@ describe('MCP client identified (#379)', () => {
     // An unknown (possibly internal) client name never ships as-is.
     expect(identified[0][3]).toMatchObject({
       'mcp.client.name': 'other',
-      'mcp.client.version': '9.9',
+      'mcp.client.version': 'other',
     });
     expect(typeof identified[0][3]['kustomcp.handshake_gap_ms']).toBe('number');
     await client.close();
