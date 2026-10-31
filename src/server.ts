@@ -11,6 +11,7 @@ import {
 import { z } from 'zod';
 import type { TokenCredential } from '@azure/identity';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
+import { credentialProcessTimeout } from './auth/process-timeout.js';
 import { createTokenCredential } from './auth/token-credentials.js';
 import {
   carryNotQueryFault,
@@ -225,7 +226,7 @@ export function createKustoServer(config: KustoConfig): Server {
   const processCredential = (): TokenCredential =>
     (sharedCredential ??= createTokenCredential(
       validatedConfig.authMethod,
-      validatedConfig.connectionTimeout ?? 20000,
+      credentialProcessTimeout(validatedConfig.connectionTimeout ?? 20000),
     ));
 
   // Bounded per-process behavior signals (previous tool, retry class, ...).

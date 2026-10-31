@@ -7,6 +7,7 @@ import {
   KustoConnectionStringBuilder,
 } from 'azure-kusto-data';
 import { kustoTokenScope } from '../../auth/kusto-scope.js';
+import { credentialProcessTimeout } from '../../auth/process-timeout.js';
 import {
   CachingTokenCredential,
   createTokenCredential,
@@ -382,7 +383,7 @@ export class KustoConnection {
       credential ??
       createTokenCredential(
         config.authMethod,
-        config.connectionTimeout ?? 20000,
+        credentialProcessTimeout(config.connectionTimeout ?? 20000),
       );
   }
 
@@ -438,9 +439,14 @@ export class KustoConnection {
           `Initializing connection to ${clusterUrl}, database: ${database}`,
         );
 
+        // Aborts this attempt's token request at the deadline. The shared
+        // cache cancels the inner fetch (killing `az`) once no other caller
+        // still waits on it.
+        const deadlineAbort = new AbortController();
         const deadline = new Promise<never>((_, reject) => {
           deadlineTimer = setTimeout(() => {
             timedOut = true;
+            deadlineAbort.abort();
             reject(
               new KustoConnectionError(
                 `Connection timed out after ${connectTimeout}ms`,
@@ -518,7 +524,9 @@ export class KustoConnection {
           const captured = await captureIdentity(
             scope,
             async s => {
-              const request = this.tokenCredential.getToken(s);
+              const request = this.tokenCredential.getToken(s, {
+                abortSignal: deadlineAbort.signal,
+              });
               // The cache counts a fetch or hit synchronously when the
               // request starts: stamp it now, so a request the deadline
               // abandons still reports it before the span ends.
