@@ -296,7 +296,11 @@ describe('KustoConnection.initialize failure text (#315)', () => {
     const err = await new KustoConnection(config)
       .initialize(CLUSTER, DB, 'auto')
       .catch(e => e);
-    expect(probe).toHaveBeenCalledWith(CLUSTER, expect.any(Number));
+    expect(probe).toHaveBeenCalledWith(
+      CLUSTER,
+      expect.any(Number),
+      expect.any(Function),
+    );
     expect(probe.mock.calls[0][1]).toBeLessThanOrEqual(1000);
     expect(err.message).toMatch(
       /\nFailed step: reaching the cluster\. Can't resolve the cluster host acme\.kusto\.windows\.net – check KUSTO_CLUSTER_URL\.$/,

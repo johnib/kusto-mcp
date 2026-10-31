@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { TokenCredential } from '@azure/identity';
-import { SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
+import { Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 import {
   Client,
   ClientRequestProperties,
   KustoConnectionStringBuilder,
 } from 'azure-kusto-data';
 import { kustoTokenScope } from '../../auth/kusto-scope.js';
-import { createTokenCredential } from '../../auth/token-credentials.js';
+import {
+  CachingTokenCredential,
+  createTokenCredential,
+} from '../../auth/token-credentials.js';
 import {
   extractKustoErrorMessage,
   FailureCategory,
@@ -28,6 +31,7 @@ import { markConnected } from '../../common/machine-id.js';
 import {
   ConnectionFailureCategory,
   connectionFailureHint,
+  ProbeResult,
   probeReachability,
 } from '../../common/connection-hints.js';
 import {
@@ -280,6 +284,63 @@ function classifyCloud(
 }
 
 /**
+ * Kusto error codes we export as-is. Codes are fixed identifiers, but only
+ * these leave the process; anything else is 'other'.
+ */
+const KUSTO_ERROR_CODES: ReadonlySet<string> = new Set([
+  'BadRequest_EntityNotFound',
+  'General_BadRequest',
+  'BadRequest_SyntaxError',
+  'BadRequest_SemanticError',
+  'Forbidden',
+  'Unauthorized',
+  'LimitsExceeded',
+  'RequestExecutionTimeout',
+  'ServiceUnavailable',
+  'TooManyRequests',
+  'InternalServiceError',
+]);
+
+/** The response's Kusto `error.code`, bounded by KUSTO_ERROR_CODES. */
+function kustoErrorCode(error: unknown): string | undefined {
+  const code = (
+    error as { response?: { data?: { error?: { code?: unknown } } } }
+  )?.response?.data?.error?.code;
+  if (typeof code !== 'string') return undefined;
+  return KUSTO_ERROR_CODES.has(code) ? code : 'other';
+}
+
+/**
+ * Token-step counters from the caching credential: inner fetches started
+ * and requests served from the cache during this step, plus which credential
+ * produced the token. Absent when the credential isn't the cache (tests).
+ * Never throws.
+ */
+function recordTokenStats(
+  span: Span,
+  cache: Partial<CachingTokenCredential>,
+  before: { fetches: number; hits: number } | undefined,
+  gotToken: boolean,
+): void {
+  try {
+    if (!cache.stats || !before) return;
+    span.setAttribute(
+      'kustomcp.auth.token_fetches',
+      cache.stats.fetches - before.fetches,
+    );
+    span.setAttribute(
+      'kustomcp.auth.token_cache_hits',
+      cache.stats.hits - before.hits,
+    );
+    if (gotToken && cache.lastSource) {
+      span.setAttribute('kustomcp.auth.credential_used', cache.lastSource);
+    }
+  } catch {
+    /* telemetry only */
+  }
+}
+
+/**
  * Coarse size bucket of a query, derived from its length only (the raw length
  * already ships; this is strictly coarser). Lets us tell a heavy query from a
  * systemic slowdown without any query text.
@@ -357,6 +418,7 @@ export class KustoConnection {
       // Which step is running, and the bounded token result, for the
       // user-facing hint on failure (#315).
       let step: 'metadata' | 'token' | 'query' = 'metadata';
+      let stepStartedAt = startedAt;
       let tokenAttrs: Record<string, unknown> = {};
       // The validation client, closed on any failure (#290). `abandoned` stops
       // a connect that is still running after the deadline from opening one.
@@ -394,6 +456,7 @@ export class KustoConnection {
             throw new KustoConnectionError('Connection attempt abandoned');
           }
           step = 'token';
+          stepStartedAt = Date.now();
 
           // The one token fetch of this connect. The SDK requests the same
           // scope through the same caching credential, so its request is a
@@ -401,9 +464,11 @@ export class KustoConnection {
           // anonymous cohort hashes (company/user); on failure, a bounded
           // classification of WHY (identity_state / auth.*). A capture that
           // settles after the deadline is ignored (#293).
-          const tokenStart = Date.now();
+          const tokenStart = stepStartedAt;
           let tokenError: unknown;
           let gotToken = false;
+          const cache = this.tokenCredential as Partial<CachingTokenCredential>;
+          const before = cache.stats ? { ...cache.stats } : undefined;
           const captured = await captureIdentity(
             scope,
             async s => {
@@ -414,6 +479,8 @@ export class KustoConnection {
               } catch (error) {
                 tokenError = error;
                 throw error;
+              } finally {
+                recordTokenStats(span, cache, before, gotToken);
               }
             },
             () => timedOut,
@@ -443,6 +510,7 @@ export class KustoConnection {
             throw failure;
           }
           step = 'query';
+          stepStartedAt = Date.now();
 
           // Both auth methods go through our caching, time-limited credential.
           // Don't use withAzLoginIdentity: it builds its own uncached
@@ -556,6 +624,17 @@ export class KustoConnection {
         if (classified.httpStatus !== undefined) {
           span.setAttribute('kustomcp.http.status_code', classified.httpStatus);
         }
+        // Which step failed (or was running when the deadline fired), and
+        // how long it ran: tells a slow token from a slow cluster.
+        span.setAttribute('kustomcp.connection.failed_step', failedStep);
+        span.setAttribute(
+          'kustomcp.connection.failed_step_ms',
+          Date.now() - stepStartedAt,
+        );
+        const kustoCode = kustoErrorCode(error);
+        if (kustoCode !== undefined) {
+          span.setAttribute('kustomcp.connection.kusto_error_code', kustoCode);
+        }
         connectionFailuresCounter.add(1, {
           source,
           error_type: error instanceof Error ? error.name : 'unknown',
@@ -574,18 +653,27 @@ export class KustoConnection {
         });
 
         // The SDK drops the socket error code on its cloud-metadata lookup,
-        // so probe the host once to tell DNS / refused apart. A direct probe
-        // means nothing behind a proxy. Used for the hint only, and only
-        // within what is left of the connect deadline, so initialize() stays
-        // bounded by connectionTimeout.
+        // so probe the host once to tell DNS / refused apart. Only within
+        // what is left of the connect deadline, so initialize() stays bounded
+        // by connectionTimeout. The result goes on the span either way; a
+        // direct probe means nothing behind a proxy, so there it doesn't
+        // change the hint (proxy_configured on the span tells them apart).
         let hintCategory = category;
         const probeBudget = Math.min(
           REACHABILITY_PROBE_TIMEOUT_MS,
           connectTimeout - (Date.now() - startedAt),
         );
-        if (category === 'unknown' && !proxyConfigured && probeBudget > 0) {
-          hintCategory =
-            (await probeReachability(clusterUrl, probeBudget)) ?? category;
+        if (category === 'unknown' && probeBudget > 0) {
+          let probeResult: ProbeResult | undefined;
+          const probed = await probeReachability(
+            clusterUrl,
+            probeBudget,
+            r => (probeResult = r),
+          );
+          if (probeResult !== undefined) {
+            span.setAttribute('kustomcp.connection.probe_result', probeResult);
+          }
+          if (!proxyConfigured) hintCategory = probed ?? category;
         }
         const hint = connectionFailureHint({
           category: hintCategory,
