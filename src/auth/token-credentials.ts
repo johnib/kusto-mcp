@@ -130,6 +130,15 @@ export class CachingTokenCredential implements TokenCredential {
   }
 
   /**
+   * Forget every cached token. For a 401: the cluster rejected the token, so
+   * the next connect (e.g. after `az login`) must fetch a new one. Not for a
+   * 403 — that token is valid; Kusto denied access.
+   */
+  clear(): void {
+    this.cache.clear();
+  }
+
+  /**
    * After a 401 on an `az` token: make the az step drop our default tenant
    * (see AzCliCredential.fallBackToSubscriptionTenant) and forget every
    * cached token, so the next request runs az again. Returns false when

@@ -369,14 +369,21 @@ export class KustoConnection {
    *
    * @param config The Kusto configuration
    */
-  constructor(config: KustoConfig) {
+  /**
+   * @param credential The process's shared credential (and token cache), so
+   *   a reconnect reuses the tokens the last connect fetched. Built per
+   *   connection when absent.
+   */
+  constructor(config: KustoConfig, credential?: TokenCredential) {
     this.config = config;
     // Credential subprocesses (`az`) are killed at the connect deadline, so a
     // hung one can't outlive the attempt that spawned it (#293).
-    this.tokenCredential = createTokenCredential(
-      config.authMethod,
-      config.connectionTimeout ?? 20000,
-    );
+    this.tokenCredential =
+      credential ??
+      createTokenCredential(
+        config.authMethod,
+        config.connectionTimeout ?? 20000,
+      );
   }
 
   /**
@@ -657,6 +664,15 @@ export class KustoConnection {
         );
 
         const classified = classifyConnectionFailure(error);
+        // The credential is shared by the whole process: drop a token the
+        // cluster rejected, so the next connect (after `az login`) refetches.
+        if (classified.httpStatus === 401) {
+          try {
+            (this.tokenCredential as Partial<CachingTokenCredential>).clear?.();
+          } catch {
+            /* best effort */
+          }
+        }
         // A fired deadline is definitively a timeout, regardless of the wrapped
         // error's shape.
         const category = timedOut ? 'timeout' : classified.category;
