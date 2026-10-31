@@ -118,10 +118,12 @@ describe('client info is bounded', () => {
   });
 
   test.each([
-    ['1.0.32', '1.0.32'],
-    ['v2.3.0-beta.1', '2.3.0'],
-    ['1.0.0-alice.corp+tenant.72f988bf', '1.0.0'],
-    ['1.105.0.4567', '1.105.0'],
+    ['1.0.32', '1.0'],
+    ['v2.3.0-beta.1', '2.3'],
+    ['1.0.0-alice.corp+tenant.72f988bf', '1.0'],
+    ['1.105.0.4567', '1.105'],
+    ['7', '7'],
+    ['1234.5678.9012', 'other'],
     ['123456789.1', 'other'],
     ['tenant 72f988bf build', 'other'],
     ['alice@corp.example', 'other'],

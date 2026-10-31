@@ -25,10 +25,11 @@ const KNOWN_CLIENTS: ReadonlySet<string> = new Set([
   'mcp-inspector',
 ]);
 
-// Only major.minor.patch, at most 4 digits each, and only for a known
-// product: a suffix (`1.0.0-alice.corp`) or an unknown client's "version"
-// is free text, so it never leaves.
-const VERSION_CORE = /^v?(\d{1,4}(?:\.\d{1,4}){0,2})(?:[.\-+].*)?$/;
+// Only major.minor, at most 3 digits each, and only for a known product.
+// Any client can claim any name, so the version must be too small to carry
+// an identifier: at most 10^6 values. A suffix (`1.0.0-alice.corp`) or an
+// unknown client's "version" is free text, so it never leaves.
+const VERSION_CORE = /^v?(\d{1,3}(?:\.\d{1,3})?)(?:[.\-+].*)?$/;
 
 /** The client name if it is a known product, else 'other'. */
 export function clientNameForTelemetry(name: unknown): string | undefined {
@@ -37,7 +38,7 @@ export function clientNameForTelemetry(name: unknown): string | undefined {
 }
 
 /**
- * A known product's major.minor.patch (e.g. `1.0.32`), without any suffix;
+ * A known product's major.minor (e.g. `1.105` for 1.105.2), without patch or suffix;
  * 'other' for anything else, including every version of an unknown client.
  */
 export function clientVersionForTelemetry(
