@@ -1,3 +1,15 @@
+## [1.20.1](https://github.com/johnib/kusto-mcp/compare/v1.20.0...v1.20.1) (2026-10-31)
+
+
+### Bug Fixes
+
+* **auth:** label why az failed and show the matching hint [skip ci] ([#407](https://github.com/johnib/kusto-mcp/issues/407)) ([b31b692](https://github.com/johnib/kusto-mcp/commit/b31b692f3780f6bbab53c2aabc8ee85e4c0d1cdb))
+* **auth:** send a tenant to the default chain's az step and honour AZURE_TENANT_ID [skip ci] ([#408](https://github.com/johnib/kusto-mcp/issues/408)) ([83d875e](https://github.com/johnib/kusto-mcp/commit/83d875ee21bdf3b20d55bbde5eed3ed3f57a294b))
+* **auth:** share one credential and token cache per process, clear it on 401 [skip ci] ([#410](https://github.com/johnib/kusto-mcp/issues/410)) ([7ce5959](https://github.com/johnib/kusto-mcp/commit/7ce595955567ee9d1ef3905f7e57889f86d84324))
+* **auth:** tell a user whose az has no default subscription to run az account set [skip ci] ([#414](https://github.com/johnib/kusto-mcp/issues/414)) ([614642c](https://github.com/johnib/kusto-mcp/commit/614642c500bc0b5e2006b8ed6cf17c832fb34b6b))
+* **config:** validate connection settings and repair safe mistakes loudly ([#412](https://github.com/johnib/kusto-mcp/issues/412)) ([8aa8766](https://github.com/johnib/kusto-mcp/commit/8aa87666c9a6656368f2bb182a64c8e8a22ab522))
+* **connect:** let the deadline cancel the token fetch and kill az before the deadline [skip ci] ([#411](https://github.com/johnib/kusto-mcp/issues/411)) ([58d260c](https://github.com/johnib/kusto-mcp/commit/58d260c4ac3d8a45397de271a6395d8836c590dc))
+
 # [1.20.0](https://github.com/johnib/kusto-mcp/compare/v1.19.1...v1.20.0) (2026-10-31)
 
 
