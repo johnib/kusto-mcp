@@ -164,6 +164,8 @@ function tokenFix(
       return 'Azure CLI is not installed or not on PATH – install it (https://aka.ms/installazurecli), run `az login`, then connect again.';
     case 'not_logged_in':
       return 'Azure CLI is not signed in – run `az login`, then connect again.';
+    case 'no_subscription':
+      return 'Azure CLI is signed in but has no default subscription – run `az account list`, then `az account set --subscription <id>`, then connect again.';
     case 'expired':
       return `Your Azure sign-in expired or was revoked${code} – run \`az login\` again, then connect again.`;
     case 'mfa_required':
