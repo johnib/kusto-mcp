@@ -25,9 +25,10 @@ const KNOWN_CLIENTS: ReadonlySet<string> = new Set([
   'mcp-inspector',
 ]);
 
-// Only the numeric core leaves: a pre-release or build suffix is free text
-// (`1.0.0-alice.corp`), so it is dropped.
-const VERSION_CORE = /^v?(\d{1,6}(?:\.\d{1,6}){0,3})(?:[-+].*)?$/;
+// Only major.minor.patch, at most 4 digits each, and only for a known
+// product: a suffix (`1.0.0-alice.corp`) or an unknown client's "version"
+// is free text, so it never leaves.
+const VERSION_CORE = /^v?(\d{1,4}(?:\.\d{1,4}){0,2})(?:[.\-+].*)?$/;
 
 /** The client name if it is a known product, else 'other'. */
 export function clientNameForTelemetry(name: unknown): string | undefined {
@@ -35,10 +36,15 @@ export function clientNameForTelemetry(name: unknown): string | undefined {
   return KNOWN_CLIENTS.has(name) ? name : 'other';
 }
 
-/** The numeric version (e.g. `1.0.32`), without any suffix; else 'other'. */
+/**
+ * A known product's major.minor.patch (e.g. `1.0.32`), without any suffix;
+ * 'other' for anything else, including every version of an unknown client.
+ */
 export function clientVersionForTelemetry(
   version: unknown,
+  name: unknown,
 ): string | undefined {
   if (typeof version !== 'string' || !version) return undefined;
+  if (clientNameForTelemetry(name) !== name) return 'other';
   return VERSION_CORE.exec(version)?.[1] ?? 'other';
 }

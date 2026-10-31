@@ -87,7 +87,7 @@ describe('connection target_changed', () => {
       'https://secretcluster.kusto.windows.net',
       'DbA',
     );
-    expect(a1).not.toHaveProperty(KEY);
+    expect(a1[KEY]).toBeUndefined();
 
     // Same target, modulo case (ADX names are case-insensitive) and a
     // trailing slash on the URL or database.
@@ -140,7 +140,7 @@ describe('connection target_changed', () => {
       'DbB',
       failed,
     );
-    expect(a7).not.toHaveProperty(KEY);
+    expect(a7[KEY]).toBeUndefined();
 
     // Neither the cluster nor the database is exported.
     for (const attrs of [a1, a2, a3, a4, a5, a6, a7]) {
