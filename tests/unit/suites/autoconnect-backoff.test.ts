@@ -108,10 +108,68 @@ describe('auto-connect backoff state (#316)', () => {
 
   test('a success clears the streak', () => {
     for (let i = 0; i < 3; i++) beginAutoConnect(KEY, T0 + i);
-    clearAutoConnectBackoff();
+    clearAutoConnectBackoff(KEY);
     expect(beginAutoConnect(KEY, T0 + 10).skip).toBe(false);
-    clearAutoConnectBackoff();
-    clearAutoConnectBackoff(); // no file: still fine
+    clearAutoConnectBackoff(KEY);
+    clearAutoConnectBackoff(KEY); // no file: still fine
+  });
+
+  test('alternating configs each keep their own streak and back off (#441)', () => {
+    const B = autoConnectKey('https://c.kusto.windows.net', 'db2', 'azure-cli');
+    for (let i = 0; i < 3; i++) {
+      expect(beginAutoConnect(KEY, T0 + i * 2).skip).toBe(false);
+      expect(beginAutoConnect(B, T0 + i * 2 + 1).skip).toBe(false);
+    }
+    expect(beginAutoConnect(KEY, T0 + 10).skip).toBe(true);
+    expect(beginAutoConnect(B, T0 + 11).skip).toBe(true);
+  });
+
+  test('a success of one config does not clear the streak of another (#441)', () => {
+    const B = autoConnectKey('https://c.kusto.windows.net', 'db2', 'azure-cli');
+    for (let i = 0; i < 3; i++) {
+      beginAutoConnect(KEY, T0 + i * 2);
+      beginAutoConnect(B, T0 + i * 2 + 1);
+    }
+    clearAutoConnectBackoff(B);
+    expect(beginAutoConnect(B, T0 + 10).skip).toBe(false);
+    expect(beginAutoConnect(KEY, T0 + 10).skip).toBe(true);
+  });
+
+  test('the number of stored configs stays bounded (#441)', () => {
+    for (let i = 0; i < 100; i++) {
+      beginAutoConnect(autoConnectKey('https://c', `db${i}`, 'x'), T0 + i);
+    }
+    const state = JSON.parse(readFileSync(stateFile(), 'utf8'));
+    expect(Object.keys(state.keys).length).toBeLessThanOrEqual(16);
+    // The newest config is kept.
+    expect(state.keys[autoConnectKey('https://c', 'db99', 'x')]).toEqual([
+      T0 + 99,
+    ]);
+  });
+
+  test('configs whose attempts are all outside the window are dropped (#441)', () => {
+    const B = autoConnectKey('https://c.kusto.windows.net', 'db2', 'azure-cli');
+    beginAutoConnect(B, T0);
+    beginAutoConnect(KEY, T0 + 61 * 60_000);
+    const state = JSON.parse(readFileSync(stateFile(), 'utf8'));
+    expect(Object.keys(state.keys)).toEqual([KEY]);
+  });
+
+  test('the old single-record file format is migrated (#441)', () => {
+    mkdirSync(join(process.env.XDG_DATA_HOME as string, 'kusto-mcp'), {
+      recursive: true,
+    });
+    writeFileSync(
+      stateFile(),
+      JSON.stringify({ key: KEY, attempts: [T0, T0 + 1, T0 + 2] }),
+    );
+    // The old streak still counts for its config.
+    expect(beginAutoConnect(KEY, T0 + 10).skip).toBe(true);
+    const B = autoConnectKey('https://c.kusto.windows.net', 'db2', 'azure-cli');
+    expect(beginAutoConnect(B, T0 + 10).skip).toBe(false);
+    const state = JSON.parse(readFileSync(stateFile(), 'utf8'));
+    expect(state.keys[KEY]).toEqual([T0, T0 + 1, T0 + 2]);
+    expect(state.keys[B]).toEqual([T0 + 10]);
   });
 
   test('only attempts within the last hour count (rolling window)', () => {
@@ -127,8 +185,8 @@ describe('auto-connect backoff state (#316)', () => {
 
   test('the stored attempt list stays bounded', () => {
     for (let i = 0; i < 100; i++) beginAutoConnect(KEY, T0 + i * 10 * 60_000);
-    const rec = JSON.parse(readFileSync(stateFile(), 'utf8'));
-    expect(rec.attempts.length).toBeLessThanOrEqual(20);
+    const state = JSON.parse(readFileSync(stateFile(), 'utf8'));
+    expect(state.keys[KEY].length).toBeLessThanOrEqual(20);
   });
 
   test('an old streak or a clock that went backwards does not block', () => {
@@ -141,6 +199,8 @@ describe('auto-connect backoff state (#316)', () => {
   test.each([
     ['garbage', 'not json{'],
     ['wrong shape', '{"key":1,"failures":"x"}'],
+    ['keys not an object', '{"keys":[1,2]}'],
+    ['null', 'null'],
     ['non-numeric attempt', JSON.stringify({ key: KEY, attempts: ['x'] })],
     ['attempts not a list', JSON.stringify({ key: KEY, attempts: 5 })],
     ['empty', ''],
@@ -151,8 +211,7 @@ describe('auto-connect backoff state (#316)', () => {
     writeFileSync(stateFile(), content);
     expect(beginAutoConnect(KEY, T0)).toEqual({ skip: false, retryInMs: 0 });
     expect(JSON.parse(readFileSync(stateFile(), 'utf8'))).toEqual({
-      key: KEY,
-      attempts: [T0],
+      keys: { [KEY]: [T0] },
     });
   });
 
@@ -167,7 +226,7 @@ describe('auto-connect backoff state (#316)', () => {
         retryInMs: 0,
       });
     }
-    expect(() => clearAutoConnectBackoff()).not.toThrow();
+    expect(() => clearAutoConnectBackoff(KEY)).not.toThrow();
   });
 });
 
@@ -219,7 +278,7 @@ describe('startup auto-connect across launches (#316)', () => {
     expect(showTables).not.toHaveBeenCalled();
   });
 
-  test('manual initialize-connection works while paused and clears the backoff', async () => {
+  test('manual initialize-connection works while paused and clears only its own config', async () => {
     failNext = [true, true, true];
     for (let i = 0; i < 3; i++) await launch(CONFIGURED);
 
@@ -240,10 +299,35 @@ describe('startup auto-connect across launches (#316)', () => {
     });
     expect(initCalls).toEqual(['auto', 'auto', 'auto', 'manual']);
 
+    // A manual connect to another cluster does not clear the broken startup
+    // config (#441): the next launch is still paused.
+    await launch(CONFIGURED);
+    expect(initCalls).toEqual(['auto', 'auto', 'auto', 'manual']);
+
+    // A manual connect to the startup config itself clears its streak.
+    await launch(CONFIGURED, async client => {
+      const m = await client.callTool({
+        name: 'initialize-connection',
+        arguments: {
+          cluster_url: CONFIGURED.clusterUrl as string,
+          database: CONFIGURED.defaultDatabase as string,
+        },
+      });
+      expect(m.isError).toBeFalsy();
+    });
+    expect(initCalls).toEqual(['auto', 'auto', 'auto', 'manual', 'manual']);
+
     // Cleared: the next launch tries auto-connect again.
     const r = await launch(CONFIGURED);
     expect(r.isError).toBeFalsy();
-    expect(initCalls).toEqual(['auto', 'auto', 'auto', 'manual', 'auto']);
+    expect(initCalls).toEqual([
+      'auto',
+      'auto',
+      'auto',
+      'manual',
+      'manual',
+      'auto',
+    ]);
   });
 
   test('a successful auto-connect clears the streak', async () => {
@@ -251,6 +335,30 @@ describe('startup auto-connect across launches (#316)', () => {
     for (let i = 0; i < 5; i++) await launch(CONFIGURED);
     // 2 failures, a success, then 2 failures: never 3 in a row, never skipped.
     expect(initCalls).toEqual(['auto', 'auto', 'auto', 'auto', 'auto']);
+  });
+
+  test('two configs that alternate across launches both back off (#441)', async () => {
+    const OTHER = { ...CONFIGURED, defaultDatabase: 'other' };
+    failNext = [true, true, true, true, true, true];
+    for (let i = 0; i < 3; i++) {
+      await launch(CONFIGURED);
+      await launch(OTHER);
+    }
+    expect(initCalls).toHaveLength(6);
+    await launch(CONFIGURED);
+    await launch(OTHER);
+    expect(initCalls).toHaveLength(6); // both skipped
+  });
+
+  test('a successful auto-connect of one config keeps the streak of another (#441)', async () => {
+    const OTHER = { ...CONFIGURED, defaultDatabase: 'other' };
+    failNext = [true, true, true];
+    for (let i = 0; i < 3; i++) await launch(CONFIGURED);
+    const ok = await launch(OTHER);
+    expect(ok.isError).toBeFalsy();
+    expect(initCalls).toHaveLength(4);
+    await launch(CONFIGURED); // still paused
+    expect(initCalls).toHaveLength(4);
   });
 
   test('changing the auto-connect database retries immediately', async () => {
