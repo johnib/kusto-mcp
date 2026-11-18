@@ -19,6 +19,7 @@ import {
 } from './common/telemetry.js';
 import {
   parseAuthMethod,
+  parseBoolSetting,
   parseIntSetting,
   withScheme,
 } from './common/config-parse.js';
@@ -75,47 +76,41 @@ if (process.env.KUSTO_RESPONSE_FORMAT) {
 }
 
 // Determine query statistics feature flag from environment variables
-let enableQueryStatistics = false; // Default to false for backward compatibility
-if (process.env.KUSTO_ENABLE_QUERY_STATISTICS) {
-  const value = process.env.KUSTO_ENABLE_QUERY_STATISTICS.toLowerCase();
-  enableQueryStatistics = value === 'true' || value === '1' || value === 'yes';
-  if (enableQueryStatistics) {
-    criticalLog('Query statistics extraction enabled');
-  } else {
-    criticalLog('Query statistics extraction disabled');
-  }
-} else {
-  criticalLog('Query statistics extraction disabled by default');
-}
+// (default off for backward compatibility).
+const enableQueryStatistics = parseBoolSetting(
+  'KUSTO_ENABLE_QUERY_STATISTICS',
+  process.env.KUSTO_ENABLE_QUERY_STATISTICS,
+  configWarnings,
+  { unset: false, unknown: false },
+);
+criticalLog(
+  enableQueryStatistics
+    ? 'Query statistics extraction enabled'
+    : 'Query statistics extraction disabled',
+);
 
-// Determine prompts feature flag from environment variables
-let enablePrompts = true; // Default to true for new functionality
-if (process.env.KUSTO_ENABLE_PROMPTS) {
-  const value = process.env.KUSTO_ENABLE_PROMPTS.toLowerCase();
-  enablePrompts = value === 'true' || value === '1' || value === 'yes';
-  if (enablePrompts) {
-    criticalLog('MCP prompts enabled');
-  } else {
-    criticalLog('MCP prompts disabled');
-  }
-} else {
-  criticalLog('MCP prompts enabled by default');
-}
+// Determine prompts feature flag from environment variables (default on).
+const enablePrompts = parseBoolSetting(
+  'KUSTO_ENABLE_PROMPTS',
+  process.env.KUSTO_ENABLE_PROMPTS,
+  configWarnings,
+  { unset: true, unknown: false },
+);
+criticalLog(enablePrompts ? 'MCP prompts enabled' : 'MCP prompts disabled');
 
 // Determine read-only enforcement from environment variables. Writes are
-// allowed by default; set KUSTO_ALLOW_WRITE_OPERATIONS=false to run read-only.
-let allowWriteOperations = true;
-if (process.env.KUSTO_ALLOW_WRITE_OPERATIONS) {
-  const value = process.env.KUSTO_ALLOW_WRITE_OPERATIONS.toLowerCase();
-  allowWriteOperations = !(
-    value === 'false' ||
-    value === '0' ||
-    value === 'no'
-  );
-}
+// allowed when unset; false/0/no/off/n/disabled run read-only. An
+// unrecognised value also runs read-only (with a warning): a user who set the
+// variable most likely meant to restrict writes (#287).
+const allowWriteOperations = parseBoolSetting(
+  'KUSTO_ALLOW_WRITE_OPERATIONS',
+  process.env.KUSTO_ALLOW_WRITE_OPERATIONS,
+  configWarnings,
+  { unset: true, unknown: false },
+);
 criticalLog(
   allowWriteOperations
-    ? 'Write/management commands enabled (default)'
+    ? 'Write/management commands enabled'
     : 'Running in READ-ONLY mode (write/management commands disabled)',
 );
 
