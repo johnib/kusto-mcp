@@ -999,7 +999,9 @@ export class KustoConnection {
           timedOutStep: timedOut
             ? failedStep === 'token'
               ? 'token'
-              : 'cluster'
+              : failedStep === 'metadata'
+                ? 'metadata'
+                : 'cluster'
             : undefined,
           tokenFailed: tokenAttrs['kustomcp.auth.token_acquired'] === false,
           authStage: tokenAttrs['kustomcp.auth.failure_stage'] as

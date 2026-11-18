@@ -21,7 +21,7 @@ export interface ConnectionHintInput {
   category: ConnectionFailureCategory;
   httpStatus?: number;
   /** Which step was running when the connect deadline fired. */
-  timedOutStep?: 'token' | 'cluster';
+  timedOutStep?: 'metadata' | 'token' | 'cluster';
   /** Bounded token-acquisition result from captureIdentity (no messages). */
   tokenFailed: boolean;
   authStage?: string;
@@ -100,6 +100,14 @@ export function connectionFailureHint(i: ConnectionHintInput): string {
         return hint(
           token,
           `No token within ${waited} – check that ${AZ_TOKEN_CHECK} works and how long it takes. If it is slow, raise KUSTO_CONNECTION_TIMEOUT; if it fails, run \`az login\` again.`,
+        );
+      }
+      // The first request to the cluster (cloud metadata) got no answer:
+      // usually a network path problem, sometimes just a slow one (#442).
+      if (i.timedOutStep === 'metadata') {
+        return hint(
+          reach,
+          `No response from ${i.clusterUrl} within ${waited} – this machine may not reach the cluster. Check your VPN, the cluster's private endpoint, your proxy (HTTPS_PROXY), DNS for ${host}, and ${urlSetting}. If the cluster is reachable but slow, raise KUSTO_CONNECTION_TIMEOUT.`,
         );
       }
       return hint(
