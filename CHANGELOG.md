@@ -1,3 +1,15 @@
+## [1.20.2](https://github.com/johnib/kusto-mcp/compare/v1.20.1...v1.20.2) (2026-11-18)
+
+
+### Bug Fixes
+
+* accept common argument aliases for show-table, show-function and initialize-connection ([#435](https://github.com/johnib/kusto-mcp/issues/435)) [skip ci] ([776f4db](https://github.com/johnib/kusto-mcp/commit/776f4db5fac16c6fa2cce82d9146bfea86e640ee))
+* accept show-tables and show-functions calls without arguments ([#433](https://github.com/johnib/kusto-mcp/issues/433)) [skip ci] ([b2c890b](https://github.com/johnib/kusto-mcp/commit/b2c890b2595ac7f6c6c8e67918223361812085b1))
+* recognise common off values for KUSTO_ALLOW_WRITE_OPERATIONS ([#439](https://github.com/johnib/kusto-mcp/issues/439)) [skip ci] ([1d44446](https://github.com/johnib/kusto-mcp/commit/1d444468cec6d2752a8a1afab19fafccc2b1bb4b))
+* separate token failures from HTTP failures on failed queries ([#440](https://github.com/johnib/kusto-mcp/issues/440)) ([fae6290](https://github.com/johnib/kusto-mcp/commit/fae62909a1a2ed81d21df5b924526aca77e8980f)), closes [#431](https://github.com/johnib/kusto-mcp/issues/431)
+* serialize debug-only log messages lazily ([#436](https://github.com/johnib/kusto-mcp/issues/436)) [skip ci] ([2f89436](https://github.com/johnib/kusto-mcp/commit/2f894366000bae6bbaf8284ff589f393a8d823c8))
+* validate execute-query limit and strip trailing semicolon ([#438](https://github.com/johnib/kusto-mcp/issues/438)) [skip ci] ([b02d199](https://github.com/johnib/kusto-mcp/commit/b02d19932cfd778c706bb07f92ba32b1a17a876f))
+
 ## [1.20.1](https://github.com/johnib/kusto-mcp/compare/v1.20.0...v1.20.1) (2026-10-31)
 
 
