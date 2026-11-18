@@ -206,14 +206,17 @@ export function azCliFailure(stderr: string): CredentialUnavailableError {
  *    first.
  *  - POSIX: the child was spawned detached (its own process group), so
  *    signalling -pid reaches the whole group.
+ *
+ * Returns the `taskkill` process on Windows (the kill is done only when it
+ * exits), and undefined on POSIX, where the kill is synchronous.
  */
 export function killProcessTree(
   child: ChildProcess,
   platform: NodeJS.Platform = process.platform,
-): void {
+): ChildProcess | undefined {
   const pid = child.pid;
   if (platform === 'win32') {
-    if (pid === undefined) return;
+    if (pid === undefined) return undefined;
     try {
       const systemRoot = process.env.SystemRoot || 'C:\\Windows';
       const killer = nodeSpawn(
@@ -222,15 +225,16 @@ export function killProcessTree(
         { stdio: 'ignore', windowsHide: true },
       );
       killer.on('error', () => {});
+      return killer;
     } catch {
       // Best effort; nothing else we can do.
     }
-    return;
+    return undefined;
   }
   try {
     if (pid !== undefined) {
       process.kill(-pid, 'SIGKILL');
-      return;
+      return undefined;
     }
   } catch {
     // Group already gone, or not a group leader — fall back to the child.
@@ -240,6 +244,95 @@ export function killProcessTree(
   } catch {
     // Already exited.
   }
+  return undefined;
+}
+
+/** Upper bound for the wait on `taskkill` during shutdown. */
+export const AZ_SHUTDOWN_KILL_WAIT_MS = 2000;
+
+// Every `az` we started whose process tree may still be alive: from spawn
+// until its 'close' (or a failed spawn's 'error'). A timed-out or aborted az
+// stays here until then, because its `taskkill` may not have finished yet.
+const runningAzChildren = new Set<ChildProcess>();
+// Set by killRunningAzChildren: the process is going down, start no more az.
+let shutdownStarted = false;
+
+/** Number of `az` processes started and not yet closed. */
+export function runningAzChildCount(): number {
+  return runningAzChildren.size;
+}
+
+/**
+ * Shutdown step (#443): kill the process tree of every running `az`, and stop
+ * new ones from starting. Without it, an `az` that runs when the client goes
+ * away outlives the server: it is in its own process group on POSIX, and on
+ * Windows the exit of a parent never ends its children.
+ *
+ * On Windows the returned promise waits for each `taskkill` to exit, for at
+ * most `waitMs`: `taskkill /T` walks the tree by parent pid, and the client
+ * often ends our own tree right after we exit. On POSIX the group kill is
+ * synchronous.
+ *
+ * Crash-path code: never throws, never rejects, always settles in `waitMs`.
+ */
+export function killRunningAzChildren(
+  waitMs: number = AZ_SHUTDOWN_KILL_WAIT_MS,
+  platform: NodeJS.Platform = process.platform,
+): Promise<void> {
+  return new Promise<void>(resolve => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = () => {
+      if (timer) clearTimeout(timer);
+      resolve();
+    };
+    try {
+      shutdownStarted = true;
+      let waiting = 0;
+      let allStarted = false;
+      const killerDone = () => {
+        waiting -= 1;
+        if (waiting === 0 && allStarted) done();
+      };
+      for (const child of [...runningAzChildren]) {
+        // Windows: the root already exited (a grandchild still holds its
+        // pipes). taskkill finds a tree by its live root, and the pid may
+        // belong to another process by now.
+        if (
+          platform === 'win32' &&
+          (child.exitCode != null || child.signalCode != null)
+        )
+          continue;
+        let killer: ChildProcess | undefined;
+        try {
+          killer = killProcessTree(child, platform);
+        } catch {
+          /* killProcessTree never throws; stay safe if that changes */
+        }
+        if (!killer) continue;
+        try {
+          let counted = false;
+          const once = () => {
+            if (counted) return;
+            counted = true;
+            killerDone();
+          };
+          killer.once('exit', once);
+          killer.once('error', once);
+          waiting += 1;
+        } catch {
+          /* cannot wait for this one; the bound below still holds */
+        }
+      }
+      allStarted = true;
+      if (waiting === 0) {
+        done();
+        return;
+      }
+      timer = setTimeout(done, waitMs);
+    } catch {
+      done();
+    }
+  });
 }
 
 function safeWorkingDir(): string {
@@ -327,6 +420,11 @@ export class AzCliCredential implements TokenCredential {
         reject(new AbortError('Token request was aborted.'));
         return;
       }
+      if (shutdownStarted) {
+        // The server is on its way out; an az started now would outlive it.
+        reject(new AbortError('The server is shutting down.'));
+        return;
+      }
       let child: ChildProcess;
       try {
         child = safeSpawn('az', args, {
@@ -349,6 +447,10 @@ export class AzCliCredential implements TokenCredential {
         );
         return;
       }
+
+      // Tracked until the tree is known gone, so shutdown can kill it (#443).
+      runningAzChildren.add(child);
+      const untrack = () => runningAzChildren.delete(child);
 
       const started = Date.now();
       let stdout = '';
@@ -378,6 +480,8 @@ export class AzCliCredential implements TokenCredential {
       child.stdout?.on('data', (d: string) => (stdout += d));
       child.stderr?.on('data', (d: string) => (stderr += d));
       child.on('error', (error: NodeJS.ErrnoException) => {
+        // No pid means the spawn failed: there is no process, and no 'close'.
+        if (child.pid === undefined) untrack();
         finish(
           error?.code === 'ENOENT'
             ? new CredentialUnavailableError(
@@ -388,7 +492,14 @@ export class AzCliCredential implements TokenCredential {
         );
       });
       child.on('close', (code: number | null) => {
+        untrack();
         if (settled) return;
+        if (shutdownStarted) {
+          // Most likely our own shutdown kill. Not a credential failure: a
+          // credential chain would go on and start its next process.
+          finish(new AbortError('The server is shutting down.'));
+          return;
+        }
         debugLog(
           `az get-access-token exited ${code} in ${Date.now() - started}ms`,
         );

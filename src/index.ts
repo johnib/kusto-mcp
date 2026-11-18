@@ -26,6 +26,7 @@ import {
 import { MIN_RESPONSE_LENGTH } from './common/response-limiter.js';
 import { configStateAttributes } from './common/config-state.js';
 import { createShutdown, settlePendingCancels } from './common/shutdown.js';
+import { killRunningAzChildren } from './auth/az-cli-credential.js';
 import { createKustoServer } from './server.js';
 import { VERSION } from './common/version.js';
 import {
@@ -244,9 +245,12 @@ const server = createKustoServer(config);
 // closing stdin. Closing the server first makes the SDK abort in-flight tool
 // calls, so a running execute-query sends `.cancel query` to the cluster
 // instead of being left running (#333); those requests get a short bounded
-// drain, then telemetry is flushed and the process exits. Never throws, and
-// always exits within the drain cap plus the telemetry flush bound.
+// drain, then telemetry is flushed and the process exits. A running `az` is
+// killed with its whole process tree, or it would outlive the server (#443).
+// Never throws, and always exits within the drain cap, the kill cap and the
+// telemetry flush bound.
 const shutdownAndExit = createShutdown({
+  killChildren: () => killRunningAzChildren(),
   closeServer: () => server.close(),
   drainCancels: settlePendingCancels,
   flushTelemetry: shutdownOtel,
