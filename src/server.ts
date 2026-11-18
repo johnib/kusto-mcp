@@ -99,16 +99,18 @@ const ExecuteQuerySchema = z.object({
       `Optional analytics hint: why you are running this query, e.g. ${QUERY_PURPOSES.join(', ')}. Omit if unsure. Never put query text or names here.`,
     ),
   query: z.string().describe('The query to execute'),
-  // Bounded so `| take <limit+1>` is always valid KQL (#292).
+  // A positive integer, so `| take <limit+1>` is always valid KQL (#292).
+  // No .max(): values above MAX_QUERY_LIMIT are clamped after parse, not
+  // rejected, because real callers send them and the response cap bounds
+  // the output anyway.
   limit: z
     .number()
     .int()
     .min(1)
-    .max(MAX_QUERY_LIMIT)
     .optional()
     .default(20)
     .describe(
-      `Maximum number of rows to return, 1 to ${MAX_QUERY_LIMIT} (default: 20)`,
+      `Maximum number of rows to return (default: 20, at most ${MAX_QUERY_LIMIT})`,
     ),
 });
 
@@ -760,7 +762,8 @@ export function createKustoServer(config: KustoConfig): Server {
               // skipped for control commands (".show ..."), which don't accept a
               // piped `| take`. Per Kusto semantics, when the query is sorted the
               // top rows are returned, so ordering is preserved.
-              const initialLimit = requestedLimit;
+              // Telemetry keeps the requested value; the take uses the clamp.
+              const initialLimit = Math.min(requestedLimit, MAX_QUERY_LIMIT);
               const modifiedQuery = appendRowLimit(
                 args.query,
                 initialLimit + 1,

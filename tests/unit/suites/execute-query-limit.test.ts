@@ -48,7 +48,7 @@ async function connect() {
 describe('execute-query limit validation (#292)', () => {
   beforeEach(() => mockedExecuteQuery.mockClear());
 
-  test.each([0, -1, -5, 2.5, 1e21, 10001])(
+  test.each([0, -1, -5, 2.5, 1e21])(
     'limit %p is rejected and no query runs',
     async limit => {
       const { client, close } = await connect();
@@ -69,6 +69,9 @@ describe('execute-query limit validation (#292)', () => {
     [undefined, 'T\n| take 21'],
     [1, 'T\n| take 2'],
     [10000, 'T\n| take 10001'],
+    // Above the cap: clamped to 10000, not rejected. Real callers send these.
+    [10001, 'T\n| take 10001'],
+    [50000, 'T\n| take 10001'],
   ])('limit %p appends a valid take', async (limit, expected) => {
     const { client, close } = await connect();
     try {
@@ -100,7 +103,7 @@ describe('execute-query limit validation (#292)', () => {
     }
   });
 
-  test('the tool schema advertises the bounds', async () => {
+  test('the tool schema has no 10000 maximum that clients would enforce', async () => {
     const { client, close } = await connect();
     try {
       const { tools } = await client.listTools();
@@ -111,7 +114,8 @@ describe('execute-query limit validation (#292)', () => {
       ).properties.limit;
       expect(limit.type).toBe('integer');
       expect(limit.minimum).toBe(1);
-      expect(limit.maximum).toBe(10000);
+      // zod's .int() adds only the safe-integer bound.
+      expect([undefined, Number.MAX_SAFE_INTEGER]).toContain(limit.maximum);
     } finally {
       await close();
     }
