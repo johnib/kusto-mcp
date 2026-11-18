@@ -110,5 +110,20 @@ describe('KQL Safety', () => {
     test('does not append take to control commands', () => {
       expect(appendRowLimit('.show tables', 21)).toBe('.show tables');
     });
+
+    // #292: `T;\n| take 21` makes `| take` its own statement, a syntax error.
+    test.each([
+      ['T;', 'T\n| take 21'],
+      ['T ;  \n\t', 'T\n| take 21'],
+      ['T;;', 'T\n| take 21'],
+      ['T | sort by x desc;', 'T | sort by x desc\n| take 21'],
+      ['let n = 5;\nT | take n;\n', 'let n = 5;\nT | take n\n| take 21'],
+    ])('strips a trailing ";" and whitespace: %j', (query, expected) => {
+      expect(appendRowLimit(query, 21)).toBe(expected);
+    });
+
+    test('keeps inner statement separators of a batch', () => {
+      expect(appendRowLimit('T1; T2', 21)).toBe('T1; T2\n| take 21');
+    });
   });
 });

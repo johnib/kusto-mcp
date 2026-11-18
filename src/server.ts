@@ -86,6 +86,8 @@ const ShowTableSchema = z.object({
   tableName: z.string().describe('The name of the table to get the schema for'),
 });
 
+const MAX_QUERY_LIMIT = 10000;
+
 const ExecuteQuerySchema = z.object({
   // Declared first so models fill it before writing the query. Deliberately a
   // plain string, not an enum: telemetry must never reject or alter a call.
@@ -98,11 +100,19 @@ const ExecuteQuerySchema = z.object({
       `Optional analytics hint: why you are running this query, e.g. ${QUERY_PURPOSES.join(', ')}. Omit if unsure. Never put query text or names here.`,
     ),
   query: z.string().describe('The query to execute'),
+  // A positive integer, so `| take <limit+1>` is always valid KQL (#292).
+  // No .max(): values above MAX_QUERY_LIMIT are clamped after parse, not
+  // rejected, because real callers send them and the response cap bounds
+  // the output anyway.
   limit: z
     .number()
+    .int()
+    .min(1)
     .optional()
     .default(20)
-    .describe('Maximum number of rows to return (default: 20)'),
+    .describe(
+      `Maximum number of rows to return (default: 20, at most ${MAX_QUERY_LIMIT})`,
+    ),
 });
 
 const PROGRESS_INTERVAL_MS = 15000;
@@ -712,7 +722,7 @@ export function createKustoServer(config: KustoConfig): Server {
                 }
                 throw error;
               }
-              const requestedLimit = args.limit || 20;
+              const requestedLimit = args.limit;
               // Record the limit and stamp the input-derived attributes before
               // any check that can throw (connection, read-only, execution), so
               // failed calls carry the same intent/session dimensions.
@@ -771,7 +781,8 @@ export function createKustoServer(config: KustoConfig): Server {
               // skipped for control commands (".show ..."), which don't accept a
               // piped `| take`. Per Kusto semantics, when the query is sorted the
               // top rows are returned, so ordering is preserved.
-              const initialLimit = requestedLimit;
+              // Telemetry keeps the requested value; the take uses the clamp.
+              const initialLimit = Math.min(requestedLimit, MAX_QUERY_LIMIT);
               const modifiedQuery = appendRowLimit(
                 args.query,
                 initialLimit + 1,
