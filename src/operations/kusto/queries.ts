@@ -2,6 +2,7 @@ import { SpanStatusCode, trace } from '@opentelemetry/api';
 import {
   carryNotQueryFault,
   extractKustoErrorMessage,
+  KustoAuthenticationError,
   KustoQueryCancelledError,
   KustoQueryError,
   KustoTimeoutError,
@@ -287,7 +288,14 @@ export async function executeQuery(
 
       recordSpanError(span, error);
 
-      if (error instanceof KustoTimeoutError) throw error;
+      // A failed token refresh keeps its class too: it carries its own fix,
+      // and is not a query error (#431).
+      if (
+        error instanceof KustoTimeoutError ||
+        error instanceof KustoAuthenticationError
+      ) {
+        throw error;
+      }
 
       const wrapped = new KustoQueryError(errorMessage);
       carryErrorRecording(error, wrapped);
@@ -407,7 +415,8 @@ export async function executeQueryWithTransformation(
         // Don't double-wrap if it's already a KustoQueryError from executeQuery
         if (
           error instanceof KustoQueryError ||
-          error instanceof KustoTimeoutError
+          error instanceof KustoTimeoutError ||
+          error instanceof KustoAuthenticationError
         ) {
           throw error;
         }

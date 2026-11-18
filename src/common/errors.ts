@@ -171,6 +171,24 @@ export const FAILURE_CATEGORIES = [
 ] as const;
 export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
 
+/**
+ * How far a failed query got, exported as `kustomcp.query.failure_stage`
+ * (#431). Tells a failed token refresh from a failed HTTP call:
+ *  - `not_started`: nothing was sent (not connected, cancelled first).
+ *  - `token_acquire`: the token request failed or was still running.
+ *  - `request`: the HTTP request got no response (socket error, deadline).
+ *  - `response`: the cluster answered with an error status or error body.
+ *  - `unknown`: none of the above could be told.
+ */
+export const QUERY_FAILURE_STAGES = [
+  'not_started',
+  'token_acquire',
+  'request',
+  'response',
+  'unknown',
+] as const;
+export type QueryFailureStage = (typeof QUERY_FAILURE_STAGES)[number];
+
 const FAILURE_CATEGORY = Symbol('kustomcp.failureCategory');
 
 export function setFailureCategory(

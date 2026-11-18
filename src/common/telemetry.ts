@@ -226,10 +226,19 @@ const EXCEPTION_RECORDED = Symbol('kustomcp.exceptionRecorded');
 /**
  * The `kustomcp.error.type` value for an error: its class name, except that a
  * "Connection not initialized" rejection is `NotInitialized` whatever class
- * carries it (McpError, or a KustoQueryError after re-wrapping).
+ * carries it (McpError, or a KustoQueryError after re-wrapping), and an axios
+ * error is `AxiosError` even when axios renamed it (#431).
  */
 export function errorTypeName(error: unknown): string {
   if (getFailureCategory(error) === 'not_connected') return 'NotInitialized';
+  // axios copies the wrapped socket error's name onto its own error
+  // (AxiosError.from), so a network failure would read as a plain `Error`.
+  if (
+    error instanceof Error &&
+    error.name === 'Error' &&
+    (error as { isAxiosError?: unknown }).isAxiosError === true
+  )
+    return 'AxiosError';
   return error instanceof Error && error.name ? error.name : 'Error';
 }
 
