@@ -34,10 +34,15 @@ export function installStderrErrorGuard(
  * Debug logging function that only prints when DEBUG_SERVER=1
  * Use for detailed debugging information
  *
- * @param message The message to log
+ * Pass a function when building the message is expensive (for example
+ * JSON.stringify of a query response). The function runs only when debug
+ * logging is on, so the cost is not paid on every call (#295).
+ *
+ * @param message The message to log, or a function that builds it
  */
-export function debugLog(message: string): void {
+export function debugLog(message: string | (() => string)): void {
   if (process.env.DEBUG_SERVER === '1') {
-    process.stderr.write(`${message}\n`);
+    const text = typeof message === 'function' ? message() : message;
+    process.stderr.write(`${text}\n`);
   }
 }

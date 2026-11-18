@@ -219,7 +219,8 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
     for (const result of primaryResults) {
       if (result.name && result.name.toLowerCase().includes('completion')) {
         debugLog(
-          `Found completion info in primaryResults: ${JSON.stringify(result)}`,
+          () =>
+            `Found completion info in primaryResults: ${JSON.stringify(result)}`,
         );
         // Extract any additional statistics if found
       }
@@ -228,11 +229,13 @@ function extractQueryStatistics(rawResult: KustoQueryResult): {
     // Look for dataSetCompletion which might contain timing info
     const dataSetCompletion = rawAny.dataSetCompletion;
     if (dataSetCompletion) {
-      debugLog(`DataSetCompletion found: ${JSON.stringify(dataSetCompletion)}`);
+      debugLog(
+        () => `DataSetCompletion found: ${JSON.stringify(dataSetCompletion)}`,
+      );
       // Some Kusto responses include timing in dataSetCompletion
     }
 
-    debugLog(`Extracted statistics: ${JSON.stringify(statistics)}`);
+    debugLog(() => `Extracted statistics: ${JSON.stringify(statistics)}`);
   } catch (error) {
     debugLog(`Error extracting query statistics: ${error}`);
   }
@@ -323,7 +326,7 @@ export function transformQueryResult(
   const columns = primaryResult.columns || [];
 
   debugLog(`Found ${rawRows.length} rows and ${columns.length} columns`);
-  debugLog(`Columns: ${JSON.stringify(columns)}`);
+  debugLog(() => `Columns: ${JSON.stringify(columns)}`);
 
   // Transform raw array data to objects using ONLY column metadata
   const transformedRows = rawRows.map((row: unknown[]) => {

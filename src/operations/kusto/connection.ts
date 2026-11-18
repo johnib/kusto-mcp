@@ -1006,7 +1006,9 @@ export class KustoConnection {
               });
           });
 
-          debugLog(`Raw Kusto Response: ${JSON.stringify(rawResult, null, 2)}`);
+          debugLog(
+            () => `Raw Kusto Response: ${JSON.stringify(rawResult, null, 2)}`,
+          );
 
           // Convert the result to a JSON-friendly format
           // Cast the result to KustoQueryResult type
