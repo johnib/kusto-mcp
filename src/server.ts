@@ -27,6 +27,7 @@ import {
   setFailureCategory,
   withTimeoutHint,
 } from './common/errors.js';
+import { applyArgAliases, hasArgAliases } from './common/arg-aliases.js';
 import { MAX_TIMEOUT_MS } from './common/config-state.js';
 import { criticalLog, debugLog } from './common/utils.js';
 import {
@@ -575,6 +576,18 @@ export function createKustoServer(config: KustoConfig): Server {
             throw new McpError(
               ErrorCode.InvalidParams,
               'Arguments are required',
+            );
+          }
+
+          // Map common argument aliases to the canonical key (#432). Only the
+          // bounded boolean goes to telemetry, never the names or values.
+          if (hasArgAliases(toolName)) {
+            const aliased = applyArgAliases(toolName, request.params.arguments);
+            request.params.arguments =
+              aliased.args as typeof request.params.arguments;
+            span.setAttribute(
+              'kustomcp.tool.arg_alias_used',
+              aliased.aliasUsed,
             );
           }
 
