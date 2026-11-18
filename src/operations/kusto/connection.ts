@@ -919,10 +919,17 @@ export class KustoConnection {
         // A fired deadline is definitively a timeout, regardless of the wrapped
         // error's shape.
         const category = timedOut ? 'timeout' : classified.category;
-        const outcome = connectionOutcome(category, timedOut);
+        // az killed on its own process bound is a timeout too (#444), as it
+        // was before az failures got a reason. failure_category stays 'auth'
+        // so the hint still names the az timeout, not the cluster.
+        const azTimedOut = tokenAttrs['kustomcp.auth.az_reason'] === 'timeout';
+        const outcome = connectionOutcome(category, timedOut || azTimedOut);
         span.setAttribute('kustomcp.connection.failure_category', category);
         span.setAttribute('kustomcp.connection.outcome', outcome);
-        span.setAttribute('kustomcp.connection.timed_out', timedOut);
+        span.setAttribute(
+          'kustomcp.connection.timed_out',
+          timedOut || azTimedOut,
+        );
         span.setAttribute(
           'kustomcp.connection.duration_ms',
           Date.now() - startedAt,
