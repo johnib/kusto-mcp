@@ -80,6 +80,7 @@ import {
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import * as telemetry from '../../../src/common/telemetry.js';
 import { KustoConnection } from '../../../src/operations/kusto/connection.js';
 import { AuthenticationMethod } from '../../../src/types/config.js';
 
@@ -211,6 +212,46 @@ test("an az timeout on the SDK's validation request is a token failure, not a cl
   const attrs = initSpan();
   expect(attrs['kustomcp.connection.failed_step']).toBe('token');
   expect(attrs['kustomcp.connection.failure_category']).toBe('auth');
-  expect(attrs['kustomcp.connection.outcome']).toBe('auth_error');
+  // An az timeout is a connection timeout (#444).
+  expect(attrs['kustomcp.connection.outcome']).toBe('timeout');
+  expect(attrs['kustomcp.connection.timed_out']).toBe(true);
   expect(attrs['kustomcp.auth.az_reason']).toBe('timeout');
+});
+
+test('az killed on its own process timeout reports outcome=timeout, keeps the az hint (#444)', async () => {
+  // What the runner throws when its fixed bound (not the deadline) fires.
+  tokenError = Object.assign(new Error('az timed out'), {
+    name: 'CredentialUnavailableError',
+    azReason: 'timeout',
+  });
+  const record = jest.spyOn(telemetry.connectionDurationHistogram, 'record');
+  try {
+    const err = await connect(5000);
+    expect(err.message).toMatch(/Failed step: getting an Azure token/);
+    expect(err.message).toMatch(/Azure CLI did not return a token in time/);
+    const attrs = initSpan();
+    expect(attrs['kustomcp.connection.outcome']).toBe('timeout');
+    expect(attrs['kustomcp.connection.timed_out']).toBe(true);
+    expect(attrs['kustomcp.connection.failure_category']).toBe('auth');
+    expect(attrs['kustomcp.connection.failed_step']).toBe('token');
+    expect(attrs['kustomcp.auth.az_reason']).toBe('timeout');
+    expect(attrs['kustomcp.auth.failure_stage']).toBe('credential_unavailable');
+    expect(record).toHaveBeenCalledWith(
+      expect.any(Number),
+      expect.objectContaining({ outcome: 'timeout' }),
+    );
+  } finally {
+    record.mockRestore();
+  }
+});
+
+test('an az failure for another reason stays outcome=auth_error', async () => {
+  tokenError = Object.assign(new Error('az not logged in'), {
+    name: 'CredentialUnavailableError',
+    azReason: 'not_logged_in',
+  });
+  await connect(5000);
+  const attrs = initSpan();
+  expect(attrs['kustomcp.connection.outcome']).toBe('auth_error');
+  expect(attrs['kustomcp.connection.timed_out']).toBe(false);
 });
