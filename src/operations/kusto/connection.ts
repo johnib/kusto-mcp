@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { GetTokenOptions, TokenCredential } from '@azure/identity';
 import { Span, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
@@ -25,6 +26,7 @@ import {
   KustoQueryCancelledError,
   KustoTimeoutError,
   markNotQueryFault,
+  QueryFailureStage,
   setFailureCategory,
 } from '../../common/errors.js';
 import { MAX_TIMEOUT_MS } from '../../common/config-state.js';
@@ -49,6 +51,7 @@ import {
   connectionDurationHistogram,
   connectionFailuresCounter,
   emitLog,
+  errorTypeName,
   queriesCounter,
   queryDurationHistogram,
   recordSpanError,
@@ -166,6 +169,13 @@ function classifyConnectionFailure(error: unknown): {
       case 'ETIMEDOUT':
       case 'ECONNABORTED':
         return { category: 'timeout' };
+      // The connection broke or the host can't be reached (#431).
+      case 'ECONNRESET':
+      case 'EPIPE':
+      case 'ENETUNREACH':
+      case 'EHOSTUNREACH':
+      case 'ENETDOWN':
+        return { category: 'network' };
     }
     // Node TLS error CODES (e.g. CERT_HAS_EXPIRED,
     // UNABLE_TO_VERIFY_LEAF_SIGNATURE) — the code, never the message.
@@ -241,6 +251,131 @@ function classifyQueryFailure(
       : 'other';
   })();
   return { category, httpStatus };
+}
+
+/**
+ * Per-query state the SDK's token request can reach: it runs inside
+ * client.execute(), so only this async context ties it to its query.
+ */
+interface QueryTokenState {
+  /** Token requests of this query still running. */
+  tokenPending: number;
+  /** The query gave up (deadline or cancel): a late token must not send it. */
+  abandoned: boolean;
+}
+const queryTokenState = new AsyncLocalStorage<QueryTokenState>();
+
+/**
+ * azure-kusto-data (7.2.0) reports errors found in an HTTP 200 body, and a
+ * body it can't parse, as a plain Error with one of these message prefixes
+ * (client.js `_parseResponse`). Read locally to pick a stage, never exported.
+ */
+const SDK_RESPONSE_ERROR_PREFIXES = [
+  'Kusto request had errors.',
+  'Failed to parse response',
+];
+
+/**
+ * How far a failed query got (see QueryFailureStage). Reads the error class,
+ * the HTTP status, axios's own flag and network code — the message only to
+ * match the SDK's two fixed prefixes. azure-kusto-data wraps every token
+ * failure as its KustoAuthenticationError (security.js `getAuthHeader`), so
+ * that class name is the token stage. Never throws.
+ */
+function classifyQueryFailureStage(
+  error: unknown,
+  o: { started: boolean; tokenPending: boolean },
+): QueryFailureStage {
+  try {
+    if (!o.started) return 'not_started';
+    const e = error as {
+      name?: unknown;
+      code?: unknown;
+      isAxiosError?: unknown;
+      message?: unknown;
+      response?: { status?: unknown };
+      inner?: { response?: { status?: unknown } };
+      cause?: { code?: unknown };
+    };
+    if (e?.name === 'KustoAuthenticationError') return 'token_acquire';
+    // Our own deadline or a client cancel: what was it waiting on?
+    if (
+      error instanceof KustoTimeoutError ||
+      error instanceof KustoQueryCancelledError
+    )
+      return o.tokenPending ? 'token_acquire' : 'request';
+    // ThrottlingError is the SDK's wrapper around a 429 response.
+    if (
+      typeof e?.response?.status === 'number' ||
+      typeof e?.inner?.response?.status === 'number' ||
+      e?.name === 'ThrottlingError'
+    )
+      return 'response';
+    if (
+      e?.isAxiosError === true ||
+      typeof e?.code === 'string' ||
+      typeof e?.cause?.code === 'string'
+    )
+      return 'request';
+    const message = e?.message;
+    if (
+      typeof message === 'string' &&
+      SDK_RESPONSE_ERROR_PREFIXES.some(p => message.startsWith(p))
+    )
+      return 'response';
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Network error codes we export as-is on a failed query that got no HTTP
+ * response. Codes are fixed Node/axios identifiers, but only these leave the
+ * process; anything else is 'other'.
+ */
+const NETWORK_ERROR_CODES: ReadonlySet<string> = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ECONNABORTED',
+  'ETIMEDOUT',
+  'EPIPE',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'ENETDOWN',
+  'EADDRNOTAVAIL',
+  'ERR_NETWORK',
+  'ERR_CANCELED',
+  'ERR_BAD_RESPONSE',
+  'ERR_BAD_REQUEST',
+  'ERR_FR_TOO_MANY_REDIRECTS',
+  'ERR_SOCKET_CONNECTION_TIMEOUT',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+  'CERT_HAS_EXPIRED',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+]);
+
+/**
+ * The error's network code, bounded by NETWORK_ERROR_CODES. The cause is the
+ * original socket error, so it wins over the code axios put on top. Never
+ * throws.
+ */
+function networkErrorCode(error: unknown): string | undefined {
+  try {
+    const e = error as { code?: unknown; cause?: { code?: unknown } };
+    const code = [e?.cause?.code, e?.code].find(
+      (c): c is string => typeof c === 'string',
+    );
+    if (code === undefined) return undefined;
+    return NETWORK_ERROR_CODES.has(code) ? code : 'other';
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -362,6 +497,10 @@ export class KustoConnection {
   private database: string | null = null;
   // Cluster + database once connected. Compared only, never exported or hashed.
   private target: string | undefined;
+  // The connected cluster and how it was connected, for the fix shown to
+  // the user when a query fails. Never exported.
+  private clusterUrl = '';
+  private source: 'auto' | 'manual' = 'manual';
   private config: KustoConfig;
   private tokenCredential: TokenCredential;
   // Set after a 401 on an az token from the default tenant: this
@@ -378,6 +517,9 @@ export class KustoConnection {
       // Only a connect's requests: its deadline aborts every one of them.
       const counted = this.connectBounds !== undefined;
       if (counted) this.tokenRequestsPending++;
+      // A query's own request (the SDK asks from inside client.execute).
+      const queryState = queryTokenState.getStore();
+      if (queryState) queryState.tokenPending++;
       return this.tokenCredential
         .getToken(scopes, {
           // During a connect, a request without its own bounds (the SDK's,
@@ -391,6 +533,16 @@ export class KustoConnection {
           [OBSERVE]: this.observed,
           ...(this.subscriptionTenant && { [SUBSCRIPTION_TENANT]: true }),
         } as GetTokenOptions)
+        .then(token => {
+          // The query already failed as "not sent": keep that true, so a
+          // retried command can't run twice.
+          if (queryState?.abandoned) {
+            throw Object.assign(new Error('The query was abandoned.'), {
+              name: 'AbortError',
+            });
+          }
+          return token;
+        })
         .catch(error => {
           // Remembered for the connect's failure classification.
           if (this.connectBounds && (error as Error)?.name !== 'AbortError')
@@ -399,6 +551,7 @@ export class KustoConnection {
         })
         .finally(() => {
           if (counted) this.tokenRequestsPending--;
+          if (queryState) queryState.tokenPending--;
         });
     },
   };
@@ -667,6 +820,8 @@ export class KustoConnection {
         // Only set the instance variables after successful validation
         this.client = validated;
         this.database = database;
+        this.clusterUrl = clusterUrl;
+        this.source = source;
 
         debugLog('Connection initialized successfully');
         // Record duration BEFORE markConnected so its one-time sync I/O (first
@@ -791,7 +946,7 @@ export class KustoConnection {
         }
         connectionFailuresCounter.add(1, {
           source,
-          error_type: error instanceof Error ? error.name : 'unknown',
+          error_type: error instanceof Error ? errorTypeName(error) : 'unknown',
           failure_category: category,
         });
         connectionDurationHistogram.record(Date.now() - startedAt, {
@@ -805,7 +960,7 @@ export class KustoConnection {
           'kustomcp.connection.source': source,
           'kustomcp.connection.failure_category': category,
           'kustomcp.error.type':
-            error instanceof Error ? error.name : 'unknown',
+            error instanceof Error ? errorTypeName(error) : 'unknown',
         });
 
         // The SDK drops the socket error code on its cloud-metadata lookup,
@@ -913,6 +1068,13 @@ export class KustoConnection {
         // Tracks whether OUR client-side timeout fired (vs a server timeout),
         // without reading the error message.
         let clientTimedOut = false;
+        // Whether client.execute was called, and this query's token requests.
+        let started = false;
+        const tokenState: QueryTokenState = {
+          tokenPending: 0,
+          abandoned: false,
+        };
+        const timeout = this.config.queryTimeout || 120000;
 
         try {
           if (!this.client) {
@@ -927,8 +1089,6 @@ export class KustoConnection {
 
           debugLog(`Executing query on database ${database}: ${query}`);
 
-          // Set timeout from config
-          const timeout = this.config.queryTimeout || 120000;
           span.setAttribute('kustomcp.query.timeout_ms', timeout);
 
           // Tell the server to stop at the same deadline (Kusto caps
@@ -948,7 +1108,10 @@ export class KustoConnection {
           // Execute the query with timeout, ensuring timeout handle is always cleared
           let timeoutHandle: NodeJS.Timeout;
           const client = this.client;
-          const queryPromise = client.execute(database, query, props);
+          started = true;
+          const queryPromise = queryTokenState.run(tokenState, () =>
+            client.execute(database, query, props),
+          );
 
           const rawResult = await new Promise((resolve, reject) => {
             // The client cancelled the tool call: stop waiting and ask the
@@ -1033,6 +1196,10 @@ export class KustoConnection {
             error,
             clientTimedOut,
           );
+          // Read before the flag below can settle the token request.
+          const tokenPending = tokenState.tokenPending > 0;
+          // We stop waiting here; a token that arrives later sends nothing.
+          tokenState.abandoned = true;
 
           criticalLog(`Failed to execute query: ${errorMessage}`);
 
@@ -1045,6 +1212,37 @@ export class KustoConnection {
           if (failure.httpStatus !== undefined) {
             span.setAttribute('kustomcp.http.status_code', failure.httpStatus);
           }
+          // Token phase or HTTP phase (#431), and for a call that got no
+          // response, the bounded network code.
+          const stage = classifyQueryFailureStage(error, {
+            started,
+            tokenPending,
+          });
+          span.setAttribute('kustomcp.query.failure_stage', stage);
+          // Not for an HTTP error status: there the status says it all. A
+          // body cut off after a 200 still carries the socket code.
+          const noErrorStatus =
+            failure.httpStatus === undefined || failure.httpStatus < 400;
+          if (noErrorStatus && (stage === 'request' || stage === 'response')) {
+            const networkCode = networkErrorCode(error);
+            if (networkCode !== undefined) {
+              span.setAttribute('kustomcp.error.code', networkCode);
+            }
+          }
+          // The token request failed, or our deadline fired while it still
+          // ran: an authentication failure with its own fix, not a query
+          // error or a query timeout. A client cancel stays a cancel.
+          const tokenFailure =
+            stage === 'token_acquire' && outcome !== 'cancelled_by_client'
+              ? this.queryTokenFailure(
+                  span,
+                  error,
+                  errorMessage,
+                  database,
+                  timeout,
+                )
+              : undefined;
+          if (tokenFailure) setFailureCategory(tokenFailure, failure.category);
           // A 401 here means the cluster now rejects the cached token (e.g.
           // it was revoked): drop it, so a reconnect after `az login` gets a
           // new one. The cache is shared by the whole process.
@@ -1068,14 +1266,16 @@ export class KustoConnection {
           // KustoTimeoutError too, so users and error.type see a timeout
           // rather than a generic query error.
           const serverTimeout =
-            outcome === 'timeout' && !(error instanceof KustoTimeoutError)
+            !tokenFailure &&
+            outcome === 'timeout' &&
+            !(error instanceof KustoTimeoutError)
               ? new KustoTimeoutError(errorMessage)
               : undefined;
           if (serverTimeout) setFailureCategory(serverTimeout, 'timeout');
           // A client cancel is not a failure (#366): it keeps its outcome but
           // gets no ERROR status or error.type.
           if (outcome !== 'cancelled_by_client') {
-            recordSpanError(span, serverTimeout ?? error);
+            recordSpanError(span, tokenFailure ?? serverTimeout ?? error);
           }
           queriesCounter.add(1, {
             operation,
@@ -1085,6 +1285,11 @@ export class KustoConnection {
             operation,
             outcome,
           });
+
+          if (tokenFailure) {
+            markNotQueryFault(tokenFailure);
+            throw tokenFailure;
+          }
 
           // Our own timeout / client cancel keep their type so callers
           // report them as such. Neither is a fault in the query text, so
@@ -1104,7 +1309,29 @@ export class KustoConnection {
 
           // Don't wrap as KustoQueryError here since queries.ts will handle it
           // Just rethrow with the detailed error message
-          const customError = new Error(errorMessage);
+          // A call that never reached the cluster gets the same fix a failed
+          // connect does (network / VPN / proxy / DNS / TLS).
+          const connectCategory = classifyConnectionFailure(error).category;
+          let networkHint: string | undefined;
+          try {
+            if (failure.category === 'network' && noErrorStatus) {
+              networkHint = connectionFailureHint({
+                // A socket ETIMEDOUT: there is no deadline of ours to name.
+                category:
+                  connectCategory === 'timeout' ? 'network' : connectCategory,
+                tokenFailed: false,
+                source: this.source,
+                clusterUrl: this.clusterUrl,
+                database,
+                timeoutMs: timeout,
+              });
+            }
+          } catch {
+            /* the hint is optional; keep the original error */
+          }
+          const customError = new Error(
+            networkHint ? `${errorMessage}\n${networkHint}` : errorMessage,
+          );
           carryErrorRecording(error, customError);
           setFailureCategory(customError, failure.category);
           if (
@@ -1114,9 +1341,7 @@ export class KustoConnection {
             // A 400 that isn't a KQL error (e.g. a missing database).
             (failure.httpStatus === 400 &&
               failure.category !== 'query_semantic') ||
-            NOT_QUERY_FAULT_CATEGORIES.has(
-              classifyConnectionFailure(error).category,
-            )
+            NOT_QUERY_FAULT_CATEGORIES.has(connectCategory)
           ) {
             markNotQueryFault(customError);
           }
@@ -1125,6 +1350,68 @@ export class KustoConnection {
           span.end();
         }
       },
+    );
+  }
+
+  /**
+   * The error for a query whose token request failed, or was still running
+   * when the query deadline fired (#431): a KustoAuthenticationError with the
+   * same fix a failed connect shows. Stamps the bounded auth attributes on
+   * the span; the message goes to the tool result only.
+   */
+  private queryTokenFailure(
+    span: Span,
+    error: unknown,
+    errorMessage: string,
+    database: string,
+    queryTimeoutMs: number,
+  ): KustoAuthenticationError {
+    // Our deadline fired mid-request: there is no token error to classify.
+    const timedOut = error instanceof KustoTimeoutError;
+    let tokenAttrs: Record<string, unknown> = {};
+    try {
+      if (!timedOut) {
+        // The SDK keeps the credential's own error under `inner`.
+        tokenAttrs = classifyAuthError(
+          (error as { inner?: unknown })?.inner ?? error,
+        );
+        for (const [k, v] of Object.entries(tokenAttrs)) {
+          if (v !== undefined && v !== null)
+            span.setAttribute(k, v as string | number | boolean);
+        }
+      }
+    } catch {
+      /* telemetry only */
+    }
+    // The query deadline is not a connect setting, so that case has its own
+    // text; a failed request gets the fix a failed connect shows.
+    let hint =
+      'Failed step: getting an Azure token. Check that `az account get-access-token --resource https://kusto.kusto.windows.net` works and how long it takes. If it fails, run `az login` again, then run the query again.';
+    try {
+      if (!timedOut) {
+        hint = connectionFailureHint({
+          category: 'auth',
+          tokenFailed: true,
+          authStage: tokenAttrs['kustomcp.auth.failure_stage'] as
+            string | undefined,
+          aadsts: tokenAttrs['kustomcp.auth.aadsts'] as string | undefined,
+          azReason: tokenAttrs['kustomcp.auth.az_reason'] as string | undefined,
+          authMethod: this.config.authMethod,
+          source: this.source,
+          clusterUrl: this.clusterUrl,
+          database,
+          timeoutMs: queryTimeoutMs,
+        });
+      }
+    } catch {
+      /* keep the generic fix */
+    }
+    return new KustoAuthenticationError(
+      `${
+        timedOut
+          ? `No Azure token after ${queryTimeoutMs}ms; the query was not sent`
+          : `The Azure token could not be refreshed; the query was not sent. ${errorMessage}`
+      }\n${hint}`,
     );
   }
 

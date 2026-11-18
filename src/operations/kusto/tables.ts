@@ -1,5 +1,6 @@
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import {
+  KustoAuthenticationError,
   KustoQueryError,
   KustoResourceNotFoundError,
   KustoTimeoutError,
@@ -115,7 +116,13 @@ export async function showTables(
 
       recordSpanError(span, error);
 
-      if (error instanceof KustoTimeoutError) throw error;
+      // A failed token refresh keeps its class, like a timeout (#431).
+      if (
+        error instanceof KustoTimeoutError ||
+        error instanceof KustoAuthenticationError
+      ) {
+        throw error;
+      }
 
       const wrapped = new KustoQueryError(
         `Failed to list tables: ${errorMessage}`,
@@ -216,7 +223,8 @@ export async function showTable(
 
       if (
         error instanceof KustoResourceNotFoundError ||
-        error instanceof KustoTimeoutError
+        error instanceof KustoTimeoutError ||
+        error instanceof KustoAuthenticationError
       ) {
         throw error;
       }
@@ -306,7 +314,13 @@ export async function showFunctions(
 
       recordSpanError(span, error);
 
-      if (error instanceof KustoTimeoutError) throw error;
+      // A failed token refresh keeps its class, like a timeout (#431).
+      if (
+        error instanceof KustoTimeoutError ||
+        error instanceof KustoAuthenticationError
+      ) {
+        throw error;
+      }
 
       const wrapped = new KustoQueryError(
         `Failed to list functions: ${errorMessage}`,
@@ -412,7 +426,8 @@ export async function showFunction(
 
       if (
         error instanceof KustoResourceNotFoundError ||
-        error instanceof KustoTimeoutError
+        error instanceof KustoTimeoutError ||
+        error instanceof KustoAuthenticationError
       ) {
         throw error;
       }
