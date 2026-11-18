@@ -570,8 +570,14 @@ export function createKustoServer(config: KustoConfig): Server {
       try {
         const result = await (async () => {
           // execute-query checks this itself so the failure keeps its
-          // invalid-args telemetry (#318).
-          if (!request.params.arguments && toolName !== 'execute-query') {
+          // invalid-args telemetry (#318). `arguments` is optional in MCP, so
+          // the no-parameter tools accept a call without it (#291).
+          if (
+            !request.params.arguments &&
+            toolName !== 'execute-query' &&
+            toolName !== 'show-tables' &&
+            toolName !== 'show-functions'
+          ) {
             throw new McpError(
               ErrorCode.InvalidParams,
               'Arguments are required',
@@ -629,7 +635,7 @@ export function createKustoServer(config: KustoConfig): Server {
             }
 
             case 'show-tables': {
-              ShowTablesSchema.parse(request.params.arguments);
+              ShowTablesSchema.parse(request.params.arguments ?? {});
               const result = await showTables(await requireConnection());
               return {
                 content: [
@@ -652,7 +658,7 @@ export function createKustoServer(config: KustoConfig): Server {
             }
 
             case 'show-functions': {
-              ShowFunctionsSchema.parse(request.params.arguments);
+              ShowFunctionsSchema.parse(request.params.arguments ?? {});
               const result = await showFunctions(await requireConnection());
               return {
                 content: [
