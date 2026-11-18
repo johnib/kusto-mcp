@@ -43,6 +43,13 @@ untrusted input — set `KUSTO_ALLOW_WRITE_OPERATIONS=false`. In read-only mode
 only plain KQL queries and `.show` commands are permitted; all other
 control/management commands are rejected.
 
+The value is case-insensitive and may carry surrounding spaces, quotes or an
+inline `# comment`. `false`, `0`, `no`, `off`, `n` and `disabled` run
+read-only; `true`, `1`, `yes`, `on`, `y` and `enabled` allow writes; unset or
+empty allows writes. Any other value runs read-only and logs a warning to
+stderr. The same values work for `KUSTO_ENABLE_PROMPTS` and
+`KUSTO_ENABLE_QUERY_STATISTICS`.
+
 ## Authentication Methods
 
 ### Azure CLI Authentication (Recommended)

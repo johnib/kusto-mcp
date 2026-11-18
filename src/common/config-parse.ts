@@ -49,3 +49,33 @@ export function parseAuthMethod(
   );
   return AuthenticationMethod.AzureIdentity;
 }
+
+const TRUE_VALUES = ['true', '1', 'yes', 'on', 'y', 'enabled'];
+const FALSE_VALUES = ['false', '0', 'no', 'off', 'n', 'disabled'];
+
+/**
+ * A boolean flag. Case, whitespace and quote characters are ignored, and an
+ * inline `# comment` is dropped (Docker `--env-file` keeps both in the value).
+ * Unset or empty gives `unset`; any other unrecognised value gives `unknown`,
+ * with a warning (#287).
+ */
+export function parseBoolSetting(
+  name: string,
+  raw: string | undefined,
+  warnings: string[],
+  { unset, unknown }: { unset: boolean; unknown: boolean },
+): boolean {
+  const value = (raw ?? '')
+    .replace(/["']/g, '')
+    .split('#')[0]
+    .trim()
+    .toLowerCase();
+  if (!value) return unset;
+  if (TRUE_VALUES.includes(value)) return true;
+  if (FALSE_VALUES.includes(value)) return false;
+  warnings.push(
+    `${name}=${JSON.stringify(raw?.trim())} is not one of ${TRUE_VALUES.join(', ')} or ` +
+      `${FALSE_VALUES.join(', ')}; using ${unknown}.`,
+  );
+  return unknown;
+}

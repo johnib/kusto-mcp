@@ -9,6 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import {
   parseAuthMethod,
+  parseBoolSetting,
   parseIntSetting,
   withScheme,
 } from '../../../src/common/config-parse.js';
@@ -99,6 +100,100 @@ describe('parseAuthMethod', () => {
     const warnings: string[] = [];
     expect(parseAuthMethod(raw, warnings)).toBe(method);
     expect(warnings).toHaveLength(warningCount);
+  });
+});
+
+describe('parseBoolSetting (#287)', () => {
+  const writeOps = (raw: string | undefined, warnings: string[] = []) =>
+    parseBoolSetting('KUSTO_ALLOW_WRITE_OPERATIONS', raw, warnings, {
+      unset: true,
+      unknown: false,
+    });
+
+  test.each([
+    [undefined],
+    [''],
+    ['   '],
+    ['true'],
+    ['TRUE'],
+    ['1'],
+    ['yes'],
+    ['on'],
+    ['y'],
+    ['enabled'],
+    ['true # allow writes'],
+    ['"true"'],
+    ["'yes'"],
+    ['""'],
+    ['"true # allow"'],
+    ['# only a comment'],
+  ])('%p keeps writes on, with no warning', (raw) => {
+    const warnings: string[] = [];
+    expect(writeOps(raw, warnings)).toBe(true);
+    expect(warnings).toEqual([]);
+  });
+
+  test.each([
+    ['false'],
+    ['FALSE'],
+    ['False'],
+    ['0'],
+    ['no'],
+    ['off'],
+    ['OFF'],
+    ['n'],
+    ['disabled'],
+    ['false '],
+    [' off\t'],
+    ['false # read-only'],
+    ['off#read-only'],
+    ['"false"'],
+  ])('%p turns writes off, with no warning', (raw) => {
+    const warnings: string[] = [];
+    expect(writeOps(raw, warnings)).toBe(false);
+    expect(warnings).toEqual([]);
+  });
+
+  test.each([['maybe'], ['fasle'], ['readonly'], ['2']])(
+    'unknown %p fails safe to read-only and warns',
+    (raw) => {
+      const warnings: string[] = [];
+      expect(writeOps(raw, warnings)).toBe(false);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatch(/KUSTO_ALLOW_WRITE_OPERATIONS/);
+      expect(warnings[0]).toContain(raw);
+      expect(warnings[0]).toMatch(/false, 0, no, off/);
+    },
+  );
+
+  test('KUSTO_ENABLE_PROMPTS=on enables prompts; an unknown value disables them with a warning', () => {
+    const prompts = (raw: string, warnings: string[]) =>
+      parseBoolSetting('KUSTO_ENABLE_PROMPTS', raw, warnings, {
+        unset: true,
+        unknown: false,
+      });
+    const warnings: string[] = [];
+    expect(prompts('on', warnings)).toBe(true);
+    expect(warnings).toEqual([]);
+    expect(prompts('maybe', warnings)).toBe(false);
+    expect(warnings).toHaveLength(1);
+  });
+
+  test('KUSTO_ENABLE_QUERY_STATISTICS stays off when unset', () => {
+    expect(
+      parseBoolSetting('KUSTO_ENABLE_QUERY_STATISTICS', undefined, [], {
+        unset: false,
+        unknown: false,
+      }),
+    ).toBe(false);
+  });
+
+  test('index.ts reads KUSTO_ALLOW_WRITE_OPERATIONS with the fail-safe parser', () => {
+    expect(
+      readFileSync(path.join(process.cwd(), 'src/index.ts'), 'utf8'),
+    ).toMatch(
+      /parseBoolSetting\(\s*'KUSTO_ALLOW_WRITE_OPERATIONS',[\s\S]{0,160}unset: true,\s*unknown: false/,
+    );
   });
 });
 
