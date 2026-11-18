@@ -16,6 +16,7 @@ import {
 import {
   KustoFunctionListItem,
   KustoFunctionSchema,
+  KustoQueryResult,
   KustoTableListItem,
   KustoTableSchema,
 } from '../../types/kusto-interfaces.js';
@@ -23,6 +24,24 @@ import { KustoConnection } from './connection.js';
 
 // Create a tracer for this module
 const tracer = trace.getTracer('kusto-tables');
+
+/**
+ * Find the primary result that contains actual data (not metadata).
+ * Falls back to the first primary result when none has rows.
+ */
+function findDataPrimaryResult(
+  result: KustoQueryResult,
+): KustoQueryResult['primaryResults'][number] | undefined {
+  return (
+    result.primaryResults.find(
+      pr =>
+        ((pr.data && pr.data.length > 0) ||
+          (pr._rows && pr._rows.length > 0)) &&
+        pr.name !== 'QueryStatus' &&
+        !pr.name.startsWith('@'),
+    ) || result.primaryResults[0]
+  );
+}
 
 /**
  * List tables in the current database
@@ -149,15 +168,7 @@ export async function showTable(
         );
       }
 
-      // Find the primary result that contains actual data (not metadata)
-      const primaryResult =
-        result.primaryResults.find(
-          pr =>
-            ((pr.data && pr.data.length > 0) ||
-              (pr._rows && pr._rows.length > 0)) &&
-            pr.name !== 'QueryStatus' &&
-            !pr.name.startsWith('@'),
-        ) || result.primaryResults[0];
+      const primaryResult = findDataPrimaryResult(result);
 
       if (!primaryResult) {
         throw new KustoQueryError(
@@ -254,15 +265,7 @@ export async function showFunctions(
         );
       }
 
-      // Find the primary result that contains actual data (not metadata)
-      const primaryResult =
-        result.primaryResults.find(
-          pr =>
-            ((pr.data && pr.data.length > 0) ||
-              (pr._rows && pr._rows.length > 0)) &&
-            pr.name !== 'QueryStatus' &&
-            !pr.name.startsWith('@'),
-        ) || result.primaryResults[0];
+      const primaryResult = findDataPrimaryResult(result);
 
       if (!primaryResult) {
         throw new KustoQueryError(
@@ -356,15 +359,7 @@ export async function showFunction(
         );
       }
 
-      // Find the primary result that contains actual data (not metadata)
-      const primaryResult =
-        result.primaryResults.find(
-          pr =>
-            ((pr.data && pr.data.length > 0) ||
-              (pr._rows && pr._rows.length > 0)) &&
-            pr.name !== 'QueryStatus' &&
-            !pr.name.startsWith('@'),
-        ) || result.primaryResults[0];
+      const primaryResult = findDataPrimaryResult(result);
 
       if (!primaryResult) {
         throw new KustoQueryError(

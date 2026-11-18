@@ -424,62 +424,10 @@ export async function executeQueryWithTransformation(
 }
 
 /**
- * Execute a management command on the Kusto cluster
- *
- * @param connection The Kusto connection
- * @param command The command to execute
- * @returns The result of the command
- */
-export async function executeManagementCommand(
-  connection: KustoConnection,
-  command: string,
-): Promise<KustoQueryResult> {
-  return tracer.startActiveSpan('executeManagementCommand', async span => {
-    try {
-      debugLog(`Executing management command: ${command}`);
-
-      if (!connection.isInitialized()) {
-        // e.g. after a failed initialize-connection: not the query's fault.
-        const notConnected = new KustoQueryError('Connection not initialized');
-        markNotQueryFault(notConnected);
-        setFailureCategory(notConnected, 'not_connected');
-        throw notConnected;
-      }
-
-      const database = connection.getDatabase();
-
-      // Execute the command
-      const result = await connection.executeQuery(database, command);
-
-      debugLog('Management command executed successfully');
-      span.setStatus({ code: SpanStatusCode.OK });
-
-      return result;
-    } catch (error) {
-      const errorMessage = extractKustoErrorMessage(error);
-
-      criticalLog(`Failed to execute management command: ${errorMessage}`);
-
-      recordSpanError(span, error);
-
-      if (error instanceof KustoTimeoutError) throw error;
-
-      const wrapped = new KustoQueryError(errorMessage);
-      carryErrorRecording(error, wrapped);
-      carryNotQueryFault(error, wrapped);
-      throw wrapped;
-    } finally {
-      span.end();
-    }
-  });
-}
-
-/**
  * Create an index for the operations in this module
  */
 export default {
   executeQuery,
   executeQueryWithTransformation,
   transformQueryResult,
-  executeManagementCommand,
 };

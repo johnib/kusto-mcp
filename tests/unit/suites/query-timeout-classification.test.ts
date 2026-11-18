@@ -23,10 +23,7 @@ import {
   KustoTimeoutError,
 } from '../../../src/common/errors.js';
 import { KustoConnection } from '../../../src/operations/kusto/connection.js';
-import {
-  executeManagementCommand,
-  executeQueryWithTransformation,
-} from '../../../src/operations/kusto/queries.js';
+import { executeQueryWithTransformation } from '../../../src/operations/kusto/queries.js';
 import {
   showFunction,
   showFunctions,
@@ -153,10 +150,6 @@ describe('query timeout classification (#319)', () => {
   });
 
   test.each([
-    [
-      'management command',
-      (c: KustoConnection) => executeManagementCommand(c, '.show version'),
-    ],
     ['show-tables', (c: KustoConnection) => showTables(c)],
     ['show-table', (c: KustoConnection) => showTable(c, 'StormEvents')],
     ['show-functions', (c: KustoConnection) => showFunctions(c)],
@@ -249,10 +242,6 @@ describe('query timeout classification (#319)', () => {
   );
 
   test.each([
-    [
-      'management command',
-      (c: KustoConnection) => executeManagementCommand(c, '.show version'),
-    ],
     ['show-tables', (c: KustoConnection) => showTables(c)],
     ['show-table', (c: KustoConnection) => showTable(c, 'StormEvents')],
     ['show-functions', (c: KustoConnection) => showFunctions(c)],
