@@ -58,12 +58,22 @@ export function isReadOnlyControlCommand(query: string): boolean {
  * for control commands (`.show ...`), which don't accept a piped `| take`.
  * Kusto returns the top rows when the source is sorted, so ordering of sorted
  * queries is preserved.
+ *
+ * Trailing `;` and whitespace are stripped first: `T;\n| take N` would make
+ * `| take N` a separate statement, a syntax error (#292). For a batch or
+ * `fork`/`facet`, the `take` bounds only the last result.
  */
 export function appendRowLimit(query: string, limitPlusOne: number): string {
   if (isControlCommand(query)) {
     return query;
   }
-  return `${query}\n| take ${limitPlusOne}`;
+  // A loop, not /[\s;]+$/: that regex backtracks quadratically on a long
+  // inner run of whitespace.
+  let end = query.length;
+  while (end > 0 && (query[end - 1] === ';' || /\s/.test(query[end - 1]))) {
+    end--;
+  }
+  return `${query.slice(0, end)}\n| take ${limitPlusOne}`;
 }
 
 /**

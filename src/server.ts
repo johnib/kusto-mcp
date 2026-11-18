@@ -85,6 +85,8 @@ const ShowTableSchema = z.object({
   tableName: z.string().describe('The name of the table to get the schema for'),
 });
 
+const MAX_QUERY_LIMIT = 10000;
+
 const ExecuteQuerySchema = z.object({
   // Declared first so models fill it before writing the query. Deliberately a
   // plain string, not an enum: telemetry must never reject or alter a call.
@@ -97,11 +99,17 @@ const ExecuteQuerySchema = z.object({
       `Optional analytics hint: why you are running this query, e.g. ${QUERY_PURPOSES.join(', ')}. Omit if unsure. Never put query text or names here.`,
     ),
   query: z.string().describe('The query to execute'),
+  // Bounded so `| take <limit+1>` is always valid KQL (#292).
   limit: z
     .number()
+    .int()
+    .min(1)
+    .max(MAX_QUERY_LIMIT)
     .optional()
     .default(20)
-    .describe('Maximum number of rows to return (default: 20)'),
+    .describe(
+      `Maximum number of rows to return, 1 to ${MAX_QUERY_LIMIT} (default: 20)`,
+    ),
 });
 
 const PROGRESS_INTERVAL_MS = 15000;
@@ -693,7 +701,7 @@ export function createKustoServer(config: KustoConfig): Server {
                 }
                 throw error;
               }
-              const requestedLimit = args.limit || 20;
+              const requestedLimit = args.limit;
               // Record the limit and stamp the input-derived attributes before
               // any check that can throw (connection, read-only, execution), so
               // failed calls carry the same intent/session dimensions.
