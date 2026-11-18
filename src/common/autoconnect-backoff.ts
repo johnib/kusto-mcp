@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -21,8 +22,10 @@ import { debugLog } from './utils.js';
  * auto-connect is skipped for a capped cooldown that doubles with each further
  * recent attempt. Manual initialize-connection is never gated.
  *
- * The record is keyed by a local hash of cluster URL + database + auth method,
- * so changing the config starts fresh. Nothing here is sent to telemetry.
+ * Streaks are kept per config, keyed by a local hash of cluster URL +
+ * database + auth method, so a host that alternates configs backs off for
+ * each of them and a success clears only its own config (#441). Nothing here
+ * is sent to telemetry.
  * Every fs access is best-effort: a missing, corrupt or unwritable file just
  * means no backoff.
  */
@@ -35,10 +38,11 @@ const WINDOW_MS = 60 * 60_000;
 // Bounds the file; enough to reach the max cooldown.
 const MAX_ATTEMPTS_KEPT = 20;
 
-interface BackoffRecord {
-  key: string;
-  attempts: number[]; // start times (epoch ms) of attempts without a success
-}
+// Bounds the number of configs kept; the most recently attempted win.
+const MAX_KEYS_KEPT = 16;
+
+// key -> start times (epoch ms) of attempts without a success.
+type BackoffState = Map<string, number[]>;
 
 export interface BackoffDecision {
   skip: boolean;
@@ -69,21 +73,67 @@ export function cooldownMs(failures: number): number {
   );
 }
 
-function readRecord(): BackoffRecord | null {
+function isAttemptList(v: unknown): v is number[] {
+  return Array.isArray(v) && v.every(t => Number.isFinite(t));
+}
+
+/**
+ * Read the state file. Accepts the current `{ keys: { [key]: number[] } }`
+ * form and the single-record `{ key, attempts }` form written before #441.
+ * Missing or corrupt files (or entries) mean no backoff.
+ */
+function readState(): BackoffState {
+  const state: BackoffState = new Map();
   try {
     const obj = JSON.parse(readFileSync(backoffFile(), 'utf8')) as unknown;
-    const r = obj as Partial<BackoffRecord>;
-    if (
-      typeof r?.key === 'string' &&
-      Array.isArray(r.attempts) &&
-      r.attempts.every(t => Number.isFinite(t))
-    ) {
-      return r as BackoffRecord;
+    if (typeof obj !== 'object' || obj === null) return state;
+    const { keys, key, attempts } = obj as Record<string, unknown>;
+    if (typeof keys === 'object' && keys !== null && !Array.isArray(keys)) {
+      for (const [k, v] of Object.entries(keys)) {
+        if (isAttemptList(v)) state.set(k, v);
+      }
+    } else if (typeof key === 'string' && isAttemptList(attempts)) {
+      state.set(key, attempts);
     }
   } catch {
     /* missing or corrupt: no backoff */
   }
-  return null;
+  return state;
+}
+
+function writeState(state: BackoffState): void {
+  mkdirSync(stateDir(), { recursive: true });
+  const data = { keys: Object.fromEntries(state) };
+  // Write a temp file and rename it over the real one, so a launch that
+  // starts at the same time never reads a half-written file and drops the
+  // streaks of other configs.
+  const file = backoffFile();
+  const tmp = `${file}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, `${JSON.stringify(data)}\n`, { mode: 0o600 });
+    renameSync(tmp, file);
+  } catch (error) {
+    try {
+      if (existsSync(tmp)) unlinkSync(tmp);
+    } catch {
+      /* best effort */
+    }
+    throw error;
+  }
+}
+
+/**
+ * Keep only attempts inside the window for every config, and drop configs
+ * left with none. Timestamps in the future (clock went backwards) are dropped
+ * too.
+ */
+function pruneState(state: BackoffState, now: number): BackoffState {
+  const pruned: BackoffState = new Map();
+  for (const [k, list] of state) {
+    const recent = list.filter(t => t <= now && now - t <= WINDOW_MS);
+    if (recent.length > 0) pruned.set(k, recent);
+  }
+  return pruned;
 }
 
 /**
@@ -96,34 +146,47 @@ export function beginAutoConnect(
   now = Date.now(),
 ): BackoffDecision {
   try {
-    const rec = readRecord();
-    // Only this config's attempts inside the window count. Timestamps in the
-    // future (clock went backwards) are dropped too.
-    const recent =
-      rec && rec.key === key
-        ? rec.attempts.filter(t => t <= now && now - t <= WINDOW_MS)
-        : [];
+    // Only this config's attempts count, so configs that alternate on the
+    // same host keep separate streaks (#441).
+    const state = pruneState(readState(), now);
+    const recent = state.get(key) ?? [];
     if (recent.length > 0) {
       const wait = cooldownMs(recent.length) - (now - Math.max(...recent));
       if (wait > 0) return { skip: true, retryInMs: wait };
     }
-    const next: BackoffRecord = {
-      key,
-      attempts: [...recent, now].slice(-MAX_ATTEMPTS_KEPT),
-    };
-    mkdirSync(stateDir(), { recursive: true });
-    writeFileSync(backoffFile(), `${JSON.stringify(next)}\n`, { mode: 0o600 });
+    state.delete(key);
+    state.set(key, [...recent, now].slice(-MAX_ATTEMPTS_KEPT));
+    if (state.size > MAX_KEYS_KEPT) {
+      // Keep the configs attempted most recently; this one has `now`, the
+      // latest time in the pruned state, so it is always kept.
+      const newest = [...state.entries()]
+        .sort((a, b) => Math.max(...b[1]) - Math.max(...a[1]))
+        .slice(0, MAX_KEYS_KEPT);
+      writeState(new Map(newest));
+    } else {
+      writeState(state);
+    }
   } catch (error) {
     debugLog(`autoconnect backoff write failed: ${String(error)}`);
   }
   return { skip: false, retryInMs: 0 };
 }
 
-/** A connection succeeded: drop the failure streak. Never throws. */
-export function clearAutoConnectBackoff(): void {
+/**
+ * A connection for this config succeeded: drop its failure streak only, so a
+ * working config does not clear the streak of a broken one (#441).
+ * Never throws.
+ */
+export function clearAutoConnectBackoff(key: string): void {
   try {
-    const file = backoffFile();
-    if (existsSync(file)) unlinkSync(file);
+    const state = readState();
+    if (!state.delete(key)) return;
+    if (state.size === 0) {
+      const file = backoffFile();
+      if (existsSync(file)) unlinkSync(file);
+    } else {
+      writeState(state);
+    }
   } catch (error) {
     debugLog(`autoconnect backoff clear failed: ${String(error)}`);
   }

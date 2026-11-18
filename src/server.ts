@@ -214,6 +214,12 @@ export const AUTO_CONNECT_WAIT_GRACE_MS = 1000;
 export function createKustoServer(config: KustoConfig): Server {
   // Validate the configuration
   const validatedConfig = validateConfig(config);
+  // Backoff key of this launch's startup auto-connect config (#316, #441).
+  const backoffKey = autoConnectKey(
+    validatedConfig.clusterUrl ?? '',
+    validatedConfig.defaultDatabase ?? '',
+    String(validatedConfig.authMethod),
+  );
 
   // Initialize the MCP server
   const server = new Server(
@@ -294,7 +300,11 @@ export function createKustoServer(config: KustoConfig): Server {
         throw error;
       });
     autoConnectPaused = false;
-    clearAutoConnectBackoff();
+    // Clear only the config that connected: a manual connect elsewhere must
+    // not reset the streak of a broken startup config (#441).
+    clearAutoConnectBackoff(
+      autoConnectKey(clusterUrl, database, String(validatedConfig.authMethod)),
+    );
     if (entry.generation > connectionGeneration) {
       // Not closed: queries already running may still hold the old client.
       connection = candidate;
@@ -334,13 +344,7 @@ export function createKustoServer(config: KustoConfig): Server {
       return;
     }
 
-    const backoff = beginAutoConnect(
-      autoConnectKey(
-        validatedConfig.clusterUrl,
-        validatedConfig.defaultDatabase,
-        String(validatedConfig.authMethod),
-      ),
-    );
+    const backoff = beginAutoConnect(backoffKey);
     if (backoff.skip) {
       autoConnectPaused = true;
       criticalLog(
@@ -373,7 +377,7 @@ export function createKustoServer(config: KustoConfig): Server {
         validatedConfig.defaultDatabase,
         'auto',
       );
-      clearAutoConnectBackoff();
+      clearAutoConnectBackoff(backoffKey);
 
       // A manual connect started while this was pending wins.
       if (manualConnectCount !== manualCountAtStart) {
