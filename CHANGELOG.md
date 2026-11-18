@@ -1,3 +1,13 @@
+## [1.20.3](https://github.com/johnib/kusto-mcp/compare/v1.20.2...v1.20.3) (2026-11-18)
+
+
+### Bug Fixes
+
+* keep the auto-connect backoff per config so restart loops back off ([#445](https://github.com/johnib/kusto-mcp/issues/445)) [skip ci] ([f42e2eb](https://github.com/johnib/kusto-mcp/commit/f42e2ebd5e4fedcce0e5e096486228518071be1d)), closes [#441](https://github.com/johnib/kusto-mcp/issues/441)
+* kill running az processes when the server shuts down ([#448](https://github.com/johnib/kusto-mcp/issues/448)) ([b85188d](https://github.com/johnib/kusto-mcp/commit/b85188d8fe59b3cc63a072705d9754181ec49a53)), closes [#443](https://github.com/johnib/kusto-mcp/issues/443)
+* name network causes when the connect times out in the metadata step ([#447](https://github.com/johnib/kusto-mcp/issues/447)) [skip ci] ([d5873ce](https://github.com/johnib/kusto-mcp/commit/d5873ce8635f72a3038659eaaaf5836f936c865c)), closes [#442](https://github.com/johnib/kusto-mcp/issues/442)
+* report an az process timeout as a connection timeout ([#446](https://github.com/johnib/kusto-mcp/issues/446)) [skip ci] ([8073e11](https://github.com/johnib/kusto-mcp/commit/8073e11a96fc99ad131fa8d8eff0a88decf14fd6)), closes [#444](https://github.com/johnib/kusto-mcp/issues/444)
+
 ## [1.20.2](https://github.com/johnib/kusto-mcp/compare/v1.20.1...v1.20.2) (2026-11-18)
 
 
