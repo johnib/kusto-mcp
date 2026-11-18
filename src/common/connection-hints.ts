@@ -102,10 +102,12 @@ export function connectionFailureHint(i: ConnectionHintInput): string {
           `No token within ${waited} – check that ${AZ_TOKEN_CHECK} works and how long it takes. If it is slow, raise KUSTO_CONNECTION_TIMEOUT; if it fails, run \`az login\` again.`,
         );
       }
+      // The first request to the cluster (cloud metadata) got no answer:
+      // usually a network path problem, sometimes just a slow one (#442).
       if (i.timedOutStep === 'metadata') {
         return hint(
           reach,
-          `No response from ${i.clusterUrl} within ${waited} – this machine can't reach the cluster. Check your VPN, the cluster's private endpoint, your proxy (HTTPS_PROXY) and DNS for ${host}, and check ${urlSetting}.`,
+          `No response from ${i.clusterUrl} within ${waited} – this machine may not reach the cluster. Check your VPN, the cluster's private endpoint, your proxy (HTTPS_PROXY), DNS for ${host}, and ${urlSetting}. If the cluster is reachable but slow, raise KUSTO_CONNECTION_TIMEOUT.`,
         );
       }
       return hint(

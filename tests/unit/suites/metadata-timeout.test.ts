@@ -1,8 +1,10 @@
 /**
  * #442: azure-kusto-data's cloud-metadata GET has no timeout, so an
- * unreachable cluster held the whole 20 s connect deadline in the metadata
- * step. The step now has its own 5 s limit (never more than what is left of
- * the connect deadline) and fails as timeout / metadata with a hint.
+ * unreachable cluster holds the connect deadline in the metadata step. The
+ * step stays under that deadline only: telemetry shows working connects with
+ * metadata_ms up to 14 s, so a shorter cap would break them. A deadline that
+ * fires in this step gives timeout / metadata and a hint that names the
+ * network causes.
  */
 import {
   InMemorySpanExporter,
@@ -70,7 +72,7 @@ function initSpan() {
     .find(s => s.name === 'mcp.connection.init')!;
 }
 
-describe('cloud-metadata step has its own limit (#442)', () => {
+describe('cloud-metadata step under the connect deadline (#442)', () => {
   beforeAll(() => provider.register());
   beforeEach(() => {
     jest.useFakeTimers();
@@ -81,22 +83,21 @@ describe('cloud-metadata step has its own limit (#442)', () => {
   });
   afterEach(() => jest.useRealTimers());
 
-  test('a hung metadata GET fails after 5 s, not at the 20 s deadline', async () => {
+  test('a hung metadata GET fails at the connect deadline with a network hint', async () => {
     const run = start(20000);
-    await jest.advanceTimersByTimeAsync(4999);
+    await jest.advanceTimersByTimeAsync(19999);
     expect(run.settled()).toBeUndefined();
     await jest.advanceTimersByTimeAsync(1);
-    // Settled at 5 s: the old code still waited for the 20 s deadline here.
+    await run.done;
     const err = run.settled() as Error;
     expect(err).toBeInstanceOf(Error);
-    await run.done;
 
     const attrs = initSpan().attributes;
     expect(attrs['kustomcp.connection.failure_category']).toBe('timeout');
     expect(attrs['kustomcp.connection.outcome']).toBe('timeout');
     expect(attrs['kustomcp.connection.failed_step']).toBe('metadata');
     expect(attrs['kustomcp.connection.timed_out']).toBe(true);
-    expect(attrs['kustomcp.connection.duration_ms']).toBe(5000);
+    expect(attrs['kustomcp.connection.duration_ms']).toBe(20000);
     // No token request was made, and no probe (the category is known).
     expect(getToken).not.toHaveBeenCalled();
     expect(probe).not.toHaveBeenCalled();
@@ -105,31 +106,16 @@ describe('cloud-metadata step has its own limit (#442)', () => {
       if (typeof v === 'string') expect(v).not.toContain('10.255.255.1');
     }
 
-    // The user hint names the likely causes and the cluster URL.
+    // The user hint names the likely network causes and the cluster URL.
     expect(err.message).toMatch(/Failed step: reaching the cluster/);
     expect(err.message).toContain(CLUSTER);
-    expect(err.message).toMatch(/within 5s/);
+    expect(err.message).toMatch(/within 20s/);
     for (const word of [/VPN/, /private endpoint/, /proxy/, /DNS/]) {
       expect(err.message).toMatch(word);
     }
-    expect(err.message).not.toMatch(/KUSTO_CONNECTION_TIMEOUT/);
   });
 
-  // Guard, not a regression test: the connect deadline already gave this
-  // before #442. It makes sure that the 5 s limit never extends it.
-  test('a connect deadline shorter than 5 s still bounds the metadata step', async () => {
-    const run = start(2000);
-    await jest.advanceTimersByTimeAsync(2000);
-    await run.done;
-    const err = run.settled() as Error;
-    expect(err).toBeInstanceOf(Error);
-    expect(err.message).toMatch(/within 2s/);
-    const attrs = initSpan().attributes;
-    expect(attrs['kustomcp.connection.failed_step']).toBe('metadata');
-    expect(attrs['kustomcp.connection.failure_category']).toBe('timeout');
-  });
-
-  test('metadata that answers within 5 s continues to the token step', async () => {
+  test('a slow metadata step (8 s) under a 20 s deadline still connects', async () => {
     cloudInfo = () =>
       new Promise(resolve =>
         setTimeout(
@@ -138,16 +124,16 @@ describe('cloud-metadata step has its own limit (#442)', () => {
               KustoServiceResourceId: 'https://kusto.kusto.windows.net',
               LoginMfaRequired: false,
             }),
-          4000,
+          8000,
         ),
       );
     const run = start(20000);
-    await jest.advanceTimersByTimeAsync(4000);
+    await jest.advanceTimersByTimeAsync(8000);
     await run.done;
     expect(run.settled()).toBe('ok');
     expect(getToken).toHaveBeenCalledTimes(1);
-    expect(initSpan().attributes['kustomcp.connection.outcome']).toBe(
-      'success',
-    );
+    const attrs = initSpan().attributes;
+    expect(attrs['kustomcp.connection.outcome']).toBe('success');
+    expect(attrs['kustomcp.connection.metadata_ms']).toBe(8000);
   });
 });
