@@ -1,5 +1,5 @@
 import { KustoConnection } from './connection.js';
-import { executeManagementCommand, executeQuery } from './queries.js';
+import { executeQuery } from './queries.js';
 import {
   showFunction,
   showFunctions,
@@ -11,7 +11,6 @@ import {
  * Export all Kusto operations
  */
 export {
-  executeManagementCommand,
   executeQuery,
   KustoConnection,
   showFunction,
@@ -37,5 +36,4 @@ export default {
   showFunctions,
   showFunction,
   executeQuery,
-  executeManagementCommand,
 };
