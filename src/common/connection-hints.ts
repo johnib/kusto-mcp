@@ -21,7 +21,7 @@ export interface ConnectionHintInput {
   category: ConnectionFailureCategory;
   httpStatus?: number;
   /** Which step was running when the connect deadline fired. */
-  timedOutStep?: 'token' | 'cluster';
+  timedOutStep?: 'metadata' | 'token' | 'cluster';
   /** Bounded token-acquisition result from captureIdentity (no messages). */
   tokenFailed: boolean;
   authStage?: string;
@@ -100,6 +100,12 @@ export function connectionFailureHint(i: ConnectionHintInput): string {
         return hint(
           token,
           `No token within ${waited} – check that ${AZ_TOKEN_CHECK} works and how long it takes. If it is slow, raise KUSTO_CONNECTION_TIMEOUT; if it fails, run \`az login\` again.`,
+        );
+      }
+      if (i.timedOutStep === 'metadata') {
+        return hint(
+          reach,
+          `No response from ${i.clusterUrl} within ${waited} – this machine can't reach the cluster. Check your VPN, the cluster's private endpoint, your proxy (HTTPS_PROXY) and DNS for ${host}, and check ${urlSetting}.`,
         );
       }
       return hint(

@@ -70,6 +70,12 @@ const CLIENT_TIMEOUT_GRACE_MS = 30000;
 const CANCEL_COMMAND_TIMEOUT_MS = 10000;
 /** Bound for the reachability probe run after an unclassified failure. */
 const REACHABILITY_PROBE_TIMEOUT_MS = 3000;
+/**
+ * Bound for the cloud-metadata GET (connect step 1). azure-kusto-data sends it
+ * with no timeout, so an unreachable cluster used to hold the whole connect
+ * deadline there (#442). A reachable cluster answers it in well under 1 s.
+ */
+const METADATA_TIMEOUT_MS = 5000;
 
 /**
  * Kusto's structured server-timeout error, as returned by a live cluster:
@@ -626,6 +632,8 @@ export class KustoConnection {
       // user-facing hint on failure (#315).
       let step: 'metadata' | 'token' | 'query' = 'metadata';
       let stepStartedAt = startedAt;
+      // The metadata step's own limit, set when the step starts (#442).
+      let metadataLimitMs = Math.min(METADATA_TIMEOUT_MS, connectTimeout);
       // The one 401 retry from az's subscription tenant, if it ran.
       let tenantRetry: 'used' | 'recovered' | undefined;
       let tokenAttrs: Record<string, unknown> = {};
@@ -672,7 +680,36 @@ export class KustoConnection {
           // Cloud metadata first: it gives the exact scope the SDK will ask
           // for, and is cached in the SDK, so its own lookup later is free.
           const metadataStart = Date.now();
-          const scope = await kustoTokenScope(clusterUrl);
+          // Never longer than what is left of the connect deadline.
+          metadataLimitMs = Math.max(
+            0,
+            Math.min(
+              METADATA_TIMEOUT_MS,
+              startedAt + connectTimeout - metadataStart,
+            ),
+          );
+          let metadataTimer: NodeJS.Timeout | undefined;
+          const metadataDeadline = new Promise<never>((_, reject) => {
+            metadataTimer = setTimeout(() => {
+              // Our own limit fired: a timeout, like the connect deadline.
+              timedOut = true;
+              reject(
+                new KustoConnectionError(
+                  `Cloud metadata request timed out after ${metadataLimitMs}ms`,
+                ),
+              );
+            }, metadataLimitMs);
+            metadataTimer.unref?.();
+          });
+          let scope: string;
+          try {
+            scope = await Promise.race([
+              kustoTokenScope(clusterUrl),
+              metadataDeadline,
+            ]);
+          } finally {
+            clearTimeout(metadataTimer);
+          }
           span.setAttribute(
             'kustomcp.connection.metadata_ms',
             Date.now() - metadataStart,
@@ -992,7 +1029,9 @@ export class KustoConnection {
           timedOutStep: timedOut
             ? failedStep === 'token'
               ? 'token'
-              : 'cluster'
+              : failedStep === 'metadata'
+                ? 'metadata'
+                : 'cluster'
             : undefined,
           tokenFailed: tokenAttrs['kustomcp.auth.token_acquired'] === false,
           authStage: tokenAttrs['kustomcp.auth.failure_stage'] as
@@ -1003,7 +1042,8 @@ export class KustoConnection {
           source,
           clusterUrl,
           database,
-          timeoutMs: connectTimeout,
+          timeoutMs:
+            failedStep === 'metadata' ? metadataLimitMs : connectTimeout,
         });
         // Our own deadline error already carries the "Connection error: "
         // prefix; don't repeat it.
