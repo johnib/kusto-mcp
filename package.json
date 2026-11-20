@@ -55,7 +55,7 @@
     "@opentelemetry/sdk-node": "^0.223.0",
     "@opentelemetry/sdk-trace-node": "^2.6.0",
     "@opentelemetry/semantic-conventions": "^1.40.0",
-    "azure-kusto-data": "^7.0.4",
+    "azure-kusto-data": "^8.0.0",
     "markdown-table": "^3.0.4",
     "zod": "^4.3.6"
   },
